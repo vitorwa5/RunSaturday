@@ -15,9 +15,9 @@ export default defineConfig(({ mode }) => {
         registerType: 'autoUpdate',
         includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
         manifest: {
-          name: 'Park5K: Your Saturday 5K planner',
-          short_name: 'Park5K',
-          description: 'Your Saturday 5K planner. Independent app, not affiliated with parkrun.',
+          name: '5K Compass',
+          short_name: '5K Compass',
+          description: 'Your guide to Saturday 5Ks. Independent app, not affiliated with parkrun.',
           theme_color: '#c2410c',
           background_color: '#f7f7f5',
           display: 'standalone',

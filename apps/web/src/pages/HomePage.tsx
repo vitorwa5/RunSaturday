@@ -106,9 +106,9 @@ export function HomePage() {
     <div className="space-y-8">
       <header className="pt-5">
         <p className="text-lg font-extrabold tracking-tight">
-          Park<span className="text-brand-700">5K</span>
+          <span className="text-brand-700">5K</span> Compass
         </p>
-        <p className="text-xs font-medium text-subtle">Your Saturday 5K planner</p>
+        <p className="text-xs font-medium text-subtle">Your guide to Saturday 5Ks.</p>
         <p className="mt-5 text-sm font-semibold text-muted">{formatLongDate(upcomingSaturday())}</p>
         <h1 className="mt-0.5 text-[2rem] leading-tight font-extrabold tracking-tight">Where are you running?</h1>
       </header>

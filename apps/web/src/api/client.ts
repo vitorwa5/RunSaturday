@@ -32,7 +32,7 @@ export async function apiGet<T>(path: string, query: Record<string, QueryValue> 
     response = await fetch(`${BASE_URL}${path}${qs}`, { signal, headers: { Accept: 'application/json' } });
   } catch (error) {
     if ((error as Error).name === 'AbortError') throw error;
-    throw new ApiError(0, 'network_error', 'We could not reach Park5K. Check your connection and try again.');
+    throw new ApiError(0, 'network_error', 'We could not reach 5K Compass. Check your connection and try again.');
   }
 
   if (!response.ok) {

@@ -1,10 +1,10 @@
-# Park5K
+# 5K Compass
 
-**Your Saturday 5K planner.**
+**Your guide to Saturday 5Ks.**
 
-> Park5K is the public product name. **RunSaturday** remains the internal project name: the repository, workspace packages (`@runsaturday/*`), database, environment variables and code identifiers keep it.
+> 5K Compass is the public product name. **RunSaturday** remains the internal project name: the repository, workspace packages (`@runsaturday/*`), database, environment variables and code identifiers keep it.
 
-Park5K is a mobile-first decision-support app for runners choosing *where* to run on Saturday. It turns event data into explained, goal-specific recommendations (PB, placing, hidden gems, new events, quiet events, challenges). It is an independent project and is **not affiliated with or endorsed by parkrun** or any event organiser.
+5K Compass is a mobile-first decision-support app for runners choosing *where* to run on Saturday. It turns event data into explained, goal-specific recommendations (PB, placing, hidden gems, new events, quiet events, challenges). It is an independent project and is **not affiliated with or endorsed by parkrun** or any event organiser.
 
 > **Status: Phase 2A (product experience for Home, Saturday Planner and Event page).** All event data is **fictional DEMO data**. No real event statistics are included, and no data is collected from external sites.
 
