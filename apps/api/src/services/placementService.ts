@@ -35,7 +35,8 @@ export function rankPlacements(placements: EventPlacement[]): EventPlacement[] {
       (a, b) =>
         Number(a.confidence === 'insufficient') - Number(b.confidence === 'insufficient') ||
         share(b) - share(a) ||
-        a.stats!.medianPlacement - b.stats!.medianPlacement ||
+        // Conservative end of the median range.
+        a.stats!.medianPlacement.high - b.stats!.medianPlacement.high ||
         a.event.name.localeCompare(b.event.name),
     );
 }

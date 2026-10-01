@@ -12,7 +12,8 @@ const METRICS: { key: CompareMetricKey; value: (r: Row) => number | null; better
   { key: 'difficulty', value: (r) => r.event.scores?.difficultyScore ?? null, better: 'lower' },
   { key: 'elevation', value: (r) => r.event.elevationM, better: 'lower' },
   { key: 'travel', value: (r) => r.event.travel?.minutes ?? null, better: 'lower' },
-  { key: 'median_placement', value: (r) => (r.placement?.confidence !== 'insufficient' ? (r.placement?.stats?.medianPlacement ?? null) : null), better: 'lower' },
+  // Compared on the conservative (worst-case) end of the median range.
+  { key: 'median_placement', value: (r) => (r.placement?.confidence !== 'insufficient' ? (r.placement?.stats?.medianPlacement.high ?? null) : null), better: 'lower' },
   {
     key: 'top10',
     value: (r) => {

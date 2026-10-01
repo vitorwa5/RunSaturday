@@ -50,7 +50,7 @@ export function PlacementCard({ placement, target }: { placement: EventPlacement
       <dl className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-line pt-3 text-xs">
         <div className="flex gap-1">
           <dt className="text-muted">Median</dt>
-          <dd className="font-bold">{ordinal(stats.medianPlacement)}</dd>
+          <dd className="font-bold">{formatPlacementRange(stats.medianPlacement)}</dd>
         </div>
         <div className="flex gap-1">
           <dt className="text-muted">Best</dt>
@@ -92,13 +92,14 @@ export function PlacementCard({ placement, target }: { placement: EventPlacement
             <li key={h.date} className="flex justify-between gap-2">
               <span className="text-muted">{formatShortDate(h.date)}</span>
               <span className="font-semibold">
-                {ordinal(h.placement)} <span className="font-normal text-subtle">of {h.fieldSize + 1}</span>
+                {formatPlacementRange({ low: h.best, high: h.worst })} <span className="font-normal text-subtle">of {h.fieldSize + 1}</span>
               </span>
             </li>
           ))}
         </ul>
         <p className="mt-2 text-xs text-subtle">
           Top 10 in {formatFrequency(stats.frequencies.top10)}. Showing the {history.length} most recent.
+          {history.some((h) => h.best !== h.worst) && ' A range means others recorded exactly the same time, so the exact placing is unknown.'}
         </p>
       </div>
     </article>

@@ -225,19 +225,38 @@ export interface HistoricalFrequency {
 
 export interface HistoricalPlacement {
   date: string;
-  /** Where the target time would have placed: faster finishers + 1. */
-  placement: number;
+  /**
+   * Where the target time would have placed. Results on exactly the same second make the
+   * exact placing unknowable, so it is a range:
+   *   best  = faster finishers + 1
+   *   worst = faster finishers + finishers on the same time + 1
+   * best === worst when nobody recorded the same time.
+   */
+  best: number;
+  worst: number;
   /** Finishers that day (excluding the hypothetical runner). */
   fieldSize: number;
 }
 
+/** A placement range; low === high when it is exact. */
+export interface PlacementRange {
+  low: number;
+  high: number;
+}
+
 export interface PlacementStats {
-  /** Median of historical placements, rounded half up. */
-  medianPlacement: number;
+  /** Median of best-case placings to median of worst-case placings (each rounded half up). */
+  medianPlacement: PlacementRange;
+  /** Best best-case placing across events. */
   bestPlacement: number;
+  /** Worst worst-case placing across events. */
   worstPlacement: number;
-  /** Middle half of historical placements (25th–75th percentile, nearest rank). */
-  typicalRange: { low: number; high: number };
+  /** 25th percentile of best-case to 75th percentile of worst-case placings (nearest rank). */
+  typicalRange: PlacementRange;
+  /**
+   * Conservative: an event only counts towards a target when even the worst-case tie order
+   * reaches it.
+   */
   frequencies: {
     first: HistoricalFrequency;
     top3: HistoricalFrequency;

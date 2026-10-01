@@ -111,7 +111,7 @@ describe('placement ranking', () => {
   const placementFor = (id: string, placements: number[], fieldSize = 100) =>
     buildEventPlacement(
       makeEvent({ id }),
-      placements.map((p, i) => ({ eventId: id, date: `2026-09-${String(26 - i).padStart(2, '0')}`, status: 'completed' as const, dataQuality: 'valid' as const, participantCount: fieldSize, resultCount: fieldSize, fasterCount: p - 1 })),
+      placements.map((p, i) => ({ eventId: id, date: `2026-09-${String(26 - i).padStart(2, '0')}`, status: 'completed' as const, dataQuality: 'valid' as const, participantCount: fieldSize, resultCount: fieldSize, fasterCount: p - 1, equalCount: 0 })),
       'top10',
     );
 
@@ -137,7 +137,7 @@ describe('placement ranking', () => {
 describe('bestByMetric', () => {
   const row = (id: string, pb: number, minutes: number, median: number | null) => ({
     event: makeEvent({ id, travel: travel(minutes), scores: { ...scores, pbScore: pb } }),
-    placement: median == null ? null : ({ confidence: 'high', stats: { medianPlacement: median, frequencies: { top10: { count: median <= 10 ? 5 : 1, of: 6 } } } } as unknown as EventPlacement),
+    placement: median == null ? null : ({ confidence: 'high', stats: { medianPlacement: { low: median, high: median }, frequencies: { top10: { count: median <= 10 ? 5 : 1, of: 6 } } } } as unknown as EventPlacement),
   });
 
   it('marks the most favourable event per metric, including ties', () => {

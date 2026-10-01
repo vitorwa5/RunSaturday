@@ -187,11 +187,28 @@ Home and the Saturday Planner rank events by **one stored metric per goal**: PB 
 
 ### Historical placement engine v1
 
-`apps/api/src/domain/placementEngine.ts` is pure and deterministic. For a target time T and each usable occurrence, the historical placement is (Result rows faster than T) + 1. Postgres does the counting in one grouped query (`listPlacementInputs`).
+`apps/api/src/domain/placementEngine.ts` is pure and deterministic. For a target time T and each usable occurrence, Postgres counts results in one grouped query (`listPlacementInputs`):
+
+- `fasterCount` = results with time < T
+- `equalCount` = results with time exactly T
+
+From those counts:
+
+- **Placing range:** best = `fasterCount + 1`, worst = `fasterCount + equalCount + 1`.
+- **Why a range:** results are recorded to the second, so when others share T the exact placing is unknowable. For example, 4 faster and 3 on the same time gives 5th–8th.
+- **No ties:** when `equalCount` is 0, best and worst are the same.
+- **The runner:** the hypothetical runner is never counted as one of the equal results.
+
+How the results are used:
 
 - **Usable occurrences** are completed and validated, with a Result-row count that matches the participant count. Cancelled dates and partial imports are excluded and counted.
-- **Statistics:** median (rounded half up), best, worst, a typical range (25th–75th percentile, nearest rank), and Top 3/5/10, Top 10% and Top 25% shown as "N of M events".
+- **Statistics:**
+  - Median is shown as a range: median of best placings to median of worst placings, each rounded half up.
+  - Best and worst are the best-case minimum and the worst-case maximum.
+  - The typical range runs from the 25th percentile of best placings to the 75th percentile of worst placings (nearest rank).
+- **Targets are conservative.** Top 3/5/10, Top 10%/25% and "1st" count an occurrence only when the *worst* placing reaches the target. A tie that straddles the boundary does not count.
   - Percentage targets compare against the field *including* the runner, and the winner always counts.
+- **Ranking and Compare's "Best"** use the conservative (worst-case) end of the median range.
 - **Confidence** comes from the number of usable events: 10+ is high, 6+ medium, 3+ low, fewer is "Limited data" (`domain/confidence.ts`).
 - **Wording:** frequencies describe history ("Top 10 in 10 of 12 events"), never a chance of anything.
 

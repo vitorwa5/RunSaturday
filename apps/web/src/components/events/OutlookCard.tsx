@@ -1,4 +1,4 @@
-import { formatFinishTime, ordinal, type UserProfile } from '@runsaturday/shared';
+import { formatFinishTime, type UserProfile } from '@runsaturday/shared';
 import { Clock3, Columns3, Medal, Target, Timer } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
@@ -61,7 +61,7 @@ export function OutlookCard({ profile, eventId }: { profile: UserProfile | undef
       <>
         <Row label="Typical historical position">
           <span className="font-bold tabular-nums">{formatPlacementRange(stats.typicalRange)}</span>
-          <span className="block text-xs text-subtle">median {ordinal(stats.medianPlacement)}</span>
+          <span className="block text-xs text-subtle">median {formatPlacementRange(stats.medianPlacement)}</span>
         </Row>
         <Row label="Top 10 historically">
           <span className="font-bold tabular-nums">{formatFrequency(stats.frequencies.top10)}</span>

@@ -123,14 +123,19 @@ export class MemoryDataStore implements DataStore {
       if (eventIds && !eventIds.includes(b.id)) continue;
       for (const o of b.occurrences) {
         if (o.date > to || (from != null && o.date < from)) continue;
-        // Results are sorted by time: binary search for the first time >= target.
-        let lo = 0;
-        let hi = o.results.length;
-        while (lo < hi) {
-          const mid = (lo + hi) >> 1;
-          if (o.results[mid]!.finishTimeSeconds < timeSeconds) lo = mid + 1;
-          else hi = mid;
-        }
+        // Results are sorted by time: binary-search the first index at or after a time.
+        const firstIndexAtOrAfter = (t: number) => {
+          let lo = 0;
+          let hi = o.results.length;
+          while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (o.results[mid]!.finishTimeSeconds < t) lo = mid + 1;
+            else hi = mid;
+          }
+          return lo;
+        };
+        const faster = firstIndexAtOrAfter(timeSeconds);
+        const equal = firstIndexAtOrAfter(timeSeconds + 1) - faster;
         inputs.push({
           eventId: b.id,
           date: o.date,
@@ -139,7 +144,8 @@ export class MemoryDataStore implements DataStore {
           dataQuality: o.status === 'COMPLETED' ? 'valid' : 'unvalidated',
           participantCount: o.participantCount,
           resultCount: o.results.length,
-          fasterCount: lo,
+          fasterCount: faster,
+          equalCount: equal,
         });
       }
     }

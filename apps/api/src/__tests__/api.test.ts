@@ -242,11 +242,21 @@ describe('API', () => {
       expect(sizes[0]).toBeLessThan(6);
     });
 
+    it('reports a placing range where demo runners share the target time', async () => {
+      app = await buildTestApp();
+      // 28:00 sits in the dense middle of the Riverside field, where results share seconds.
+      const body = (await app.inject('/api/events/demo-riverside-5k/placement?time=28:00&window=all')).json<EventPlacement>();
+      const tied = body.history.filter((h) => h.worst > h.best);
+      expect(tied.length).toBeGreaterThan(0);
+      expect(body.stats!.medianPlacement.high).toBeGreaterThanOrEqual(body.stats!.medianPlacement.low);
+    });
+
     it('serves a single event placement for the event page', async () => {
       app = await buildTestApp();
       const body = (await app.inject('/api/events/demo-riverside-5k/placement?time=1180')).json<EventPlacement>();
       expect(body.event.id).toBe('demo-riverside-5k');
-      expect(body.stats?.medianPlacement).toEqual(expect.any(Number));
+      expect(body.stats?.medianPlacement).toEqual({ low: expect.any(Number), high: expect.any(Number) });
+      for (const h of body.history) expect(h.worst).toBeGreaterThanOrEqual(h.best);
       expect((await app.inject('/api/events/nope/placement?time=1180')).statusCode).toBe(404);
     });
   });

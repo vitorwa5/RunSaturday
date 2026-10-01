@@ -1,8 +1,8 @@
-import { ordinal, type CompareMetricKey, type CompareResponse } from '@runsaturday/shared';
+import type { CompareMetricKey, CompareResponse } from '@runsaturday/shared';
 import { Star } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
-import { CONFIDENCE_SHORT, formatCount, formatDifficulty, formatScore, SURFACE_LABEL } from '../../lib/display';
+import { CONFIDENCE_SHORT, formatCount, formatDifficulty, formatPlacementRange, formatScore, SURFACE_LABEL } from '../../lib/display';
 import { DemoBadge } from '../ui/DemoBadge';
 
 type Row = CompareResponse['events'][number];
@@ -29,7 +29,7 @@ const PLACEMENT_ROWS: MetricRow[] = [
   {
     label: 'Median position',
     best: 'median_placement',
-    render: (r) => (r.placement?.stats ? ordinal(r.placement.stats.medianPlacement) : 'No data'),
+    render: (r) => (r.placement?.stats ? formatPlacementRange(r.placement.stats.medianPlacement) : 'No data'),
   },
   {
     label: 'Top 10 historically',

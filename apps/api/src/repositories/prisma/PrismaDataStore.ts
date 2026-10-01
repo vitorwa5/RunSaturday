@@ -105,7 +105,7 @@ export class PrismaDataStore implements DataStore {
     if (eventIds && eventIds.length === 0) return [];
     // One grouped pass; uses the (occurrenceId, finishTimeSeconds) index on Result.
     const rows = await this.db.$queryRaw<
-      { eventId: string; date: string; status: string; dataQuality: string; participantCount: number | null; resultCount: number; fasterCount: number }[]
+      { eventId: string; date: string; status: string; dataQuality: string; participantCount: number | null; resultCount: number; fasterCount: number; equalCount: number }[]
     >`
       SELECT o."eventId",
              to_char(o.date, 'YYYY-MM-DD') AS date,
@@ -113,7 +113,8 @@ export class PrismaDataStore implements DataStore {
              o."dataQuality"::text AS "dataQuality",
              o."participantCount",
              COUNT(r.id)::int AS "resultCount",
-             (COUNT(r.id) FILTER (WHERE r."finishTimeSeconds" < ${timeSeconds}))::int AS "fasterCount"
+             (COUNT(r.id) FILTER (WHERE r."finishTimeSeconds" < ${timeSeconds}))::int AS "fasterCount",
+             (COUNT(r.id) FILTER (WHERE r."finishTimeSeconds" = ${timeSeconds}))::int AS "equalCount"
       FROM "EventOccurrence" o
       LEFT JOIN "Result" r ON r."occurrenceId" = o.id
       WHERE o.date <= ${to}::date
@@ -129,6 +130,7 @@ export class PrismaDataStore implements DataStore {
       participantCount: r.participantCount,
       resultCount: r.resultCount,
       fasterCount: r.fasterCount,
+      equalCount: r.equalCount,
     }));
   }
 

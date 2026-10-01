@@ -49,7 +49,8 @@ export interface DataStore {
    */
   listOccurrences(eventId: string): Promise<OccurrenceSummary[]>;
   /**
-   * Per-occurrence result counts for a target time: how many results were strictly faster.
+   * Per-occurrence result counts for a target time: how many results were strictly faster,
+   * and how many recorded exactly the same time.
    * Covers occurrences dated within [from, to] (from = null for all history), optionally only
    * for the given events. Individual results never leave the data layer.
    */

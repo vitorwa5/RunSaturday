@@ -2,13 +2,20 @@
  * HISTORICAL PLACEMENT ENGINE V1 (pure, deterministic).
  *
  * For a target time T and each usable historical occurrence:
- *   fasterCount        = number of Result rows with finishTimeSeconds < T
- *   historicalPlacement = fasterCount + 1
- * Equal times are not "faster", so a tie places the runner level with, i.e. ahead of,
- * the runners on the same time.
+ *   fasterCount = Result rows with finishTimeSeconds <  T
+ *   equalCount  = Result rows with finishTimeSeconds == T
+ *   best  placing = fasterCount + 1
+ *   worst placing = fasterCount + equalCount + 1
+ * Results are recorded to the second, so when others share the target time the runner's
+ * exact placing among them is unknowable; it is reported as a range (best === worst when
+ * equalCount is 0). The hypothetical runner is never counted as one of the equal results.
  *
- * This describes history ("historically, this time would have placed…"). It makes no
- * claim about who will attend a future event.
+ * TARGETS (Top 3/5/10, Top 10%/25%) use a CONSERVATIVE rule: an occurrence counts only when
+ * the WORST placing reaches the target, i.e. whichever way the tie is ordered. A tie that
+ * straddles the boundary does not count.
+ *
+ * This describes history ("historically, this time would have placed…"). It makes no claim
+ * about who will attend a future event.
  */
 import type {
   HistoricalFrequency,
@@ -31,6 +38,8 @@ export interface PlacementOccurrenceInput {
   resultCount: number;
   /** Result rows strictly faster than the target time. */
   fasterCount: number;
+  /** Result rows with exactly the target time. */
+  equalCount: number;
 }
 
 export type Exclusion = 'cancelled' | 'insufficient_data' | null;
@@ -45,7 +54,7 @@ export function exclusionReason(o: PlacementOccurrenceInput): Exclusion {
   if (o.status !== 'completed' || o.dataQuality !== 'valid') return 'insufficient_data';
   if (o.resultCount === 0) return 'insufficient_data';
   if (o.participantCount != null && o.participantCount !== o.resultCount) return 'insufficient_data';
-  if (o.fasterCount < 0 || o.fasterCount > o.resultCount) return 'insufficient_data';
+  if (o.fasterCount < 0 || o.equalCount < 0 || o.fasterCount + o.equalCount > o.resultCount) return 'insufficient_data';
   return null;
 }
 
@@ -62,23 +71,31 @@ export function historicalPlacements(occurrences: readonly PlacementOccurrenceIn
     const reason = exclusionReason(o);
     if (reason === 'cancelled') excluded.cancelled++;
     else if (reason === 'insufficient_data') excluded.insufficientData++;
-    else placements.push({ date: o.date, placement: o.fasterCount + 1, fieldSize: o.resultCount });
+    else
+      placements.push({
+        date: o.date,
+        best: o.fasterCount + 1,
+        worst: o.fasterCount + o.equalCount + 1,
+        fieldSize: o.resultCount,
+      });
   }
   placements.sort((a, b) => b.date.localeCompare(a.date));
   return { placements, excluded };
 }
 
 /**
- * Highest placement that counts as being within `fraction` of the field. The field
- * includes the hypothetical runner (fieldSize + 1); the winner always qualifies.
+ * Highest placing that counts as being within `fraction` of the field. The field includes
+ * the hypothetical runner (fieldSize + 1); the winner always qualifies.
  */
 export function percentThreshold(fieldSize: number, fraction: number): number {
   return Math.max(1, Math.floor(fraction * (fieldSize + 1)));
 }
 
+/** Conservative: true only when the worst-case placing reaches the target. */
 export function meetsTarget(p: HistoricalPlacement, target: PlacementTargetId): boolean {
   const def = PLACEMENT_TARGETS.find((t) => t.id === target)!;
-  return def.kind === 'position' ? p.placement <= def.value : p.placement <= percentThreshold(p.fieldSize, def.value);
+  const limit = def.kind === 'position' ? def.value : percentThreshold(p.fieldSize, def.value);
+  return p.worst <= limit;
 }
 
 function frequency(placements: readonly HistoricalPlacement[], test: (p: HistoricalPlacement) => boolean): HistoricalFrequency {
@@ -90,20 +107,26 @@ function nearestRank(sorted: readonly number[], p: number): number {
   return sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)]!;
 }
 
+/** Median rounded half up. */
+function roundedMedian(sorted: readonly number[]): number {
+  const mid = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+  return Math.floor(median + 0.5);
+}
+
 /** Summary statistics, or null when there are no usable placements. */
 export function summarizePlacements(placements: readonly HistoricalPlacement[]): PlacementStats | null {
   if (placements.length === 0) return null;
-  const sorted = placements.map((p) => p.placement).sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  const median = sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+  const bests = placements.map((p) => p.best).sort((a, b) => a - b);
+  const worsts = placements.map((p) => p.worst).sort((a, b) => a - b);
 
   return {
-    medianPlacement: Math.floor(median + 0.5),
-    bestPlacement: sorted[0]!,
-    worstPlacement: sorted.at(-1)!,
-    typicalRange: { low: nearestRank(sorted, 0.25), high: nearestRank(sorted, 0.75) },
+    medianPlacement: { low: roundedMedian(bests), high: roundedMedian(worsts) },
+    bestPlacement: bests[0]!,
+    worstPlacement: worsts.at(-1)!,
+    typicalRange: { low: nearestRank(bests, 0.25), high: nearestRank(worsts, 0.75) },
     frequencies: {
-      first: frequency(placements, (p) => p.placement === 1),
+      first: frequency(placements, (p) => p.worst === 1),
       top3: frequency(placements, (p) => meetsTarget(p, 'podium')),
       top5: frequency(placements, (p) => meetsTarget(p, 'top5')),
       top10: frequency(placements, (p) => meetsTarget(p, 'top10')),
