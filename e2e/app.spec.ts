@@ -10,6 +10,9 @@ const bestPick = (page: Page) => page.getByRole('region', { name: 'Your best pic
 test.describe('Home', () => {
   test('answers "Where are you running?" with an explained best pick', async ({ page }) => {
     await page.goto('/');
+    await expect(page).toHaveTitle('Park5K: Your Saturday 5K planner');
+    await expect(page.getByText('Park5K', { exact: true })).toBeVisible();
+    await expect(page.getByText('Your Saturday 5K planner')).toBeVisible();
     await expect(page.getByRole('heading', { level: 1, name: 'Where are you running?' })).toBeVisible();
     await expect(page.getByText(/^Saturday, \d{1,2} \w+$/)).toBeVisible();
     await expect(page.getByText('DEMO DATA')).toBeVisible();

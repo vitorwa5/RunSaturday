@@ -84,7 +84,7 @@ export function ProfilePage() {
           <div className="text-sm text-muted">
             <h2 className="font-semibold text-ink">Privacy and independence</h2>
             <p className="mt-1">
-              Location is optional and only used to find events near you. RunSaturday is an independent app and is not affiliated
+              Location is optional and only used to find events near you. Park5K is an independent app and is not affiliated
               with, or endorsed by, parkrun or any event organiser.
             </p>
           </div>
