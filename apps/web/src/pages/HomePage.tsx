@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { BestPickCard } from '../components/events/BestPickCard';
 import { EventCard } from '../components/events/EventCard';
 import { GoalSelector } from '../components/goals/GoalSelector';
+import { ToolLinks } from '../components/navigation/ToolLinks';
 import { AlertBanner } from '../components/ui/AlertBanner';
 import { ButtonLink } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -121,6 +122,13 @@ export function HomePage() {
       </section>
 
       <Recommendations goal={activeGoal} />
+
+      <section aria-labelledby="tools-heading">
+        <SectionHeading>
+          <span id="tools-heading">Saturday tools</span>
+        </SectionHeading>
+        <ToolLinks />
+      </section>
 
       <AlertsSection />
     </div>

@@ -4,6 +4,7 @@
  * run without PostgreSQL).
  */
 import type { EventDetail, EventSummary, Goal, OccurrenceSummary } from '@runsaturday/shared';
+import type { PlacementOccurrenceInput } from '../domain/placementEngine';
 
 /** Event as stored, before request-specific context (travel, visited) is added. */
 export type EventRecord = Omit<EventSummary, 'travel' | 'visited' | 'favourite'>;
@@ -47,6 +48,12 @@ export interface DataStore {
    * Fine at current volumes (~52 per event per year); move windowing into SQL if needed.
    */
   listOccurrences(eventId: string): Promise<OccurrenceSummary[]>;
+  /**
+   * Per-occurrence result counts for a target time: how many results were strictly faster.
+   * Covers occurrences dated within [from, to] (from = null for all history), optionally only
+   * for the given events. Individual results never leave the data layer.
+   */
+  listPlacementInputs(timeSeconds: number, eventIds: string[] | null, from: string | null, to: string): Promise<PlacementOccurrenceInput[]>;
   getUser(userId: string): Promise<UserRecord | null>;
   /** True when the underlying store is reachable. */
   ping(): Promise<boolean>;

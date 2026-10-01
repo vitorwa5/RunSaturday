@@ -145,20 +145,6 @@ test.describe('Navigation', () => {
     }
   });
 
-  for (const [path, heading] of [
-    ['/pb-finder', 'PB Finder'],
-    ['/where-could-i-place', 'Where Could I Place?'],
-    ['/hidden-gems', 'Hidden Gems'],
-    ['/compare', 'Compare events'],
-  ] as const) {
-    test(`${path} renders its screen`, async ({ page }) => {
-      await page.goto(path);
-      await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
-      await expect(page.getByText(/Planned for/)).toBeVisible();
-      await expectNoHorizontalScroll(page);
-    });
-  }
-
   test('unknown routes show a helpful 404', async ({ page }) => {
     await page.goto('/no-such-page');
     await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
@@ -186,8 +172,12 @@ test.describe('Event page', () => {
     await expect(page.getByRole('button', { name: /Save/ })).toBeDisabled();
 
     const outlook = page.getByRole('region', { name: 'Your outlook' });
-    await expect(outlook.getByText('19:40')).toBeVisible();
-    await expect(outlook.getByText('Not available yet')).toHaveCount(3);
+    await expect(outlook.getByText('19:40', { exact: true })).toBeVisible();
+    await expect(outlook.getByText('Typical historical position')).toBeVisible();
+    await expect(outlook.getByText(/\d+ of \d+ events/)).toBeVisible();
+    // Expected time still needs a course-adjustment model.
+    await expect(outlook.getByText('Not available yet')).toHaveCount(1);
+    await expect(outlook.getByRole('link', { name: 'Where else could I place?' })).toBeVisible();
     await expect(page.getByText(/you will finish/i)).toHaveCount(0);
 
     await expect(page.getByText('Median winner')).toBeVisible();
@@ -231,5 +221,156 @@ test.describe('Event page', () => {
   test('handles an unknown event gracefully', async ({ page }) => {
     await page.goto('/event/does-not-exist');
     await expect(page.getByRole('heading', { name: 'Event not found' })).toBeVisible();
+  });
+});
+
+test.describe('Where Could I Place?', () => {
+  test('Home → tool → enter a time → historical results → Event', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('region', { name: 'Saturday tools' }).getByRole('link', { name: 'Where Could I Place?' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Where Could I Place?' })).toBeVisible();
+    // Defaults to current form from the profile.
+    await expect(page.getByRole('radio', { name: 'Current form 19:40' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('article').first()).toBeVisible();
+
+    await page.getByRole('radio', { name: 'Enter a time' }).click();
+    const input = page.getByLabel('Your 5K time');
+    await input.fill('19:75');
+    await page.getByRole('button', { name: 'Show' }).click();
+    await expect(page.getByRole('alert')).toHaveText('Enter a time like 19:30 or 1:05:30.');
+    await expect(input).toHaveAttribute('aria-invalid', 'true');
+
+    await input.fill('21:00');
+    await page.getByRole('button', { name: 'Show' }).click();
+    await expect(page).toHaveURL(/src=manual&time=1260/);
+    await expect(page.getByText(/Historically, 21:00 would have placed like this/)).toBeVisible();
+    const first = page.getByRole('article').first();
+    await expect(first.getByText('Typical position')).toBeVisible();
+    await expect(first.getByText(/High|Medium|Low|Limited data/).first()).toBeVisible();
+    // Historical counts only; no probability wording anywhere.
+    await expect(page.getByText(/chance|probability|you will finish/i)).toHaveCount(0);
+
+    await first.getByRole('button', { name: 'History' }).click();
+    await expect(first.getByText('Historically, this time would have placed')).toBeVisible();
+    await expectNoHorizontalScroll(page);
+
+    await first.getByRole('link', { name: 'View event' }).click();
+    await expect(page).toHaveURL(/\/event\/demo-/);
+    await expect(page.getByRole('region', { name: 'Your outlook' }).getByText('Typical historical position')).toBeVisible();
+  });
+
+  test('period and target change the analysis', async ({ page }) => {
+    await page.goto('/where-could-i-place?src=manual&time=1260');
+    await expect(page.getByRole('article').first()).toBeVisible();
+    await page.getByRole('radiogroup', { name: 'Target' }).getByRole('radio', { name: 'Top 5' }).click();
+    await expect(page.getByRole('article').first().getByText('Top 5 historically')).toBeVisible();
+    await page.getByRole('radiogroup', { name: 'Period' }).getByRole('radio', { name: '30d' }).click();
+    await expect(page).toHaveURL(/window=30/);
+    await expect(page.getByText(/over the last 30 days/)).toBeVisible();
+  });
+
+  test('links into Compare with the time', async ({ page }) => {
+    await page.goto('/where-could-i-place?src=manual&time=1260');
+    await page.getByRole('link', { name: 'Compare events' }).click();
+    await expect(page).toHaveURL(/\/compare\?ids=.+&time=1260/);
+    await expect(page.getByRole('table').getByRole('rowheader', { name: 'Median position' })).toBeVisible();
+  });
+});
+
+test.describe('PB Finder', () => {
+  test('Home → PB Finder → Event, with demo labelling and Why this?', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('region', { name: 'Saturday tools' }).getByRole('link', { name: 'PB Finder' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'PB Finder' })).toBeVisible();
+    await expect(page.getByText('Using demo PB Scores')).toBeVisible();
+    const first = page.getByRole('article').first();
+    await expect(first).toHaveAccessibleName('Rank 1: Riverside 5K');
+    await expect(first.getByText('Demo PB Score')).toBeVisible();
+    await first.getByRole('button', { name: 'Why this?' }).click();
+    await expect(first.getByText('High PB Score (92/100)')).toBeVisible();
+    await expectNoHorizontalScroll(page);
+    await first.getByRole('link', { name: 'View event' }).click();
+    await expect(page).toHaveURL(/\/event\/demo-riverside-5k$/);
+  });
+
+  test('sorting and filters update results', async ({ page }) => {
+    await page.goto('/pb-finder?travel=90');
+    await page.getByRole('radiogroup', { name: 'Sort by' }).getByRole('radio', { name: 'Elevation' }).click();
+    await expect(page).toHaveURL(/sort=elevation/);
+    await expect(page.getByText(/sorted by elevation/)).toBeVisible();
+    await page.getByRole('button', { name: /^Filters/ }).click();
+    await page.getByRole('radiogroup', { name: 'Surface' }).getByRole('radio', { name: 'Trail' }).click();
+    await expect(page.getByRole('article')).toHaveCount(2);
+  });
+});
+
+test.describe('Hidden Gems', () => {
+  test('explains each gem, shows the breakdown, and opens the event', async ({ page }) => {
+    await page.goto('/hidden-gems');
+    await expect(page.getByRole('heading', { level: 1, name: 'Hidden Gems' })).toBeVisible();
+    const first = page.getByRole('article').first();
+    await expect(first.getByText("Why it's a gem")).toBeVisible();
+    await first.getByRole('button', { name: 'Breakdown' }).click();
+    for (const label of ['Placement opportunity', 'Small field', 'Travel convenience', 'Reliability', 'New to you']) {
+      await expect(first.getByText(label, { exact: true })).toBeVisible();
+    }
+    await expect(page.getByText(/hidden_gem_v1\), not an official parkrun metric/)).toBeVisible();
+    await expectNoHorizontalScroll(page);
+    await first.getByRole('link', { name: 'View event' }).click();
+    await expect(page).toHaveURL(/\/event\/demo-/);
+  });
+
+  test('modes filter the gems', async ({ page }) => {
+    await page.goto('/hidden-gems?travel=90');
+    await expect(page.getByRole('article').first()).toBeVisible();
+    const all = await page.getByRole('article').count();
+    await page.getByRole('radiogroup', { name: 'Mode' }).getByRole('radio', { name: 'Small field' }).click();
+    await expect(page).toHaveURL(/mode=small_field/);
+    await expect.poll(() => page.getByRole('article').count()).toBeLessThan(all);
+  });
+});
+
+test.describe('Compare', () => {
+  test('Saturday Planner → Compare top 3', async ({ page }) => {
+    await page.goto('/saturday');
+    await page.getByRole('link', { name: 'Compare top 3' }).click();
+    await expect(page).toHaveURL(/\/compare\?ids=[^,]+,[^,]+,[^,&]+$/);
+    await expect(page.getByRole('table').getByRole('columnheader')).toHaveCount(4);
+    await expectNoHorizontalScroll(page);
+  });
+
+  test('choose 2–4 events, with the limit enforced and selections kept in the URL', async ({ page }) => {
+    await page.goto('/compare');
+    await expect(page.getByRole('heading', { name: 'Choose at least 2 events' })).toBeVisible();
+    const picker = page.getByRole('region', { name: 'Choose events to compare' });
+    const option = (name: string) => picker.getByRole('button', { name: new RegExp(`^${name}`) });
+
+    await option('Riverside 5K').click();
+    await option('Lakeside 5K').click();
+    await expect(page.getByRole('table')).toBeVisible();
+    await option('Estuary Path 5K').click();
+    await option('Canal Towpath 5K').click();
+    await expect(picker.getByText('4 of 4 selected')).toBeVisible();
+    await expect(option('Forest Trail 5K')).toBeDisabled();
+    await picker.getByRole('button', { name: 'Done' }).click();
+
+    await expect(page.getByRole('table').getByRole('columnheader')).toHaveCount(5);
+    await expect(page).toHaveURL(/ids=demo-riverside-5k,demo-lakeside-5k,demo-estuary-path-5k,demo-canal-towpath-5k/);
+    await expectNoHorizontalScroll(page);
+
+    await page.getByRole('button', { name: 'Remove Lakeside 5K' }).click();
+    await expect(page.getByRole('table').getByRole('columnheader')).toHaveCount(4);
+
+    // Historical placement rows appear with a runner time, and disappear without one.
+    await expect(page.getByRole('rowheader', { name: 'Median position' })).toBeVisible();
+    await page.getByRole('radiogroup', { name: 'Runner time' }).getByRole('radio', { name: 'No time' }).click();
+    await expect(page.getByRole('rowheader', { name: 'Median position' })).toHaveCount(0);
+    await expect(page.getByText(/expected (race )?time/i)).toHaveCount(0);
+  });
+
+  test('reports events that no longer exist', async ({ page }) => {
+    await page.goto('/compare?ids=demo-riverside-5k,demo-lakeside-5k,gone-event');
+    await expect(page.getByText('An event could not be found')).toBeVisible();
+    await expect(page.getByRole('table').getByRole('columnheader')).toHaveCount(3);
   });
 });

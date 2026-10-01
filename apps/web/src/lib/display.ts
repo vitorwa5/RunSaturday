@@ -2,7 +2,7 @@
  * Presentation mappings: how values are labelled and toned in the UI.
  * No scoring maths lives here, only display thresholds and wording.
  */
-import type { ConfidenceLevel, CourseType, FacilityStatus, Recommendation, Surface } from '@runsaturday/shared';
+import { ordinal, type ConfidenceLevel, type CourseType, type FacilityStatus, type HistoricalFrequency, type Recommendation, type Surface } from '@runsaturday/shared';
 
 export type Tone = 'positive' | 'caution' | 'problem' | 'info' | 'neutral';
 
@@ -90,3 +90,13 @@ export const formatScore = (score: number | null | undefined) => (score == null 
 export const formatDifficulty = (score: number | null | undefined) => (score == null ? '—' : score.toFixed(1));
 export const formatMeters = (m: number | null | undefined) => (m == null ? 'Unknown' : `${m} m`);
 export const formatCount = (n: number | null | undefined) => (n == null ? '—' : n.toLocaleString('en-GB'));
+
+/** "5th–8th", or "4th" when both ends are equal. */
+export function formatPlacementRange(range: { low: number; high: number }): string {
+  return range.low === range.high ? ordinal(range.low) : `${ordinal(range.low)}–${ordinal(range.high)}`;
+}
+
+/** "10 of 12 events": a historical count, never a probability. */
+export function formatFrequency(f: HistoricalFrequency): string {
+  return `${f.count} of ${f.of} ${f.of === 1 ? 'event' : 'events'}`;
+}

@@ -1,6 +1,8 @@
 import { addDays, type OccurrenceSummary } from '@runsaturday/shared';
 import { DEFAULT_SCORE_WINDOW_DAYS } from '../../config/analysis';
+import type { PlacementOccurrenceInput } from '../../domain/placementEngine';
 import type { Db } from '../../db/prisma';
+import { Prisma } from '../../generated/prisma/client';
 import type { DataStore, EventDetailRecord, EventRecord, UserRecord } from '../DataStore';
 import { mapEvent, mapFacility, mapGoal, mapOccurrence } from './mappers';
 
@@ -92,6 +94,42 @@ export class PrismaDataStore implements DataStore {
   async listOccurrences(eventId: string): Promise<OccurrenceSummary[]> {
     const rows = await this.db.eventOccurrence.findMany({ where: { eventId }, orderBy: { date: 'desc' } });
     return rows.map(mapOccurrence);
+  }
+
+  async listPlacementInputs(
+    timeSeconds: number,
+    eventIds: string[] | null,
+    from: string | null,
+    to: string,
+  ): Promise<PlacementOccurrenceInput[]> {
+    if (eventIds && eventIds.length === 0) return [];
+    // One grouped pass; uses the (occurrenceId, finishTimeSeconds) index on Result.
+    const rows = await this.db.$queryRaw<
+      { eventId: string; date: string; status: string; dataQuality: string; participantCount: number | null; resultCount: number; fasterCount: number }[]
+    >`
+      SELECT o."eventId",
+             to_char(o.date, 'YYYY-MM-DD') AS date,
+             o.status::text AS status,
+             o."dataQuality"::text AS "dataQuality",
+             o."participantCount",
+             COUNT(r.id)::int AS "resultCount",
+             (COUNT(r.id) FILTER (WHERE r."finishTimeSeconds" < ${timeSeconds}))::int AS "fasterCount"
+      FROM "EventOccurrence" o
+      LEFT JOIN "Result" r ON r."occurrenceId" = o.id
+      WHERE o.date <= ${to}::date
+        ${from ? Prisma.sql`AND o.date >= ${from}::date` : Prisma.empty}
+        ${eventIds ? Prisma.sql`AND o."eventId" IN (${Prisma.join(eventIds)})` : Prisma.empty}
+      GROUP BY o.id
+      ORDER BY o."eventId", o.date DESC`;
+    return rows.map((r) => ({
+      eventId: r.eventId,
+      date: r.date,
+      status: r.status.toLowerCase() as PlacementOccurrenceInput['status'],
+      dataQuality: r.dataQuality.toLowerCase() as PlacementOccurrenceInput['dataQuality'],
+      participantCount: r.participantCount,
+      resultCount: r.resultCount,
+      fasterCount: r.fasterCount,
+    }));
   }
 
   async getUser(userId: string): Promise<UserRecord | null> {

@@ -4,6 +4,7 @@
  */
 import { addDays, type OccurrenceSummary } from '@runsaturday/shared';
 import { buildDemoDataset, DEMO_WINDOW_DAYS, type DemoDataset, type DemoEventBundle } from '../../demo/buildDemoDataset';
+import type { PlacementOccurrenceInput } from '../../domain/placementEngine';
 import type { DataStore, EventDetailRecord, EventRecord, UserRecord } from '../DataStore';
 
 const lower = <T extends string>(v: string) => v.toLowerCase() as T;
@@ -109,6 +110,40 @@ export class MemoryDataStore implements DataStore {
   async listOccurrences(eventId: string): Promise<OccurrenceSummary[]> {
     const bundle = this.dataset.events.find((b) => b.id === eventId);
     return bundle ? toOccurrenceSummaries(bundle).reverse() : [];
+  }
+
+  async listPlacementInputs(
+    timeSeconds: number,
+    eventIds: string[] | null,
+    from: string | null,
+    to: string,
+  ): Promise<PlacementOccurrenceInput[]> {
+    const inputs: PlacementOccurrenceInput[] = [];
+    for (const b of this.dataset.events) {
+      if (eventIds && !eventIds.includes(b.id)) continue;
+      for (const o of b.occurrences) {
+        if (o.date > to || (from != null && o.date < from)) continue;
+        // Results are sorted by time: binary search for the first time >= target.
+        let lo = 0;
+        let hi = o.results.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (o.results[mid]!.finishTimeSeconds < timeSeconds) lo = mid + 1;
+          else hi = mid;
+        }
+        inputs.push({
+          eventId: b.id,
+          date: o.date,
+          status: lower(o.status),
+          // Mirrors the seed: completed demo occurrences are VALID.
+          dataQuality: o.status === 'COMPLETED' ? 'valid' : 'unvalidated',
+          participantCount: o.participantCount,
+          resultCount: o.results.length,
+          fasterCount: lo,
+        });
+      }
+    }
+    return inputs;
   }
 
   async getUser(userId: string): Promise<UserRecord | null> {

@@ -252,7 +252,7 @@ export function EventPage() {
 
       <EventHeroMetrics event={event} />
 
-      <OutlookCard profile={profile} />
+      <OutlookCard profile={profile} eventId={event.id} />
 
       <Tabs tabs={TABS} value={tab} onChange={setTab} label="Event details">
         {tab === 'overview' && <OverviewTab event={event} />}

@@ -47,6 +47,21 @@ describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
     expect(await store!.listOccurrences('demo-heath-common-5k')).toEqual(await memory.listOccurrences('demo-heath-common-5k'));
   });
 
+  it('counts faster results in SQL exactly as the in-memory store does', async () => {
+    for (const time of [900, 1170, 1500, 2400]) {
+      const [db_, mem] = await Promise.all([
+        store!.listPlacementInputs(time, null, '2026-04-01', today),
+        memory.listPlacementInputs(time, null, '2026-04-01', today),
+      ]);
+      const key = (r: { eventId: string; date: string }) => `${r.eventId}|${r.date}`;
+      const sort = <T extends { eventId: string; date: string }>(rows: T[]) => [...rows].sort((a, b) => key(a).localeCompare(key(b)));
+      expect(sort(db_)).toEqual(sort(mem));
+    }
+    const subset = await store!.listPlacementInputs(1170, ['demo-riverside-5k'], null, today);
+    expect(new Set(subset.map((r) => r.eventId))).toEqual(new Set(['demo-riverside-5k']));
+    expect(await store!.listPlacementInputs(1170, [], null, today)).toEqual([]);
+  });
+
   it('searches case-insensitively in SQL', async () => {
     expect((await store!.searchEvents('wIgAn', 10)).map((e) => e.name)).toEqual(['Canal Towpath 5K']);
   });

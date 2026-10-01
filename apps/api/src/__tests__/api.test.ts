@@ -1,5 +1,16 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { BestPickResponse, EventDetail, EventHistoryResponse, EventSummary, PlannerResponse } from '@runsaturday/shared';
+import type {
+  BestPickResponse,
+  CompareResponse,
+  EventDetail,
+  EventHistoryResponse,
+  EventPlacement,
+  EventSummary,
+  HiddenGemsResponse,
+  PbFinderResponse,
+  PlacementResponse,
+  PlannerResponse,
+} from '@runsaturday/shared';
 import type { DataStore } from '../repositories/DataStore';
 import { MemoryDataStore } from '../repositories/memory/MemoryDataStore';
 import { buildTestApp } from './helpers';
@@ -185,6 +196,127 @@ describe('API', () => {
       app = await buildTestApp();
       expect((await app.inject('/api/events/demo-riverside-5k/history?window=7')).statusCode).toBe(400);
       expect((await app.inject('/api/events/nope/history')).statusCode).toBe(404);
+    });
+  });
+
+  describe('where could I place', () => {
+    it('places a manual time historically, ranked by target frequency, with confidence', async () => {
+      app = await buildTestApp();
+      const body = (await app.inject('/api/placement?time=19:30')).json<PlacementResponse>();
+      expect(body).toMatchObject({ timeSeconds: 1170, window: '90', target: 'top10', maxTravelMinutes: 45, from: '2026-07-04' });
+      expect(body.results.length).toBeGreaterThan(0);
+      for (const r of body.results) {
+        expect(r.event.travel!.minutes).toBeLessThanOrEqual(45);
+        expect(r.stats!.typicalRange.low).toBeLessThanOrEqual(r.stats!.typicalRange.high);
+        expect(r.target!.of).toBe(r.sampleSize);
+      }
+      const estuary = body.results.find((r) => r.event.id === 'demo-estuary-path-5k')!;
+      expect(estuary.excluded.cancelled).toBe(1);
+      expect(estuary.sampleSize).toBe(12);
+      expect(estuary.confidence).toBe('high');
+      expect(body.notes.join(' ')).toMatch(/not predictions/);
+    });
+
+    it('accepts seconds and h:mm:ss, and rejects malformed times', async () => {
+      app = await buildTestApp();
+      const a = (await app.inject('/api/placement?time=1170')).json<PlacementResponse>();
+      const b = (await app.inject('/api/placement?time=0:19:30')).json<PlacementResponse>();
+      expect(a.results).toEqual(b.results);
+      for (const bad of ['abc', '19:75', '5:00', '99999', '']) {
+        const res = await app.inject(`/api/placement?time=${encodeURIComponent(bad)}`);
+        expect(res.statusCode).toBe(400);
+        expect(res.json().error.message).toMatch(/Enter a 5K time like 19:30/);
+      }
+      expect((await app.inject('/api/placement')).statusCode).toBe(400);
+    });
+
+    it('grows the sample with the window', async () => {
+      app = await buildTestApp();
+      const sizes = [];
+      for (const w of ['30', '60', '90', '365', 'all']) {
+        const body = (await app.inject(`/api/placement?time=22:00&window=${w}&maxTravel=90`)).json<PlacementResponse>();
+        sizes.push(body.results.find((r) => r.event.id === 'demo-riverside-5k')!.sampleSize);
+      }
+      expect(sizes).toEqual([...sizes].sort((x, y) => x - y));
+      expect(sizes.at(-1)).toBe(26);
+      expect(sizes[0]).toBeLessThan(6);
+    });
+
+    it('serves a single event placement for the event page', async () => {
+      app = await buildTestApp();
+      const body = (await app.inject('/api/events/demo-riverside-5k/placement?time=1180')).json<EventPlacement>();
+      expect(body.event.id).toBe('demo-riverside-5k');
+      expect(body.stats?.medianPlacement).toEqual(expect.any(Number));
+      expect((await app.inject('/api/events/nope/placement?time=1180')).statusCode).toBe(404);
+    });
+  });
+
+  describe('PB finder', () => {
+    it('ranks by stored PB Score and supports sorting and filters', async () => {
+      app = await buildTestApp();
+      const body = (await app.inject('/api/pb-finder')).json<PbFinderResponse>();
+      expect(body.results[0]!.event.name).toBe('Riverside 5K');
+      expect(body.notes[0]).toMatch(/demo values/);
+      const byElevation = (await app.inject('/api/pb-finder?sort=elevation&maxTravel=90')).json<PbFinderResponse>();
+      const elevations = byElevation.results.map((r) => r.event.elevationM!);
+      expect(elevations).toEqual([...elevations].sort((a, b) => a - b));
+      const notVisited = (await app.inject('/api/pb-finder?visited=not_visited&maxTravel=90')).json<PbFinderResponse>();
+      expect(notVisited.results.every((r) => r.event.visited === false)).toBe(true);
+      expect((await app.inject('/api/pb-finder?sort=fastest')).statusCode).toBe(400);
+    });
+  });
+
+  describe('hidden gems', () => {
+    it('returns a versioned, explained ranking with component breakdowns', async () => {
+      app = await buildTestApp();
+      const body = (await app.inject('/api/hidden-gems')).json<HiddenGemsResponse>();
+      expect(body.algorithm).toBe('hidden_gem_v1');
+      expect(body.timeSeconds).toBe(1180);
+      expect(body.results.length).toBeGreaterThan(0);
+      for (const g of body.results) {
+        expect(g.components).toHaveLength(5);
+        expect(g.components.every((c) => c.value >= 0 && c.value <= 100)).toBe(true);
+      }
+      const scores = body.results.map((g) => g.gemScore);
+      expect(scores).toEqual([...scores].sort((a, b) => b - a));
+      const again = (await app.inject('/api/hidden-gems')).json<HiddenGemsResponse>();
+      expect(again.results).toEqual(body.results);
+    });
+
+    it('filters by mode', async () => {
+      app = await buildTestApp();
+      const body = (await app.inject('/api/hidden-gems?mode=not_visited&maxTravel=90')).json<HiddenGemsResponse>();
+      expect(body.results.every((g) => g.event.visited === false)).toBe(true);
+    });
+  });
+
+  describe('compare', () => {
+    it('compares 2–4 events in order, reports missing ids, and adds historical placement', async () => {
+      app = await buildTestApp();
+      const body = (await app.inject('/api/compare?ids=demo-estuary-path-5k,demo-riverside-5k,nope&time=19:40')).json<CompareResponse>();
+      expect(body.events.map((e) => e.event.id)).toEqual(['demo-estuary-path-5k', 'demo-riverside-5k']);
+      expect(body.missing).toEqual(['nope']);
+      expect(body.timeSeconds).toBe(1180);
+      expect(body.events.every((e) => e.placement?.stats != null)).toBe(true);
+      expect(body.best.travel).toEqual(['demo-riverside-5k']);
+    });
+
+    it('omits placement without a runner time', async () => {
+      app = await buildTestApp();
+      const body = (await app.inject('/api/compare?ids=demo-estuary-path-5k,demo-riverside-5k')).json<CompareResponse>();
+      expect(body.events.every((e) => e.placement === null)).toBe(true);
+      expect(body.best.median_placement).toBeUndefined();
+    });
+
+    it('enforces the 2–4 event limit', async () => {
+      app = await buildTestApp();
+      const one = await app.inject('/api/compare?ids=demo-riverside-5k');
+      expect(one.statusCode).toBe(400);
+      expect(one.json().error.message).toBe('Choose at least 2 events to compare.');
+      const five = await app.inject('/api/compare?ids=a,b,c,d,e');
+      expect(five.json().error.message).toBe('Compare up to 4 events at a time.');
+      // Duplicates collapse before counting.
+      expect((await app.inject('/api/compare?ids=demo-riverside-5k,demo-riverside-5k')).statusCode).toBe(400);
     });
   });
 

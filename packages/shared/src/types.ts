@@ -4,6 +4,7 @@
  */
 import type { Goal } from './goals';
 import type { HistoryWindowId, PlannerFilters } from './planner';
+import type { HiddenGemModeId, PbFinderSortId, PlacementTargetId } from './tools';
 
 export type Surface = 'tarmac' | 'trail' | 'grass' | 'mixed' | 'unknown';
 export type CourseType = 'one_lap' | 'two_laps' | 'three_plus_laps' | 'out_and_back' | 'point_to_point' | 'unknown';
@@ -210,4 +211,145 @@ export interface ApiErrorBody {
     code: string;
     message: string;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Historical placement (Where Could I Place?, Compare, Event outlook)
+// ---------------------------------------------------------------------------
+
+/** A historical frequency: "Top 10 in `count` of `of` events". Never a probability. */
+export interface HistoricalFrequency {
+  count: number;
+  of: number;
+}
+
+export interface HistoricalPlacement {
+  date: string;
+  /** Where the target time would have placed: faster finishers + 1. */
+  placement: number;
+  /** Finishers that day (excluding the hypothetical runner). */
+  fieldSize: number;
+}
+
+export interface PlacementStats {
+  /** Median of historical placements, rounded half up. */
+  medianPlacement: number;
+  bestPlacement: number;
+  worstPlacement: number;
+  /** Middle half of historical placements (25th–75th percentile, nearest rank). */
+  typicalRange: { low: number; high: number };
+  frequencies: {
+    first: HistoricalFrequency;
+    top3: HistoricalFrequency;
+    top5: HistoricalFrequency;
+    top10: HistoricalFrequency;
+    top10Percent: HistoricalFrequency;
+    top25Percent: HistoricalFrequency;
+  };
+}
+
+export interface EventPlacement {
+  event: EventSummary;
+  /** Usable occurrences in the window. */
+  sampleSize: number;
+  confidence: ConfidenceLevel;
+  /** Null when there is no usable result data in the window. */
+  stats: PlacementStats | null;
+  /** Frequency for the requested target. */
+  target: HistoricalFrequency | null;
+  /** Occurrences left out: cancelled, or results missing/incomplete/unvalidated. */
+  excluded: { cancelled: number; insufficientData: number };
+  /** Most recent first. */
+  history: HistoricalPlacement[];
+}
+
+export interface PlacementResponse {
+  timeSeconds: number;
+  window: HistoryWindowId;
+  from: string | null;
+  to: string;
+  target: PlacementTargetId;
+  maxTravelMinutes: number | null;
+  /** Ranked by how often the target was reached historically. */
+  results: EventPlacement[];
+  /** Events in range with no usable results in the window. */
+  eventsWithoutData: number;
+  notes: string[];
+}
+
+// ---------------------------------------------------------------------------
+// PB Finder
+// ---------------------------------------------------------------------------
+
+export interface PbFinderResponse {
+  sort: PbFinderSortId;
+  maxTravelMinutes: number;
+  filters: Pick<PlannerFilters, 'surface' | 'elevation' | 'confidence' | 'visited'>;
+  results: Recommendation[];
+  counts: { total: number; withinTravel: number; matching: number };
+  message?: string;
+  notes: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Hidden Gems
+// ---------------------------------------------------------------------------
+
+export interface HiddenGemComponent {
+  key: 'placement_opportunity' | 'low_participants' | 'travel_convenience' | 'reliability' | 'not_visited';
+  label: string;
+  /** Weight as a fraction, e.g. 0.35. */
+  weight: number;
+  /** Normalised 0–100. */
+  value: number;
+  /** value × weight, rounded to 0.1. */
+  contribution: number;
+  /** How the value was derived, in plain words. */
+  basis: string;
+}
+
+export interface HiddenGem {
+  rank: number;
+  event: EventSummary;
+  /** 0–100, rounded. */
+  gemScore: number;
+  components: HiddenGemComponent[];
+  /** "Why it's a gem" lines. */
+  reasons: RecommendationReason[];
+}
+
+export interface HiddenGemsResponse {
+  algorithm: string;
+  mode: HiddenGemModeId;
+  maxTravelMinutes: number;
+  /** Runner time used for placement opportunity, when available. */
+  timeSeconds: number | null;
+  results: HiddenGem[];
+  message?: string;
+  notes: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Compare
+// ---------------------------------------------------------------------------
+
+export type CompareMetricKey =
+  | 'pb_score'
+  | 'difficulty'
+  | 'competition'
+  | 'average_participants'
+  | 'elevation'
+  | 'travel'
+  | 'median_placement'
+  | 'top10';
+
+export interface CompareResponse {
+  /** In the requested order. */
+  events: { event: EventSummary; placement: EventPlacement | null }[];
+  /** Requested ids that do not exist. */
+  missing: string[];
+  timeSeconds: number | null;
+  window: HistoryWindowId;
+  /** Event ids with the most favourable value per metric (ties included); absent when not comparable. */
+  best: Partial<Record<CompareMetricKey, string[]>>;
 }

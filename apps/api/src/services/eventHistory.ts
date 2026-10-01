@@ -1,12 +1,11 @@
 /** Event history for a chosen window, summarised from the occurrence summary cache. */
 import {
-  addDays,
-  HISTORY_WINDOWS,
   type EventHistoryResponse,
   type HistoryWindowId,
   type OccurrenceSummary,
 } from '@runsaturday/shared';
 import { median } from '../domain/statistics';
+import { windowFrom } from '../domain/windows';
 
 const values = (rows: OccurrenceSummary[], pick: (o: OccurrenceSummary) => number | null) =>
   rows.map(pick).filter((v): v is number => v != null);
@@ -23,8 +22,7 @@ export function buildEventHistory(
   window: HistoryWindowId,
   today: string,
 ): EventHistoryResponse {
-  const days = HISTORY_WINDOWS.find((w) => w.id === window)!.days;
-  const from = days == null ? null : addDays(today, -days + 1);
+  const from = windowFrom(window, today);
   const sorted = [...occurrences].filter((o) => o.date <= today).sort((a, b) => b.date.localeCompare(a.date));
   const inWindow = from == null ? sorted : sorted.filter((o) => o.date >= from);
   const completed = inWindow.filter((o) => o.status === 'completed');

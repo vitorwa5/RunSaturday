@@ -6,7 +6,7 @@
 
 5K Compass is a mobile-first decision-support app for runners choosing *where* to run on Saturday. It turns event data into explained, goal-specific recommendations (PB, placing, hidden gems, new events, quiet events, challenges). It is an independent project and is **not affiliated with or endorsed by parkrun** or any event organiser.
 
-> **Status: Phase 2A (product experience for Home, Saturday Planner and Event page).** All event data is **fictional DEMO data**. No real event statistics are included, and no data is collected from external sites.
+> **Status: Phase 2B (discovery and performance tools: Where Could I Place?, PB Finder, Hidden Gems, Compare).** All event data is **fictional DEMO data**. No real event statistics are included, and no data is collected from external sites.
 
 ---
 
@@ -129,6 +129,11 @@ Web (optional, `apps/web/.env`): `VITE_API_BASE_URL` (default `/api`) and `VITE_
 | `GET /api/recommendations/best-pick?goal=&maxTravel=` | best pick plus 3 alternatives, with highlights and reasons |
 | `GET /api/planner?date=&goal=&maxTravel=&surface=&elevation=&participants=&visited=&course=&confidence=` | Saturday Planner: ranked results, counts, and caveats |
 | `GET /api/profile` | current (demo) user profile |
+| `GET /api/placement?time=&window=&target=&maxTravel=` | Where Could I Place?: historical placement per event for a 5K time (`1170` or `19:30`) |
+| `GET /api/events/:idOrSlug/placement?time=&window=` | one event's historical placement (Event page outlook) |
+| `GET /api/pb-finder?maxTravel=&sort=&surface=&elevation=&confidence=&visited=` | events ranked or sorted using the stored (demo) PB Score |
+| `GET /api/hidden-gems?mode=&maxTravel=&time=` | Hidden Gem V1 ranking with component breakdowns |
+| `GET /api/compare?ids=a,b[,c,d]&time=&window=` | 2–4 events side by side, with best-value markers and optional historical placement |
 
 Without `lat`/`lon`, the user's saved home location is the origin. There's no authentication yet: every request acts as the demo user (see `http/context.ts`).
 
@@ -179,6 +184,30 @@ Home and the Saturday Planner rank events by **one stored metric per goal**: PB 
 - **Planner filters** use only stored properties. When a filter is active and an event's value is unknown, the event is left out rather than guessed.
 - **Dates:** planning covers the next 4 Saturdays. Rankings don't yet change with the date.
 - **"Your outlook"** on the Event page shows the runner's current form. Expected time, historical placement and Top-10 frequency stay "Not available yet" until the placement and course-adjustment engines exist.
+
+### Historical placement engine v1
+
+`apps/api/src/domain/placementEngine.ts` is pure and deterministic. For a target time T and each usable occurrence, the historical placement is (Result rows faster than T) + 1. Postgres does the counting in one grouped query (`listPlacementInputs`).
+
+- **Usable occurrences** are completed and validated, with a Result-row count that matches the participant count. Cancelled dates and partial imports are excluded and counted.
+- **Statistics:** median (rounded half up), best, worst, a typical range (25th–75th percentile, nearest rank), and Top 3/5/10, Top 10% and Top 25% shown as "N of M events".
+  - Percentage targets compare against the field *including* the runner, and the winner always counts.
+- **Confidence** comes from the number of usable events: 10+ is high, 6+ medium, 3+ low, fewer is "Limited data" (`domain/confidence.ts`).
+- **Wording:** frequencies describe history ("Top 10 in 10 of 12 events"), never a chance of anything.
+
+### Hidden Gem V1 (`hidden_gem_v1`)
+
+`gemScore = 0.35·placement opportunity + 0.25·small field + 0.15·travel convenience + 0.15·reliability + 0.10·not visited`. Each part is scaled to 0–100 first, and every result returns its breakdown.
+
+| Part | How it's scaled to 0–100 |
+| --- | --- |
+| Placement opportunity | The runner's historical Top-10 share over 90 days. Without a runner time: 100 − Competition Score. |
+| Small field | 50 or fewer average runners scores 100; 500 or more scores 0. |
+| Travel convenience | 1 − estimated minutes ÷ travel limit. |
+| Reliability | High 100, Medium 70, Low 40, Limited data 10. |
+| Not visited | 100 if not visited, 0 if visited. |
+
+Unknown inputs score 0. Gem Score is a 5K Compass ranking, not an official parkrun metric.
 
 ## Product rules enforced so far
 

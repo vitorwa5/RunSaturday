@@ -3,18 +3,19 @@ import {
   DEFAULT_PLANNER_FILTERS,
   formatShortDate,
   goalDefinition,
-  PLANNER_FILTER_OPTIONS,
+  PLANNER_FILTER_KEYS,
   TRAVEL_LIMIT_OPTIONS,
   type Goal,
-  type PlannerFilters,
   type PlannerResponse,
 } from '@runsaturday/shared';
-import { ChevronDown, ChevronRight, Columns3, Flag, Gem, Home, Info, Medal, RotateCcw, SearchX, SlidersHorizontal, Timer, type LucideIcon } from 'lucide-react';
-import { useId, useState, type ReactNode } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { Columns3, Flag, Home, Info, RotateCcw, SearchX } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { useSearchParams } from 'react-router';
 import { RecommendationCard } from '../components/events/RecommendationCard';
+import { ToolLinks } from '../components/navigation/ToolLinks';
+import { FilterPanel } from '../components/ui/FilterPanel';
 import { GoalSelector } from '../components/goals/GoalSelector';
-import { Button } from '../components/ui/Button';
+import { Button, ButtonLink } from '../components/ui/Button';
 import { ChoiceChips } from '../components/ui/ChoiceChips';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ErrorState } from '../components/ui/ErrorState';
@@ -23,22 +24,6 @@ import { PageHeader, SectionHeading } from '../components/ui/PageHeader';
 import { usePlanner } from '../hooks/queries';
 import { parsePlannerParams, serializePlannerParams, type PlannerSelection } from '../lib/plannerParams';
 import { plannerSaturdays } from '../lib/saturday';
-
-const FILTER_LABELS: Record<keyof PlannerFilters, string> = {
-  surface: 'Surface',
-  elevation: 'Elevation',
-  participants: 'Average runners',
-  visited: 'Visited',
-  course: 'Course type',
-  confidence: 'Minimum confidence',
-};
-
-const TOOLS: { to: string; title: string; icon: LucideIcon }[] = [
-  { to: '/pb-finder', title: 'PB Finder', icon: Timer },
-  { to: '/where-could-i-place', title: 'Where Could I Place?', icon: Medal },
-  { to: '/hidden-gems', title: 'Hidden Gems', icon: Gem },
-  { to: '/compare', title: 'Compare events', icon: Columns3 },
-];
 
 function Step({ number, title, children, aside }: { number: number; title: string; children: ReactNode; aside?: ReactNode }) {
   return (
@@ -53,64 +38,6 @@ function Step({ number, title, children, aside }: { number: number; title: strin
         {aside}
       </div>
       {children}
-    </div>
-  );
-}
-
-function FiltersPanel({
-  filters,
-  onChange,
-  onReset,
-}: {
-  filters: PlannerFilters;
-  onChange: (key: keyof PlannerFilters, value: string) => void;
-  onReset: () => void;
-}) {
-  const [open, setOpen] = useState(() => activeFilterCount(filters) > 0);
-  const panelId = useId();
-  const count = activeFilterCount(filters);
-
-  return (
-    <div className="pt-4">
-      <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={panelId}
-          onClick={() => setOpen((v) => !v)}
-          className="-ml-1 inline-flex min-h-11 items-center gap-2 rounded-full px-1 text-sm font-bold whitespace-nowrap"
-        >
-          <SlidersHorizontal className="size-4" aria-hidden />
-          Advanced filters
-          {count > 0 && (
-            <span className="rounded-full bg-ink px-2 py-0.5 text-xs text-white">
-              {count}
-              <span className="sr-only"> active</span>
-            </span>
-          )}
-          <ChevronDown className={`size-4 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
-        </button>
-        {count > 0 && (
-          <Button variant="ghost" className="min-h-9 px-2 whitespace-nowrap" onClick={onReset}>
-            <RotateCcw className="size-4" aria-hidden />
-            Reset filters
-          </Button>
-        )}
-      </div>
-      <div id={panelId} hidden={!open} className="mt-2 space-y-4">
-        {(Object.keys(FILTER_LABELS) as (keyof PlannerFilters)[]).map((key) => (
-          <div key={key}>
-            <p className="mb-2 text-xs font-semibold text-muted">{FILTER_LABELS[key]}</p>
-            <ChoiceChips
-              label={FILTER_LABELS[key]}
-              options={PLANNER_FILTER_OPTIONS[key].map((o) => ({ value: o.id, label: o.label }))}
-              value={filters[key]}
-              onChange={(v) => onChange(key, v)}
-            />
-          </div>
-        ))}
-        <p className="text-xs text-subtle">Events with unknown values are left out when a filter is active.</p>
-      </div>
     </div>
   );
 }
@@ -151,15 +78,29 @@ function Results({
   const rankedByLabel = data.results[0]!.rankedBy.label;
   return (
     <div className={isPlaceholderData ? 'opacity-60 transition-opacity' : 'transition-opacity'} aria-busy={isPlaceholderData}>
-      <p className="text-sm text-muted" aria-live="polite">
-        <strong className="font-bold text-ink">
-          {data.results.length} {data.results.length === 1 ? 'event' : 'events'}
-        </strong>{' '}
-        within {data.maxTravelMinutes} min · ranked by {rankedByLabel.toLowerCase()}
-      </p>
-      <p className="mt-0.5 text-xs text-subtle">
-        {isDemo ? 'Demo recommendation' : 'Recommendation'} · {data.method}
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm text-muted" aria-live="polite">
+            <strong className="font-bold text-ink">
+              {data.results.length} {data.results.length === 1 ? 'event' : 'events'}
+            </strong>{' '}
+            within {data.maxTravelMinutes} min · ranked by {rankedByLabel.toLowerCase().replace(/\bpb\b/g, 'PB')}
+          </p>
+          <p className="mt-0.5 text-xs text-subtle">
+            {isDemo ? 'Demo recommendation' : 'Recommendation'} · {data.method}
+          </p>
+        </div>
+        {data.results.length >= 2 && (
+          <ButtonLink
+            to={`/compare?ids=${data.results.slice(0, 3).map((r) => r.event.id).join(',')}`}
+            variant="ghost"
+            className="min-h-9 shrink-0 px-2"
+          >
+            <Columns3 className="size-4" aria-hidden />
+            Compare top {Math.min(3, data.results.length)}
+          </ButtonLink>
+        )}
+      </div>
       <ol className="mt-3 space-y-3">
         {data.results.map((r) => (
           <li key={r.event.id}>
@@ -234,7 +175,12 @@ export function SaturdayPage() {
           <GoalSelector value={goal} onChange={(g) => update({ goal: g })} labels="long" label="Goal" />
         </Step>
 
-        <FiltersPanel filters={selection.filters} onChange={(key, value) => update({ filters: { ...selection.filters, [key]: value } })} onReset={resetFilters} />
+        <FilterPanel
+          keys={PLANNER_FILTER_KEYS}
+          filters={selection.filters}
+          onChange={(key, value) => update({ filters: { ...selection.filters, [key]: value } })}
+          onReset={resetFilters}
+        />
       </section>
 
       <section aria-labelledby="results-heading">
@@ -264,17 +210,7 @@ export function SaturdayPage() {
         <SectionHeading>
           <span id="tools">More Saturday tools</span>
         </SectionHeading>
-        <ul className="grid grid-cols-2 gap-2">
-          {TOOLS.map(({ to, title, icon: Icon }) => (
-            <li key={to}>
-              <Link to={to} className="flex min-h-14 items-center gap-2 rounded-2xl border border-line bg-surface p-3 text-sm font-semibold hover:bg-zinc-50">
-                <Icon className="size-4 shrink-0 text-brand-700" aria-hidden />
-                <span className="min-w-0 flex-1">{title}</span>
-                <ChevronRight className="size-4 shrink-0 text-subtle" aria-hidden />
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <ToolLinks />
       </section>
     </div>
   );
