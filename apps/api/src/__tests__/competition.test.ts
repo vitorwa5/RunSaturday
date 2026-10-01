@@ -45,6 +45,60 @@ describe('cohortStrengths (mid-rank percentile)', () => {
   });
 });
 
+describe('cohortStrengths tie handling (other events only, never self)', () => {
+  const strengths = (values: number[]) => cohortStrengths(new Map(values.map((v, i) => [`e${i}`, v])));
+
+  it.each([2, 3, 5, 10])('with %i events: unique strongest → 100, unique weakest → 0', (n) => {
+    const values = Array.from({ length: n }, (_, i) => 1000 + i * 10); // e0 fastest … e(n-1) slowest
+    const s = strengths(values);
+    expect(s.get('e0')).toBe(100);
+    expect(s.get(`e${n - 1}`)).toBe(0);
+  });
+
+  it.each([2, 3, 4, 10])('with %i identical values every event scores exactly 50', (n) => {
+    const s = strengths(Array.from({ length: n }, () => 1234));
+    expect([...s.values()]).toEqual(Array.from({ length: n }, () => 50));
+  });
+
+  it('excludes the event itself: three distinct values give 100 / 50 / 0', () => {
+    // If self were counted as a tie, the fastest would be (2 + 0.5) / 2 = 125 and the slowest 25.
+    const s = strengths([900, 1000, 1100]);
+    expect([s.get('e0'), s.get('e1'), s.get('e2')]).toEqual([100, 50, 0]);
+  });
+
+  it('gives tied events exactly the same score wherever the tie falls', () => {
+    // Tie at the top: each beats 3 others and ties 1 → (3 + 0.5) / 4 = 87.5 → 88.
+    const top = strengths([900, 900, 1000, 1100, 1200]);
+    expect(top.get('e0')).toBe(88);
+    expect(top.get('e1')).toBe(top.get('e0'));
+    // Tie in the middle: beats 2, ties 1 → (2 + 0.5) / 4 = 62.5 → 63.
+    const mid = strengths([900, 1000, 1000, 1100, 1200]);
+    expect(mid.get('e1')).toBe(63);
+    expect(mid.get('e2')).toBe(mid.get('e1'));
+    // Tie at the bottom: beats 0, ties 1 → 0.5 / 4 = 12.5 → 13.
+    const bottom = strengths([900, 1000, 1100, 1200, 1200]);
+    expect(bottom.get('e3')).toBe(13);
+    expect(bottom.get('e4')).toBe(bottom.get('e3'));
+    // A three-way tie among five: beats 1, ties 2 → (1 + 1) / 4 = 50.
+    const three = strengths([900, 1000, 1000, 1000, 1200]);
+    expect([three.get('e1'), three.get('e2'), three.get('e3')]).toEqual([50, 50, 50]);
+  });
+
+  it('is independent of input order', () => {
+    const a = cohortStrengths(new Map([['x', 1000], ['y', 900], ['z', 1000]]));
+    const b = cohortStrengths(new Map([['z', 1000], ['x', 1000], ['y', 900]]));
+    expect([...a.entries()].sort()).toEqual([...b.entries()].sort());
+  });
+
+  it('end to end: a cohort of identical events scores 50 on every component and overall', () => {
+    const r = computeCompetition(['a', 'b', 'c'], [...weeks('a', average), ...weeks('b', average), ...weeks('c', average)], { windowDays: 90, asOfDate: AS_OF });
+    for (const b of r) {
+      expect(b.value).toBe(50);
+      expect(b.components.every((c) => c.value === 50)).toBe(true);
+    }
+  });
+});
+
 describe('Competition V1', () => {
   it('uses the documented weights', () => {
     expect(COMPETITION_V1.weights).toEqual({ winner: 0.25, third: 0.25, fifth: 0.2, tenth: 0.2, field_depth: 0.1 });

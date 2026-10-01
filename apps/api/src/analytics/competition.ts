@@ -17,6 +17,9 @@
  *    Faster medians give higher strength; equal medians get equal strength; rank-based, so
  *    one extreme value cannot stretch the scale. A component needs a cohort of at least
  *    MIN_COHORT events; otherwise it is missing for everyone.
+ *    "#slower" and "#tied" count only the OTHER N − 1 events; the event itself is never
+ *    counted. So a unique strongest event scores 100, a unique weakest 0, a cohort where
+ *    every value is identical scores 50 throughout, and tied events always score the same.
  * 3. Score = weighted mean of the available components (weights re-normalised). If the
  *    available weight is below MIN_AVAILABLE_WEIGHT the score is null (Limited data).
  * Events with fewer than MIN_OCCURRENCES usable occurrences are outside the cohort and have

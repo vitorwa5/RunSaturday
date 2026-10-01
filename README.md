@@ -230,7 +230,10 @@ No schema change was needed. In demo mode the in-memory store runs the same pure
 
 - **Inputs:** completed, validated occurrences in the window whose Result rows are complete. Cancelled and partial dates are excluded.
 - **Medians per event,** read from Result rows: winner (25%), 3rd (25%), 5th (20%), 10th (20%), and field depth (10%). Field depth is the top-10% cutoff time, at position ceil(0.10 × field), so the 20th of 200.
-- **Cohort-relative normalisation,** with no fixed time thresholds. Each component's strength = 100 × (events slower + ½ × events tied) ÷ (cohort − 1). Faster is higher, ties are equal, and because it's rank-based an extreme value cannot stretch the scale.
+- **Cohort-relative normalisation,** with no fixed time thresholds. Each component's strength = 100 × (other events slower + ½ × other events tied) ÷ (cohort − 1).
+  - Both counts are over the *other* events only; the event itself is never counted.
+  - So a unique strongest event scores 100, a unique weakest scores 0, a cohort with identical values scores 50 throughout, and tied events always get the same score.
+  - Faster is higher, and because the method is rank-based an extreme value cannot stretch the scale.
 - **Score:** the weighted mean of the available components, with weights re-normalised.
 - **Minimums:** 3 usable occurrences for an event; 3 observations per component; a cohort of 3 events per component; and at least half the weight available. Below these the result is "Limited data".
 - **It is relative:** the score is relative to the events analysed for the same window. It is not an official or universal parkrun rating.
