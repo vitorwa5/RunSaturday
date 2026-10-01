@@ -6,8 +6,8 @@
  * built before real data ingestion exists. Names are generic, towns are only
  * used to give realistic geography, and every number is invented.
  *
- * Scores here are hand-written placeholders (calculationVersion "demo_v0"),
- * not outputs of the real scoring algorithms, which arrive in later phases.
+ * PB and Gem base scores here are hand-written placeholders (calculationVersion "demo_v0").
+ * Competition and Difficulty are calculated from this data by the analytics engine.
  */
 import type { $Enums } from '../generated/prisma/client';
 
@@ -44,14 +44,14 @@ export interface DemoEventDefinition {
     /** ISO dates (relative week offsets) to mark as cancelled, counted back from the latest. */
     cancelledWeeksAgo?: number[];
   };
-  /** Hand-written placeholder scores for UI development. */
+  /**
+   * Hand-written placeholder scores for UI development. Competition and Difficulty are no
+   * longer hand-written: they are calculated (competition_v1, difficulty_v1).
+   */
   scores: {
     pbScore: number;
-    difficultyScore: number;
-    competitionScore: number;
     gemBaseScore: number;
     pbConfidence: $Enums.ConfidenceLevel;
-    competitionConfidence: $Enums.ConfidenceLevel;
   };
 }
 
@@ -78,7 +78,7 @@ export const DEMO_EVENTS: DemoEventDefinition[] = [
     elevationM: 14,
     facilities: { parking: 'YES', toilets: 'YES', cafe: 'YES', dogs: 'YES', buggies: 'YES', accessibility: 'YES' },
     history: { weeks: 26, meanParticipants: 290, medianSeconds: 1680, spread: 0.2 },
-    scores: { pbScore: 92, difficultyScore: 2.1, competitionScore: 74, gemBaseScore: 38, pbConfidence: 'HIGH', competitionConfidence: 'HIGH' },
+    scores: { pbScore: 92, gemBaseScore: 38, pbConfidence: 'HIGH' },
   },
   {
     slug: 'demo-victoria-park-5k',
@@ -93,7 +93,7 @@ export const DEMO_EVENTS: DemoEventDefinition[] = [
     elevationM: 54,
     facilities: { parking: 'YES', toilets: 'YES', cafe: 'NO', dogs: 'YES', buggies: 'YES', accessibility: 'UNKNOWN' },
     history: { weeks: 26, meanParticipants: 190, medianSeconds: 1740, spread: 0.19 },
-    scores: { pbScore: 76, difficultyScore: 4.3, competitionScore: 63, gemBaseScore: 52, pbConfidence: 'HIGH', competitionConfidence: 'MEDIUM' },
+    scores: { pbScore: 76, gemBaseScore: 52, pbConfidence: 'HIGH' },
   },
   {
     slug: 'demo-forest-trail-5k',
@@ -108,7 +108,7 @@ export const DEMO_EVENTS: DemoEventDefinition[] = [
     elevationM: 126,
     facilities: { parking: 'YES', toilets: 'YES', cafe: 'YES', dogs: 'YES', buggies: 'NO', accessibility: 'NO' },
     history: { weeks: 26, meanParticipants: 340, medianSeconds: 1890, spread: 0.18 },
-    scores: { pbScore: 41, difficultyScore: 7.4, competitionScore: 58, gemBaseScore: 30, pbConfidence: 'HIGH', competitionConfidence: 'HIGH' },
+    scores: { pbScore: 41, gemBaseScore: 30, pbConfidence: 'HIGH' },
   },
   {
     slug: 'demo-canal-towpath-5k',
@@ -123,7 +123,7 @@ export const DEMO_EVENTS: DemoEventDefinition[] = [
     elevationM: 8,
     facilities: { ...UNKNOWN_FACILITIES, parking: 'YES', toilets: 'NO' },
     history: { weeks: 26, meanParticipants: 120, medianSeconds: 1710, spread: 0.17 },
-    scores: { pbScore: 88, difficultyScore: 2.4, competitionScore: 48, gemBaseScore: 81, pbConfidence: 'MEDIUM', competitionConfidence: 'MEDIUM' },
+    scores: { pbScore: 88, gemBaseScore: 81, pbConfidence: 'MEDIUM' },
   },
   {
     slug: 'demo-estuary-path-5k',
@@ -138,7 +138,7 @@ export const DEMO_EVENTS: DemoEventDefinition[] = [
     elevationM: 11,
     facilities: { parking: 'YES', toilets: 'YES', cafe: 'UNKNOWN', dogs: 'YES', buggies: 'YES', accessibility: 'YES' },
     history: { weeks: 26, meanParticipants: 103, medianSeconds: 1800, spread: 0.16, cancelledWeeksAgo: [3] },
-    scores: { pbScore: 84, difficultyScore: 2.9, competitionScore: 42, gemBaseScore: 89, pbConfidence: 'HIGH', competitionConfidence: 'HIGH' },
+    scores: { pbScore: 84, gemBaseScore: 89, pbConfidence: 'HIGH' },
   },
   {
     slug: 'demo-moorland-edge-5k',
@@ -153,7 +153,7 @@ export const DEMO_EVENTS: DemoEventDefinition[] = [
     elevationM: 98,
     facilities: { ...UNKNOWN_FACILITIES, parking: 'YES' },
     history: { weeks: 26, meanParticipants: 85, medianSeconds: 1950, spread: 0.17 },
-    scores: { pbScore: 47, difficultyScore: 6.8, competitionScore: 35, gemBaseScore: 77, pbConfidence: 'MEDIUM', competitionConfidence: 'MEDIUM' },
+    scores: { pbScore: 47, gemBaseScore: 77, pbConfidence: 'MEDIUM' },
   },
   {
     slug: 'demo-old-mill-fields-5k',
@@ -168,7 +168,7 @@ export const DEMO_EVENTS: DemoEventDefinition[] = [
     elevationM: 31,
     facilities: { parking: 'YES', toilets: 'YES', cafe: 'NO', dogs: 'NO', buggies: 'YES', accessibility: 'UNKNOWN' },
     history: { weeks: 26, meanParticipants: 160, medianSeconds: 1770, spread: 0.18 },
-    scores: { pbScore: 63, difficultyScore: 5.1, competitionScore: 55, gemBaseScore: 61, pbConfidence: 'MEDIUM', competitionConfidence: 'MEDIUM' },
+    scores: { pbScore: 63, gemBaseScore: 61, pbConfidence: 'MEDIUM' },
   },
   {
     slug: 'demo-lakeside-5k',
@@ -183,7 +183,7 @@ export const DEMO_EVENTS: DemoEventDefinition[] = [
     elevationM: 19,
     facilities: { parking: 'YES', toilets: 'YES', cafe: 'YES', dogs: 'YES', buggies: 'YES', accessibility: 'YES' },
     history: { weeks: 26, meanParticipants: 420, medianSeconds: 1650, spread: 0.21 },
-    scores: { pbScore: 90, difficultyScore: 2.3, competitionScore: 86, gemBaseScore: 22, pbConfidence: 'HIGH', competitionConfidence: 'HIGH' },
+    scores: { pbScore: 90, gemBaseScore: 22, pbConfidence: 'HIGH' },
   },
   {
     slug: 'demo-heath-common-5k',
@@ -198,7 +198,7 @@ export const DEMO_EVENTS: DemoEventDefinition[] = [
     elevationM: 64,
     facilities: UNKNOWN_FACILITIES,
     history: { weeks: 26, meanParticipants: 140, medianSeconds: 1860, spread: 0.17 },
-    scores: { pbScore: 55, difficultyScore: 5.9, competitionScore: 51, gemBaseScore: 58, pbConfidence: 'MEDIUM', competitionConfidence: 'LOW' },
+    scores: { pbScore: 55, gemBaseScore: 58, pbConfidence: 'MEDIUM' },
   },
   {
     slug: 'demo-dockside-promenade-5k',
@@ -214,7 +214,7 @@ export const DEMO_EVENTS: DemoEventDefinition[] = [
     facilities: { ...UNKNOWN_FACILITIES, toilets: 'YES' },
     // A newly started event: too few occurrences for confident scores.
     history: { weeks: 4, meanParticipants: 230, medianSeconds: 1700, spread: 0.2 },
-    scores: { pbScore: 86, difficultyScore: 2.0, competitionScore: 66, gemBaseScore: 49, pbConfidence: 'INSUFFICIENT', competitionConfidence: 'INSUFFICIENT' },
+    scores: { pbScore: 86, gemBaseScore: 49, pbConfidence: 'INSUFFICIENT' },
   },
 ];
 

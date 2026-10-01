@@ -130,6 +130,7 @@ export function ComparePage() {
               <CompareTable data={data} />
               <p className="text-xs text-subtle">
                 “Best” marks the most favourable value where one is clearly better. Competition and field size are not marked: what suits you depends on your goal.
+                Competition (competition_v1) is relative to the events analysed over 90 days; Difficulty (difficulty_v1) is a structural course rating; PB Scores are demo values.
                 {data.timeSeconds != null && ` Placement rows show where ${formatFinishTime(data.timeSeconds)} would historically have placed in the last 90 days.`} Travel times are estimates.
               </p>
             </>

@@ -3,14 +3,24 @@
  * PostgreSQL (DATA_SOURCE=demo) and gives API tests a deterministic fixture.
  */
 import { addDays, type OccurrenceSummary } from '@runsaturday/shared';
-import { buildDemoDataset, DEMO_WINDOW_DAYS, type DemoDataset, type DemoEventBundle } from '../../demo/buildDemoDataset';
+import { computeCoreAnalytics, type CoreAnalytics } from '../../analytics/core';
+import { DEFAULT_ANALYTICS_WINDOW } from '../../analytics/versions';
+import {
+  buildDemoDataset,
+  DEMO_WINDOW_DAYS,
+  demoCompetitionInputs,
+  demoCourseFacts,
+  type DemoDataset,
+  type DemoEventBundle,
+} from '../../demo/buildDemoDataset';
+import { assembleScores } from '../scoreAssembly';
 import type { PlacementOccurrenceInput } from '../../domain/placementEngine';
 import type { DataStore, EventDetailRecord, EventRecord, UserRecord } from '../DataStore';
 
 const lower = <T extends string>(v: string) => v.toLowerCase() as T;
 const RECENT_OCCURRENCES = 12;
 
-function toRecord(b: DemoEventBundle, dataset: DemoDataset, generatedAt: string): EventRecord {
+function toRecord(b: DemoEventBundle, dataset: DemoDataset, analytics: CoreAnalytics, generatedAt: string): EventRecord {
   const { def } = b;
   return {
     id: b.id,
@@ -27,19 +37,20 @@ function toRecord(b: DemoEventBundle, dataset: DemoDataset, generatedAt: string)
     elevationM: def.elevationM,
     averageParticipants: b.averageParticipants != null ? Math.round(b.averageParticipants) : null,
     source: 'demo',
-    scores: {
-      pbScore: def.scores.pbScore,
-      difficultyScore: def.scores.difficultyScore,
-      competitionScore: def.scores.competitionScore,
-      gemBaseScore: def.scores.gemBaseScore,
-      pbConfidence: lower(def.scores.pbConfidence),
-      competitionConfidence: lower(def.scores.competitionConfidence),
-      sampleSize: b.sampleSize,
-      windowDays: DEMO_WINDOW_DAYS,
-      asOfDate: dataset.latestDate,
-      calculationVersion: dataset.scoreVersion,
-      calculatedAt: generatedAt,
-    },
+    scores: assembleScores(
+      {
+        pbScore: def.scores.pbScore,
+        gemBaseScore: def.scores.gemBaseScore,
+        pbConfidence: lower(def.scores.pbConfidence),
+        sampleSize: b.sampleSize,
+        windowDays: DEMO_WINDOW_DAYS,
+        asOfDate: dataset.latestDate,
+        calculationVersion: dataset.scoreVersion,
+        calculatedAt: generatedAt,
+      },
+      analytics.competition.get(b.id)?.get(DEFAULT_ANALYTICS_WINDOW) ?? null,
+      analytics.difficulty.get(b.id) ?? null,
+    ),
   };
 }
 
@@ -51,15 +62,18 @@ function toOccurrenceSummaries(b: DemoEventBundle): OccurrenceSummary[] {
 export class MemoryDataStore implements DataStore {
   readonly kind = 'demo-memory' as const;
   private readonly dataset: DemoDataset;
+  private readonly analytics: CoreAnalytics;
   private readonly generatedAt = new Date().toISOString();
 
   constructor(today: string) {
     this.dataset = buildDemoDataset(today);
+    // Same pure calculation the recalculation job persists, run once at startup.
+    this.analytics = computeCoreAnalytics(demoCourseFacts(this.dataset), demoCompetitionInputs(this.dataset), today);
   }
 
   private records(): EventRecord[] {
     return this.dataset.events
-      .map((b) => toRecord(b, this.dataset, this.generatedAt))
+      .map((b) => toRecord(b, this.dataset, this.analytics, this.generatedAt))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
@@ -82,7 +96,7 @@ export class MemoryDataStore implements DataStore {
     const { facilities } = bundle.def;
 
     return {
-      ...toRecord(bundle, this.dataset, this.generatedAt),
+      ...toRecord(bundle, this.dataset, this.analytics, this.generatedAt),
       startLocationText: bundle.def.startLocationText,
       startTime: '09:00',
       officialUrl: null,
@@ -150,6 +164,17 @@ export class MemoryDataStore implements DataStore {
       }
     }
     return inputs;
+  }
+
+  async getAnalytics(eventId: string, windowDays: number) {
+    return {
+      competition: this.analytics.competition.get(eventId)?.get(windowDays) ?? null,
+      difficulty: this.analytics.difficulty.get(eventId) ?? null,
+    };
+  }
+
+  async listCompetitionInputs(to: string) {
+    return demoCompetitionInputs(this.dataset).filter((o) => o.date <= to);
   }
 
   async getUser(userId: string): Promise<UserRecord | null> {

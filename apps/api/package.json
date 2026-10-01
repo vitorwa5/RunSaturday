@@ -15,7 +15,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
-    "db:reset": "prisma migrate reset --force"
+    "db:reset": "prisma migrate reset --force",
+    "analytics:recalculate": "tsx --env-file-if-exists=.env scripts/recalculate-analytics.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",

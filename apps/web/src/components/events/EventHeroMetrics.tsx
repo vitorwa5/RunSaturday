@@ -7,6 +7,7 @@ import {
   formatDifficulty,
   formatScore,
   opportunityBand,
+  pbLabel,
   type Band,
 } from '../../lib/display';
 import { ConfidenceBadge } from '../ui/ConfidenceBadge';
@@ -29,7 +30,7 @@ export function EventHeroMetrics({ event }: { event: EventDetail }) {
   return (
     <section aria-label="Key metrics" className="overflow-hidden rounded-3xl border border-line bg-surface">
       <dl className="grid grid-cols-3 divide-x divide-line">
-        <Primary label="PB Score" value={formatScore(s?.pbScore)} scale="out of 100" band={opportunityBand(s?.pbScore)} />
+        <Primary label={pbLabel(event.source)} value={formatScore(s?.pbScore)} scale="out of 100" band={opportunityBand(s?.pbScore)} />
         <Primary label="Difficulty" value={formatDifficulty(s?.difficultyScore)} scale="out of 10" band={difficultyBand(s?.difficultyScore)} />
         <Primary label="Competition" value={formatScore(s?.competitionScore)} scale="out of 100" band={competitionBand(s?.competitionScore)} />
       </dl>

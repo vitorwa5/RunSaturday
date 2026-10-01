@@ -25,20 +25,30 @@ export interface TravelEstimate {
 export interface EventScores {
   /** 0–100, higher = better potential for a fast 5K. */
   pbScore: number | null;
-  /** 1.0–10.0, higher = harder. */
+  /** Course Difficulty V1 (difficulty_v1): 1.0–10.0 structural rating, higher = harder. */
   difficultyScore: number | null;
-  /** 0–100, higher = stronger historical competition. */
+  /** Competition V1 (competition_v1): 0–100, relative to the analysed events, higher = deeper. */
   competitionScore: number | null;
   /** 0–100 base (non-personalised) Hidden Gem score. */
   gemBaseScore: number | null;
+  /** Confidence of the (demo) PB Score data. */
   pbConfidence: ConfidenceLevel;
+  /** Confidence V2 level for Competition V1. */
   competitionConfidence: ConfidenceLevel;
-  /** Number of event occurrences the scores are based on. Never hidden from users. */
+  /** Confidence V2 internal score (0–100) for Competition V1. */
+  competitionConfidenceScore: number | null;
+  /** Usable occurrences behind Competition V1 (90-day window). */
+  competitionSampleSize: number;
+  difficultyConfidence: ConfidenceLevel;
+  /** Versions behind each value; PB stays demo until Phase 3B. */
+  versions: { pb: string; competition: string | null; difficulty: string | null };
+  /** Number of event occurrences the (demo) PB Score is based on. Never hidden from users. */
   sampleSize: number;
   /** Analysis window in days (30, 60, 90, 365; 0 = all-time). */
   windowDays: number;
   /** Last date of data included in this snapshot (ISO "YYYY-MM-DD"). */
   asOfDate: string;
+  /** Version of the PB snapshot (e.g. demo_v0); see `versions` for the others. */
   calculationVersion: string;
   calculatedAt: string;
 }
@@ -371,4 +381,84 @@ export interface CompareResponse {
   window: HistoryWindowId;
   /** Event ids with the most favourable value per metric (ties included); absent when not comparable. */
   best: Partial<Record<CompareMetricKey, string[]>>;
+}
+
+// ---------------------------------------------------------------------------
+// Core analytics (Phase 3A): Competition V1, Difficulty V1, Confidence V2
+// ---------------------------------------------------------------------------
+
+export interface ConfidenceFactor {
+  key: 'amount' | 'recency' | 'completeness' | 'stability' | 'structure';
+  label: string;
+  /** Weight as a fraction (factors with weight sum to 1). */
+  weight: number;
+  /** 0–100. */
+  value: number;
+  /** Plain-language basis, e.g. "12 usable events". */
+  detail: string;
+}
+
+/** Confidence in the DATA behind a metric. Never a probability of a future result. */
+export interface ConfidenceAssessment {
+  level: ConfidenceLevel;
+  /** Internal 0–100 score. */
+  score: number;
+  factors: ConfidenceFactor[];
+}
+
+export interface CompetitionComponent {
+  key: 'winner' | 'third' | 'fifth' | 'tenth' | 'field_depth';
+  label: string;
+  weight: number;
+  /** 0–100 relative strength within the analysed cohort; null when missing. */
+  value: number | null;
+  /** Median finish time behind the value. */
+  medianSeconds: number | null;
+  /** Occurrences contributing to the median. */
+  observations: number;
+}
+
+export interface CompetitionBreakdown {
+  metric: 'competition';
+  version: string;
+  /** 0–100, or null with "Limited data". */
+  value: number | null;
+  windowDays: number;
+  asOfDate: string;
+  /** Usable occurrences for this event. */
+  sampleSize: number;
+  /** Events in the comparison cohort for this window. */
+  cohortSize: number;
+  components: CompetitionComponent[];
+  confidence: ConfidenceAssessment;
+  excluded: { cancelled: number; insufficientData: number };
+}
+
+export interface DifficultyComponent {
+  key: 'elevation' | 'surface' | 'structure';
+  label: string;
+  weight: number;
+  /** 0–100 severity; null when the input is unknown. */
+  value: number | null;
+  /** The stored fact behind it, e.g. "14 m", "Tarmac", "2 laps". */
+  input: string;
+  missing: boolean;
+}
+
+export interface DifficultyBreakdown {
+  metric: 'difficulty';
+  version: string;
+  /** 1.0–10.0, or null when too little is known. */
+  value: number | null;
+  asOfDate: string;
+  components: DifficultyComponent[];
+  confidence: ConfidenceAssessment;
+}
+
+export interface EventAnalyticsResponse {
+  eventId: string;
+  window: HistoryWindowId;
+  competition: CompetitionBreakdown | null;
+  difficulty: DifficultyBreakdown | null;
+  notes: string[];
 }

@@ -168,7 +168,7 @@ test.describe('Event page', () => {
     await page.goto('/event/demo-heath-common-5k');
     await expect(page.getByRole('heading', { level: 1, name: 'Heath Common 5K' })).toBeVisible();
     const metrics = page.getByRole('region', { name: 'Key metrics' });
-    for (const label of ['PB Score', 'Difficulty', 'Competition']) await expect(metrics.getByText(label, { exact: true })).toBeVisible();
+    for (const label of ['Demo PB Score', 'Difficulty', 'Competition']) await expect(metrics.getByText(label, { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: /Save/ })).toBeDisabled();
 
     const outlook = page.getByRole('region', { name: 'Your outlook' });
@@ -372,5 +372,43 @@ test.describe('Compare', () => {
     await page.goto('/compare?ids=demo-riverside-5k,demo-lakeside-5k,gone-event');
     await expect(page.getByText('An event could not be found')).toBeVisible();
     await expect(page.getByRole('table').getByRole('columnheader')).toHaveCount(3);
+  });
+});
+
+test.describe('Core analytics (Phase 3A)', () => {
+  test('Event page explains Competition V1 and Difficulty V1', async ({ page }) => {
+    await page.goto('/event/demo-victoria-park-5k');
+    const metrics = page.getByRole('region', { name: 'Key metrics' });
+    await expect(metrics.getByText('4.9')).toBeVisible(); // Difficulty V1
+    await expect(page.getByText(/Competition competition_v1 · Difficulty difficulty_v1 · Demo PB Score demo_v0/)).toBeVisible();
+
+    const explainer = page.getByRole('region', { name: 'How the scores are calculated' });
+    const toggle = explainer.getByRole('button', { name: /How it's calculated/ });
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    for (const label of ['Winner strength', 'Podium depth', 'Top-5 depth', 'Top-10 depth', 'Field depth']) {
+      await expect(explainer.getByText(new RegExp(`^${label} · \\d+%$`))).toBeVisible();
+    }
+    await expect(explainer.getByText(/compared with 10 analysed events/)).toBeVisible();
+    for (const [label, weight] of [['Elevation', 55], ['Surface', 25], ['Course structure', 20]] as const) {
+      await expect(explainer.getByText(`${label} · ${weight}%`)).toBeVisible();
+    }
+    await expect(explainer.getByText('54 m')).toBeVisible();
+    await expect(explainer.getByText(/not an official or universal parkrun rating/)).toBeVisible();
+    await expect(explainer.getByText(/not the chance of any result/).first()).toBeVisible();
+
+    await explainer.getByRole('radiogroup', { name: 'Competition period' }).getByRole('radio', { name: '30d' }).click();
+    await expect(explainer.getByText(/Based on [1-5] usable events/)).toBeVisible();
+    await expectNoHorizontalScroll(page);
+  });
+
+  test('PB stays labelled as demo across tools', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByRole('region', { name: 'Your best pick' }).getByText('Demo PB opportunity')).toBeVisible();
+    await page.goto('/saturday');
+    await expect(page.getByRole('article').first().getByText('Demo PB opportunity')).toBeVisible();
+    await page.goto('/compare?ids=demo-riverside-5k,demo-lakeside-5k');
+    await expect(page.getByRole('rowheader', { name: 'Demo PB Score' })).toBeVisible();
+    await expect(page.getByText(/Competition \(competition_v1\) is relative/)).toBeVisible();
   });
 });

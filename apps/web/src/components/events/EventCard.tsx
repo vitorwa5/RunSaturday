@@ -2,6 +2,7 @@ import type { EventSummary } from '@runsaturday/shared';
 import { ChevronRight, Heart } from 'lucide-react';
 import { Link } from 'react-router';
 import { ConfidenceBadge } from '../ui/ConfidenceBadge';
+import { pbLabel } from '../../lib/display';
 import { DemoBadge } from '../ui/DemoBadge';
 import { ScoreBadge } from '../ui/ScoreBadge';
 import { TravelBadge } from '../ui/TravelBadge';
@@ -27,7 +28,7 @@ export function EventCard({ event }: { event: EventSummary }) {
           <TravelBadge travel={event.travel} />
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
-          <ScoreBadge label="PB" score={event.scores?.pbScore} />
+          <ScoreBadge label={pbLabel(event.source, true)} score={event.scores?.pbScore} />
           <ScoreBadge label="Comp" score={event.scores?.competitionScore} kind="competition" />
           <ConfidenceBadge level={event.scores?.pbConfidence ?? 'insufficient'} compact />
         </div>

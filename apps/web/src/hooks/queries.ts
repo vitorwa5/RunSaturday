@@ -46,6 +46,14 @@ export const usePlanner = (selection: PlannerSelection) =>
     placeholderData: keepPreviousData,
   });
 
+export const useEventAnalytics = (id: string, window: HistoryWindowId, enabled = true) =>
+  useQuery({
+    queryKey: ['event', id, 'analytics', window] as const,
+    queryFn: ({ signal }) => api.eventAnalytics(id, window, signal),
+    enabled,
+    placeholderData: (previous) => (previous?.eventId === id ? previous : undefined),
+  });
+
 export const usePlacement = (q: { timeSeconds: number | null; window: HistoryWindowId; target: PlacementTargetId; maxTravel?: number }) =>
   useQuery({
     queryKey: ['placement', q] as const,

@@ -1,7 +1,7 @@
 import type { Recommendation } from '@runsaturday/shared';
 import { Car } from 'lucide-react';
 import { useId, useState } from 'react';
-import { formatCount, formatDifficulty, formatMeters, formatScore, SURFACE_LABEL } from '../../lib/display';
+import { formatCount, formatDifficulty, formatMeters, formatScore, pbLabel, SURFACE_LABEL } from '../../lib/display';
 import { ButtonLink } from '../ui/Button';
 import { ConfidenceBadge } from '../ui/ConfidenceBadge';
 import { DemoBadge } from '../ui/DemoBadge';
@@ -28,9 +28,9 @@ export function RecommendationCard({ recommendation, secondary: secondaryKeys = 
   const s = event.scores;
 
   const values: Record<SecondaryMetric, { label: string; value: string }> = {
-    pb_score: { label: 'PB Score', value: `${formatScore(s?.pbScore)}/100` },
+    pb_score: { label: pbLabel(event.source), value: `${formatScore(s?.pbScore)}/100` },
     difficulty: { label: 'Difficulty', value: `${formatDifficulty(s?.difficultyScore)}/10` },
-    competition_score: { label: 'Competition', value: `${formatScore(s?.competitionScore)}/100` },
+    competition_score: { label: 'Competition', value: s?.competitionScore == null ? 'Limited data' : `${formatScore(s.competitionScore)}/100` },
     average_participants: { label: 'Avg runners', value: formatCount(event.averageParticipants) },
     elevation: { label: 'Elevation', value: formatMeters(event.elevationM) },
     surface: { label: 'Surface', value: SURFACE_LABEL[event.surface] },
@@ -58,7 +58,10 @@ export function RecommendationCard({ recommendation, secondary: secondaryKeys = 
       </header>
 
       <div className="mt-3 flex items-end justify-between gap-3">
-        <RankedMetric rankedBy={metricLabel ? { ...rankedBy, label: metricLabel } : rankedBy} size="md" />
+        <RankedMetric
+          rankedBy={metricLabel ? { ...rankedBy, label: metricLabel } : rankedBy.key === 'pb_score' && event.source === 'demo' ? { ...rankedBy, label: `Demo ${rankedBy.label}` } : rankedBy}
+          size="md"
+        />
         {rankedBy.key !== 'travel_minutes' && (
           <p className="inline-flex shrink-0 items-center gap-1 pb-0.5 text-sm font-semibold text-muted tabular-nums" title="Estimated from straight-line distance">
             <Car className="size-4" aria-hidden />

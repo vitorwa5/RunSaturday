@@ -1,6 +1,6 @@
 /** Where Could I Place? Orchestrates the data layer and the pure placement engine. */
 import type { EventPlacement, EventSummary, HistoryWindowId, PlacementTargetId } from '@runsaturday/shared';
-import { confidenceFromSampleSize } from '../domain/confidence';
+import { assessConfidence, STABILITY_SCALES } from '../domain/confidence';
 import { historicalPlacements, summarizePlacements, targetFrequency, type PlacementOccurrenceInput } from '../domain/placementEngine';
 import { windowFrom } from '../domain/windows';
 import type { DataStore } from '../repositories/DataStore';
@@ -8,13 +8,25 @@ import type { DataStore } from '../repositories/DataStore';
 const HISTORY_SHOWN = 12;
 
 /** Build one event's placement summary from its occurrence inputs (pure). */
-export function buildEventPlacement(event: EventSummary, inputs: readonly PlacementOccurrenceInput[], target: PlacementTargetId): EventPlacement {
+export function buildEventPlacement(
+  event: EventSummary,
+  inputs: readonly PlacementOccurrenceInput[],
+  target: PlacementTargetId,
+  asOfDate: string,
+): EventPlacement {
   const { placements, excluded } = historicalPlacements(inputs);
   const stats = summarizePlacements(placements);
+  // Confidence V2 on the placement data: amount, recency, completeness, stability of placings.
+  const confidence = assessConfidence({
+    observations: placements.map((p) => ({ date: p.date, value: p.best })),
+    eligibleCount: inputs.filter((o) => o.status !== 'cancelled').length,
+    asOfDate,
+    stability: STABILITY_SCALES.placings,
+  });
   return {
     event,
     sampleSize: placements.length,
-    confidence: confidenceFromSampleSize(placements.length),
+    confidence: confidence.level,
     stats,
     target: stats ? targetFrequency(placements, target) : null,
     excluded,
@@ -59,5 +71,5 @@ export async function computePlacements(
     list.push(input);
     byEvent.set(input.eventId, list);
   }
-  return { placements: events.map((e) => buildEventPlacement(e, byEvent.get(e.id) ?? [], options.target)), from };
+  return { placements: events.map((e) => buildEventPlacement(e, byEvent.get(e.id) ?? [], options.target, options.today)), from };
 }

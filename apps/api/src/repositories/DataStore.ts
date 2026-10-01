@@ -3,7 +3,8 @@
  * interface only, never on Prisma directly, so storage can change (and tests can
  * run without PostgreSQL).
  */
-import type { EventDetail, EventSummary, Goal, OccurrenceSummary } from '@runsaturday/shared';
+import type { CompetitionBreakdown, DifficultyBreakdown, EventDetail, EventSummary, Goal, OccurrenceSummary } from '@runsaturday/shared';
+import type { CompetitionOccurrenceInput } from '../analytics/competition';
 import type { PlacementOccurrenceInput } from '../domain/placementEngine';
 
 /** Event as stored, before request-specific context (travel, visited) is added. */
@@ -56,6 +57,13 @@ export interface DataStore {
    */
   listPlacementInputs(timeSeconds: number, eventIds: string[] | null, from: string | null, to: string): Promise<PlacementOccurrenceInput[]>;
   getUser(userId: string): Promise<UserRecord | null>;
+  /**
+   * Latest stored analytics for an event: Competition V1 for the window (days; 0 = all history)
+   * and Difficulty V1. Read from snapshots; never recalculated per request.
+   */
+  getAnalytics(eventId: string, windowDays: number): Promise<{ competition: CompetitionBreakdown | null; difficulty: DifficultyBreakdown | null }>;
+  /** Per-occurrence placing times derived from Result rows, for occurrences dated on or before `to`. */
+  listCompetitionInputs(to: string): Promise<CompetitionOccurrenceInput[]>;
   /** True when the underlying store is reachable. */
   ping(): Promise<boolean>;
   close(): Promise<void>;

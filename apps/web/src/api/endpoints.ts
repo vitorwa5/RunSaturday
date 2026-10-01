@@ -1,6 +1,7 @@
 import type {
   BestPickResponse,
   CompareResponse,
+  EventAnalyticsResponse,
   EventPlacement,
   HiddenGemModeId,
   HiddenGemsResponse,
@@ -31,6 +32,8 @@ export const api = {
   planner: (selection: PlannerSelection, signal?: AbortSignal) =>
     apiGet<PlannerResponse>('/planner', plannerApiQuery(selection), signal),
   profile: (signal?: AbortSignal) => apiGet<UserProfile>('/profile', {}, signal),
+  eventAnalytics: (id: string, window: HistoryWindowId, signal?: AbortSignal) =>
+    apiGet<EventAnalyticsResponse>(`/events/${encodeURIComponent(id)}/analytics`, { window }, signal),
   placement: (q: { timeSeconds: number; window: HistoryWindowId; target: PlacementTargetId; maxTravel?: number }, signal?: AbortSignal) =>
     apiGet<PlacementResponse>('/placement', { time: q.timeSeconds, window: q.window, target: q.target, maxTravel: q.maxTravel }, signal),
   eventPlacement: (id: string, timeSeconds: number, signal?: AbortSignal) =>

@@ -15,9 +15,9 @@ interface MetricRow {
 }
 
 const BASE_ROWS: MetricRow[] = [
-  { label: 'PB Score', best: 'pb_score', render: (r) => `${formatScore(r.event.scores?.pbScore)}/100` },
+  { label: 'Demo PB Score', best: 'pb_score', render: (r) => `${formatScore(r.event.scores?.pbScore)}/100` },
   { label: 'Difficulty', best: 'difficulty', render: (r) => `${formatDifficulty(r.event.scores?.difficultyScore)}/10` },
-  { label: 'Competition', render: (r) => `${formatScore(r.event.scores?.competitionScore)}/100` },
+  { label: 'Competition', render: (r) => (r.event.scores?.competitionScore == null ? 'Limited data' : `${formatScore(r.event.scores.competitionScore)}/100`) },
   { label: 'Avg runners', render: (r) => formatCount(r.event.averageParticipants) },
   { label: 'Elevation', best: 'elevation', render: (r) => (r.event.elevationM == null ? 'Unknown' : `${r.event.elevationM} m`) },
   { label: 'Surface', render: (r) => SURFACE_LABEL[r.event.surface] },

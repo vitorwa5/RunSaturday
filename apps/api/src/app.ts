@@ -4,6 +4,7 @@ import type { AppConfig } from './config/env';
 import { createTodayFn, type RequestContext } from './http/context';
 import { registerErrorHandling } from './http/errors';
 import type { DataStore } from './repositories/DataStore';
+import { analyticsRoutes } from './routes/analytics';
 import { eventRoutes } from './routes/events';
 import { healthRoutes } from './routes/health';
 import { plannerRoutes } from './routes/planner';
@@ -31,6 +32,7 @@ export async function buildApp({ config, store, now = () => new Date(), logger }
   await recommendationRoutes(app, ctx);
   await plannerRoutes(app, ctx);
   await toolRoutes(app, ctx);
+  await analyticsRoutes(app, ctx);
   await profileRoutes(app, ctx);
 
   app.addHook('onClose', async () => store.close());

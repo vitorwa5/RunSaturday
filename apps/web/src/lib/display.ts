@@ -2,7 +2,7 @@
  * Presentation mappings: how values are labelled and toned in the UI.
  * No scoring maths lives here, only display thresholds and wording.
  */
-import { ordinal, type ConfidenceLevel, type CourseType, type FacilityStatus, type HistoricalFrequency, type Recommendation, type Surface } from '@runsaturday/shared';
+import { ordinal, type ConfidenceLevel, type CourseType, type FacilityStatus, type DataSource, type HistoricalFrequency, type Recommendation, type Surface } from '@runsaturday/shared';
 
 export type Tone = 'positive' | 'caution' | 'problem' | 'info' | 'neutral';
 
@@ -21,7 +21,7 @@ export function opportunityBand(score: number | null | undefined): Band {
 
 /** Competition is not good or bad in itself, so it uses informational tones only. */
 export function competitionBand(score: number | null | undefined): Band {
-  if (score == null) return { label: 'No score', tone: 'neutral' };
+  if (score == null) return { label: 'Limited data', tone: 'neutral' };
   if (score >= 70) return { label: 'High', tone: 'info' };
   if (score >= 45) return { label: 'Medium', tone: 'info' };
   return { label: 'Lower', tone: 'info' };
@@ -29,7 +29,7 @@ export function competitionBand(score: number | null | undefined): Band {
 
 /** Difficulty on the 1–10 scale (higher = harder). */
 export function difficultyBand(score: number | null | undefined): Band {
-  if (score == null) return { label: 'No score', tone: 'neutral' };
+  if (score == null) return { label: 'Limited data', tone: 'neutral' };
   if (score <= 3.5) return { label: 'Easy', tone: 'positive' };
   if (score <= 6.5) return { label: 'Moderate', tone: 'caution' };
   return { label: 'Hard', tone: 'problem' };
@@ -100,3 +100,7 @@ export function formatPlacementRange(range: { low: number; high: number }): stri
 export function formatFrequency(f: HistoricalFrequency): string {
   return `${f.count} of ${f.of} ${f.of === 1 ? 'event' : 'events'}`;
 }
+
+/** PB Score label: stays "Demo PB Score" for demo data until the real model (Phase 3B). */
+export const pbLabel = (source: DataSource, short = false) =>
+  source === 'demo' ? (short ? 'Demo PB' : 'Demo PB Score') : short ? 'PB' : 'PB Score';

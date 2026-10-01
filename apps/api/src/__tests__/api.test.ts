@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type {
   BestPickResponse,
   CompareResponse,
+  EventAnalyticsResponse,
   EventDetail,
   EventHistoryResponse,
   EventPlacement,
@@ -327,6 +328,63 @@ describe('API', () => {
       expect(five.json().error.message).toBe('Compare up to 4 events at a time.');
       // Duplicates collapse before counting.
       expect((await app.inject('/api/compare?ids=demo-riverside-5k,demo-riverside-5k')).statusCode).toBe(400);
+    });
+  });
+
+  describe('core analytics', () => {
+    it('serves calculated Competition V1 and Difficulty V1 while PB stays demo', async () => {
+      app = await buildTestApp();
+      const events = (await app.inject('/api/events')).json<EventSummary[]>();
+      for (const e of events) {
+        expect(e.scores!.versions).toEqual({ pb: 'demo_v0', competition: 'competition_v1', difficulty: 'difficulty_v1' });
+        expect(e.scores!.difficultyScore).toBeGreaterThanOrEqual(1);
+        expect(e.scores!.difficultyScore).toBeLessThanOrEqual(10);
+      }
+      const byId = new Map(events.map((e) => [e.id, e.scores!]));
+      // Deterministic demo values: deepest field 100, slowest field 0; flattest course easiest.
+      expect(byId.get('demo-lakeside-5k')!.competitionScore).toBe(100);
+      expect(byId.get('demo-moorland-edge-5k')!.competitionScore).toBe(0);
+      expect(byId.get('demo-forest-trail-5k')!.difficultyScore).toBe(6.9);
+      expect(byId.get('demo-dockside-promenade-5k')!.difficultyScore).toBe(1.8);
+      expect(byId.get('demo-riverside-5k')!.competitionConfidence).toBe('high');
+    });
+
+    it('explains both scores with components, versions and confidence factors', async () => {
+      app = await buildTestApp();
+      const body = (await app.inject('/api/events/demo-victoria-park-5k/analytics')).json<EventAnalyticsResponse>();
+      expect(body.window).toBe('90');
+      const c = body.competition!;
+      expect(c).toMatchObject({ metric: 'competition', version: 'competition_v1', windowDays: 90, asOfDate: '2026-10-01', sampleSize: 13, cohortSize: 10 });
+      expect(c.components.map((x) => x.label)).toEqual(['Winner strength', 'Podium depth', 'Top-5 depth', 'Top-10 depth', 'Field depth']);
+      expect(c.confidence.factors.map((f) => f.key)).toEqual(['amount', 'recency', 'completeness', 'stability']);
+      const d = body.difficulty!;
+      expect(d).toMatchObject({ metric: 'difficulty', version: 'difficulty_v1', value: 4.9 });
+      expect(d.components.map((x) => x.input)).toEqual(['54 m', 'Mixed', '3+ laps']);
+      expect(body.notes.join(' ')).toMatch(/not an official or universal parkrun rating/);
+    });
+
+    it('supports every window and 404s unknown events', async () => {
+      app = await buildTestApp();
+      const sizes: number[] = [];
+      for (const w of ['30', '60', '90', '365', 'all']) {
+        const body = (await app.inject(`/api/events/demo-riverside-5k/analytics?window=${w}`)).json<EventAnalyticsResponse>();
+        sizes.push(body.competition!.sampleSize);
+        expect(body.competition!.windowDays).toBe(w === 'all' ? 0 : Number(w));
+      }
+      expect(sizes).toEqual([...sizes].sort((a, b) => a - b));
+      expect((await app.inject('/api/events/nope/analytics')).statusCode).toBe(404);
+      expect((await app.inject('/api/events/demo-riverside-5k/analytics?window=7')).statusCode).toBe(400);
+    });
+
+    it('uses Competition V1 in the Hidden Gem fallback while keeping hidden_gem_v1', async () => {
+      app = await buildTestApp();
+      const gems = (await app.inject('/api/hidden-gems?time=50:00&maxTravel=90')).json<HiddenGemsResponse>();
+      expect(gems.algorithm).toBe('hidden_gem_v1');
+      const events = new Map((await app.inject('/api/events')).json<EventSummary[]>().map((e) => [e.id, e]));
+      for (const g of gems.results) {
+        const placement = g.components.find((c) => c.key === 'placement_opportunity')!;
+        if (placement.basis.startsWith('Inverse')) expect(placement.value).toBe(100 - events.get(g.event.id)!.scores!.competitionScore!);
+      }
     });
   });
 

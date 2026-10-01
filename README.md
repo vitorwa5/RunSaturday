@@ -6,7 +6,7 @@
 
 5K Compass is a mobile-first decision-support app for runners choosing *where* to run on Saturday. It turns event data into explained, goal-specific recommendations (PB, placing, hidden gems, new events, quiet events, challenges). It is an independent project and is **not affiliated with or endorsed by parkrun** or any event organiser.
 
-> **Status: Phase 2B (discovery and performance tools: Where Could I Place?, PB Finder, Hidden Gems, Compare).** All event data is **fictional DEMO data**. No real event statistics are included, and no data is collected from external sites.
+> **Status: Phase 3A (core analytics: Competition V1, Course Difficulty V1, Confidence V2). PB Score is still a demo value until Phase 3B.** All event data is **fictional DEMO data**. No real event statistics are included, and no data is collected from external sites.
 
 ---
 
@@ -92,6 +92,7 @@ npm run dev          # API on :3001, web on http://localhost:5173
 | `npm run test:e2e` | Playwright at 360 px and 430 px (starts its own demo servers) |
 | `npm run db:up` / `db:down` | start/stop the Docker database |
 | `npm run db:migrate` / `db:seed` / `db:reset` | Prisma migrations / DEMO seed / full reset |
+| `npm run analytics:recalculate` | recalculate Competition V1 and Difficulty V1 snapshots (`-- --as-of=YYYY-MM-DD` optional); the seed runs it too |
 
 Database integration tests run only when you point them at a seeded database:
 
@@ -134,6 +135,7 @@ Web (optional, `apps/web/.env`): `VITE_API_BASE_URL` (default `/api`) and `VITE_
 | `GET /api/pb-finder?maxTravel=&sort=&surface=&elevation=&confidence=&visited=` | events ranked or sorted using the stored (demo) PB Score |
 | `GET /api/hidden-gems?mode=&maxTravel=&time=` | Hidden Gem V1 ranking with component breakdowns |
 | `GET /api/compare?ids=a,b[,c,d]&time=&window=` | 2–4 events side by side, with best-value markers and optional historical placement |
+| `GET /api/events/:idOrSlug/analytics?window=` | stored Competition V1 (for the window) and Difficulty V1 breakdowns, versions and confidence factors |
 
 Without `lat`/`lon`, the user's saved home location is the origin. There's no authentication yet: every request acts as the demo user (see `http/context.ts`).
 
@@ -209,8 +211,45 @@ How the results are used:
 - **Targets are conservative.** Top 3/5/10, Top 10%/25% and "1st" count an occurrence only when the *worst* placing reaches the target. A tie that straddles the boundary does not count.
   - Percentage targets compare against the field *including* the runner, and the winner always counts.
 - **Ranking and Compare's "Best"** use the conservative (worst-case) end of the median range.
-- **Confidence** comes from the number of usable events: 10+ is high, 6+ medium, 3+ low, fewer is "Limited data" (`domain/confidence.ts`).
+- **Confidence** uses Confidence V2 (see Core analytics) on the placement data: the amount, recency and completeness of usable events, plus the stability of placings.
 - **Wording:** frequencies describe history ("Top 10 in 10 of 12 events"), never a chance of anything.
+
+### Core analytics (Phase 3A)
+
+Scores are calculated by a backend job (`npm run analytics:recalculate`, also run by the seed) and stored as `EventScore` snapshots keyed by `(eventId, calculationVersion, windowDays, asOfDate)`. The full breakdown is stored in `components`. API requests read the latest snapshot and never scan Result rows. Re-running for the same date replaces that day's snapshots, and earlier dates are kept.
+
+| Version | Rows per run | Stores |
+| --- | --- | --- |
+| `competition_v1` | one per event per window (30, 60, 90, 365, 0 = all) | `competitionScore`, `competitionConfidence`, breakdown |
+| `difficulty_v1` | one per event (`windowDays` 0: structural) | `difficultyScore`, breakdown |
+| `demo_v0` | unchanged | Demo PB Score and Gem base (until Phase 3B) |
+
+No schema change was needed. In demo mode the in-memory store runs the same pure functions at startup, and a database test checks both modes give identical results.
+
+**Competition V1** (`analytics/competition.ts`), 0–100. It measures historical competitive depth, *not* course speed.
+
+- **Inputs:** completed, validated occurrences in the window whose Result rows are complete. Cancelled and partial dates are excluded.
+- **Medians per event,** read from Result rows: winner (25%), 3rd (25%), 5th (20%), 10th (20%), and field depth (10%). Field depth is the top-10% cutoff time, at position ceil(0.10 × field), so the 20th of 200.
+- **Cohort-relative normalisation,** with no fixed time thresholds. Each component's strength = 100 × (events slower + ½ × events tied) ÷ (cohort − 1). Faster is higher, ties are equal, and because it's rank-based an extreme value cannot stretch the scale.
+- **Score:** the weighted mean of the available components, with weights re-normalised.
+- **Minimums:** 3 usable occurrences for an event; 3 observations per component; a cohort of 3 events per component; and at least half the weight available. Below these the result is "Limited data".
+- **It is relative:** the score is relative to the events analysed for the same window. It is not an official or universal parkrun rating.
+
+**Course Difficulty V1** (`analytics/difficulty.ts`), 1.0–10.0. It is structural only; finishing times and competition are not used.
+
+- **Severity** = the weighted mean of the *known* parts:
+  - elevation 55%: min(m, 150) ÷ 150 × 100
+  - surface 25%: tarmac 0, mixed 40, grass 70, trail 70
+  - structure 20%: point-to-point 0, one lap 10, out-and-back 35, two laps 45, three or more laps 70. If the course type is unknown, the lap count is used.
+- **Difficulty** = 1 + 9 × severity ÷ 100.
+- **Unknown inputs** are never assumed easy. They are left out, flagged in the breakdown, and lower the confidence: missing elevation gives Low, any other missing part gives Medium. Below 45% known weight there is no rating.
+
+**Confidence V2** (`domain/confidence.ts`), an internal 0–100 score plus High/Medium/Low/Limited data. It describes the *data*, never the chance of a result.
+
+- **Formula:** 40% amount (full marks at 12 usable events) + 25% recency (100 up to 7 days old, falling to 0 at 90) + 20% completeness (usable ÷ non-cancelled) + 15% stability.
+- **Stability** is MAD ÷ median: the median absolute deviation, which one outlier can't move much. Its tolerance is 10% for cutoff times and 50% for placings, with the denominator floored at 10 places.
+- **Levels:** High 75+, Medium 55+, Low 35+. Fewer than 3 observations is always "Limited data".
+- **Used by** Competition V1 and historical placement.
 
 ### Hidden Gem V1 (`hidden_gem_v1`)
 
@@ -218,7 +257,7 @@ How the results are used:
 
 | Part | How it's scaled to 0–100 |
 | --- | --- |
-| Placement opportunity | The runner's historical Top-10 share over 90 days. Without a runner time: 100 − Competition Score. |
+| Placement opportunity | The runner's historical Top-10 share over 90 days. Without a runner time: 100 − Competition V1. |
 | Small field | 50 or fewer average runners scores 100; 500 or more scores 0. |
 | Travel convenience | 1 − estimated minutes ÷ travel limit. |
 | Reliability | High 100, Medium 70, Low 40, Limited data 10. |

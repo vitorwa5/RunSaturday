@@ -5,6 +5,9 @@
 import { addDays, nextSaturday } from '@runsaturday/shared';
 import { DEFAULT_SCORE_WINDOW_DAYS } from '../config/analysis';
 import { DEMO_EVENTS, DEMO_SCORE_VERSION, DEMO_USER, type DemoEventDefinition } from './demoEvents';
+import type { CompetitionOccurrenceInput } from '../analytics/competition';
+import { fieldDepthPosition } from '../analytics/competition';
+import type { CourseFacts } from '../analytics/difficulty';
 import { generateDemoHistory, type DemoOccurrence } from './generateDemoHistory';
 
 /** Demo scores exist only for the default window. */
@@ -51,4 +54,38 @@ export function buildDemoDataset(today: string): DemoDataset {
   });
 
   return { latestDate, scoreVersion: DEMO_SCORE_VERSION, events, user: DEMO_USER };
+}
+
+/** Analytics inputs from the generated Result rows (same derivation as the SQL query). */
+export function demoCompetitionInputs(dataset: DemoDataset): CompetitionOccurrenceInput[] {
+  return dataset.events.flatMap(({ id, occurrences }) =>
+    occurrences.map((o) => {
+      const at = (position: number) => o.results.find((r) => r.position === position)?.finishTimeSeconds ?? null;
+      const n = o.results.length;
+      return {
+        eventId: id,
+        date: o.date,
+        status: o.status === 'COMPLETED' ? ('completed' as const) : ('cancelled' as const),
+        // Mirrors the seed: completed demo occurrences are VALID.
+        dataQuality: o.status === 'COMPLETED' ? ('valid' as const) : ('unvalidated' as const),
+        participantCount: o.participantCount,
+        resultCount: n,
+        winnerSeconds: at(1),
+        thirdSeconds: at(3),
+        fifthSeconds: at(5),
+        tenthSeconds: at(10),
+        fieldDepthSeconds: n > 0 ? at(fieldDepthPosition(n)) : null,
+      };
+    }),
+  );
+}
+
+export function demoCourseFacts(dataset: DemoDataset): CourseFacts[] {
+  return dataset.events.map(({ id, def }) => ({
+    eventId: id,
+    elevationM: def.elevationM,
+    surface: def.surface.toLowerCase() as CourseFacts['surface'],
+    courseType: def.courseType.toLowerCase() as CourseFacts['courseType'],
+    laps: def.laps,
+  }));
 }

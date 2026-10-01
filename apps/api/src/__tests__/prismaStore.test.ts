@@ -6,6 +6,7 @@
  */
 import { calendarDateIn } from '@runsaturday/shared';
 import { afterAll, describe, expect, it } from 'vitest';
+import { recalculateAnalytics } from '../analytics/recalculate';
 import { createPrismaClient } from '../db/prisma';
 import { MemoryDataStore } from '../repositories/memory/MemoryDataStore';
 import { PrismaDataStore } from '../repositories/prisma/PrismaDataStore';
@@ -60,6 +61,27 @@ describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
     const subset = await store!.listPlacementInputs(1170, ['demo-riverside-5k'], null, today);
     expect(new Set(subset.map((r) => r.eventId))).toEqual(new Set(['demo-riverside-5k']));
     expect(await store!.listPlacementInputs(1170, [], null, today)).toEqual([]);
+  });
+
+  it('derives the same competition inputs from Result rows in SQL as in memory', async () => {
+    const key = (r: { eventId: string; date: string }) => `${r.eventId}|${r.date}`;
+    const sort = <T extends { eventId: string; date: string }>(rows: T[]) => [...rows].sort((a, b) => key(a).localeCompare(key(b)));
+    expect(sort(await store!.listCompetitionInputs(today))).toEqual(sort(await memory.listCompetitionInputs(today)));
+  });
+
+  it('recalculates analytics idempotently and serves the same snapshots as the demo store', async () => {
+    const count = () => db!.eventScore.count({ where: { calculationVersion: { in: ['competition_v1', 'difficulty_v1'] }, asOfDate: new Date(`${today}T00:00:00Z`) } });
+    await recalculateAnalytics(db!, today);
+    const first = await count();
+    await recalculateAnalytics(db!, today);
+    expect(await count()).toBe(first);
+    for (const id of ['demo-riverside-5k', 'demo-heath-common-5k', 'demo-dockside-promenade-5k']) {
+      for (const windowDays of [30, 90, 0]) {
+        expect(await store!.getAnalytics(id, windowDays)).toEqual(await memory.getAnalytics(id, windowDays));
+      }
+    }
+    const strip = (e: { id: string; scores: { competitionScore: number | null; difficultyScore: number | null } | null }) => [e.id, e.scores?.competitionScore, e.scores?.difficultyScore];
+    expect((await store!.listActiveEvents()).map(strip)).toEqual((await memory.listActiveEvents()).map(strip));
   });
 
   it('searches case-insensitively in SQL', async () => {

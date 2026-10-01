@@ -1,7 +1,7 @@
 import type { Recommendation } from '@runsaturday/shared';
 import { Car, Sparkles } from 'lucide-react';
 import { useId, useState } from 'react';
-import { formatScore } from '../../lib/display';
+import { formatScore, pbLabel } from '../../lib/display';
 import { AlertBanner } from '../ui/AlertBanner';
 import { ButtonLink } from '../ui/Button';
 import { ConfidenceBadge } from '../ui/ConfidenceBadge';
@@ -39,13 +39,13 @@ export function BestPickCard({ recommendation, method }: BestPickCardProps) {
       {highlights.length > 0 && <p className="mt-2 text-sm font-semibold text-ink">{highlights.join(' · ')}</p>}
 
       <div className="mt-4">
-        <RankedMetric rankedBy={rankedBy} />
+        <RankedMetric rankedBy={rankedBy.key === 'pb_score' && isDemo ? { ...rankedBy, label: `Demo ${rankedBy.label}` } : rankedBy} />
       </div>
 
       <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-4">
         {rankedBy.key === 'travel_minutes' ? (
           <div>
-            <dt className="text-xs font-semibold text-muted">PB Score</dt>
+            <dt className="text-xs font-semibold text-muted">{pbLabel(event.source)}</dt>
             <dd className="mt-0.5 text-lg font-bold tabular-nums">{formatScore(s?.pbScore)} / 100</dd>
           </div>
         ) : (

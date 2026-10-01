@@ -58,7 +58,7 @@ export function PlacementCard({ placement, target }: { placement: EventPlacement
         </div>
         <div className="flex gap-1">
           <dt className="text-muted">Competition</dt>
-          <dd className="font-bold tabular-nums">{formatScore(event.scores?.competitionScore)}/100</dd>
+          <dd className="font-bold tabular-nums">{event.scores?.competitionScore == null ? 'Limited data' : `${formatScore(event.scores.competitionScore)}/100`}</dd>
         </div>
         <div>
           <dt className="sr-only">Confidence</dt>

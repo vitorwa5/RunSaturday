@@ -1,7 +1,7 @@
 {
   "name": "runsaturday",
   "private": true,
-  "description": "RunSaturday — find your best 5K this Saturday. Independent app; not affiliated with parkrun.",
+  "description": "RunSaturday \u2014 find your best 5K this Saturday. Independent app; not affiliated with parkrun.",
   "type": "module",
   "workspaces": [
     "packages/*",
@@ -17,6 +17,7 @@
     "db:down": "docker compose down",
     "db:migrate": "npm run db:migrate -w @runsaturday/api",
     "db:seed": "npm run db:seed -w @runsaturday/api",
+    "analytics:recalculate": "npm run analytics:recalculate -w @runsaturday/api",
     "db:reset": "npm run db:reset -w @runsaturday/api",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",

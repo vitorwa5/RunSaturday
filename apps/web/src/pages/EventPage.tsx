@@ -14,6 +14,7 @@ import { EventHeroMetrics } from '../components/events/EventHeroMetrics';
 import { FacilityList } from '../components/events/FacilityList';
 import { CoverageNote, HistoricalTimes, OccurrenceTable, ParticipantsChart, SampleNote } from '../components/events/HistoryViews';
 import { OutlookCard } from '../components/events/OutlookCard';
+import { ScoreExplainer } from '../components/events/ScoreExplainer';
 import { AlertBanner } from '../components/ui/AlertBanner';
 import { ButtonLink } from '../components/ui/Button';
 import { ChoiceChips } from '../components/ui/ChoiceChips';
@@ -251,6 +252,7 @@ export function EventPage() {
       )}
 
       <EventHeroMetrics event={event} />
+      <ScoreExplainer eventId={event.id} />
 
       <OutlookCard profile={profile} eventId={event.id} />
 
@@ -263,7 +265,9 @@ export function EventPage() {
 
       <p className="flex items-center gap-1.5 text-xs text-subtle">
         <Route className="size-3.5" aria-hidden />
-        Scores {event.scores ? `calculated as of ${formatShortDate(event.scores.asOfDate)} (${event.scores.calculationVersion})` : 'not yet calculated'}.
+        {event.scores
+          ? `Competition ${event.scores.versions.competition ?? 'n/a'} · Difficulty ${event.scores.versions.difficulty ?? 'n/a'} · ${event.source === 'demo' ? 'Demo PB Score' : 'PB Score'} ${event.scores.versions.pb}`
+          : 'Scores not yet calculated.'}
       </p>
     </div>
   );

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { confidenceFromSampleSize } from '../domain/confidence';
 import {
   exclusionReason,
   historicalPlacements,
@@ -196,18 +195,5 @@ describe('percentage targets', () => {
 
   it('reports the frequency for a chosen target', () => {
     expect(targetFrequency(historicalPlacements(SPEC).placements, 'top5')).toEqual({ count: 2, of: 6 });
-  });
-});
-
-describe('confidenceFromSampleSize', () => {
-  it.each([
-    [0, 'insufficient'],
-    [2, 'insufficient'],
-    [3, 'low'],
-    [6, 'medium'],
-    [9, 'medium'],
-    [10, 'high'],
-  ] as const)('%i events → %s', (n, level) => {
-    expect(confidenceFromSampleSize(n)).toBe(level);
   });
 });

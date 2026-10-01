@@ -2,11 +2,12 @@
  * Seeds the DEMO dataset (fictional events, NOT real parkrun statistics).
  *
  * Idempotent: removes previous DEMO rows (and the demo user) before inserting, and never
- * touches rows with source = IMPORTED.
+ * touches rows with source = IMPORTED. Then recalculates analytics snapshots.
  *
  *   npm run db:seed
  */
 import { calendarDateIn } from '@runsaturday/shared';
+import { recalculateAnalytics } from '../src/analytics/recalculate';
 import { createPrismaClient } from '../src/db/prisma';
 import { summarizeResults } from '../src/domain/occurrenceSummary';
 import { buildDemoDataset, DEMO_WINDOW_DAYS } from '../src/demo/buildDemoDataset';
@@ -98,6 +99,10 @@ async function main() {
         },
       },
     });
+
+    // Derived analytics (Competition V1, Difficulty V1) so a fresh database is complete.
+    const analytics = await recalculateAnalytics(db, today);
+    console.log(`Calculated analytics as of ${analytics.asOfDate}: ${analytics.competitionSnapshots + analytics.difficultySnapshots} snapshots.`);
 
     const occurrenceCount = dataset.events.reduce((n, e) => n + e.occurrences.length, 0);
     console.log(
