@@ -1,0 +1,32 @@
+{
+  "name": "runsaturday",
+  "private": true,
+  "description": "RunSaturday — find your best 5K this Saturday. Independent app; not affiliated with parkrun.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,magenta \"npm run dev -w @runsaturday/api\" \"npm run dev -w @runsaturday/web\"",
+    "dev:demo": "concurrently -k -n api,web -c blue,magenta \"npm run dev:demo -w @runsaturday/api\" \"npm run dev -w @runsaturday/web\"",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "db:migrate": "npm run db:migrate -w @runsaturday/api",
+    "db:seed": "npm run db:seed -w @runsaturday/api",
+    "db:reset": "npm run db:reset -w @runsaturday/api",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "test:e2e": "playwright test",
+    "check": "npm run typecheck && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "concurrently": "^10.0.5",
+    "typescript": "~5.9.3"
+  }
+}

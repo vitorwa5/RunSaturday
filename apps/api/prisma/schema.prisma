@@ -1,0 +1,226 @@
+// RunSaturday database schema (Phase 1 foundation).
+//
+// Conventions:
+// - Times are whole seconds (Int). Dates of events are calendar dates (@db.Date).
+// - Unknown information is stored as NULL or an explicit UNKNOWN value, never guessed.
+// - Calculated scores live in EventScore, versioned by calculationVersion, so formulas can
+//   change without overwriting earlier results.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum DataSource {
+  DEMO
+  IMPORTED
+}
+
+enum Surface {
+  TARMAC
+  TRAIL
+  GRASS
+  MIXED
+  UNKNOWN
+}
+
+enum CourseType {
+  ONE_LAP
+  TWO_LAPS
+  THREE_PLUS_LAPS
+  OUT_AND_BACK
+  POINT_TO_POINT
+  UNKNOWN
+}
+
+enum FacilityStatus {
+  YES
+  NO
+  UNKNOWN
+}
+
+enum OccurrenceStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+/// Outcome of validation for imported data. Only VALID data may feed score calculations.
+enum DataQuality {
+  UNVALIDATED
+  VALID
+  PARTIAL
+  REJECTED
+}
+
+enum Goal {
+  PB
+  PLACE
+  HIDDEN_GEM
+  NEW_EVENT
+  QUIET
+  CHALLENGE
+}
+
+enum ConfidenceLevel {
+  HIGH
+  MEDIUM
+  LOW
+  INSUFFICIENT
+}
+
+model Event {
+  id                String     @id @default(cuid())
+  slug              String     @unique
+  name              String
+  country           String
+  region            String?
+  town              String?
+  latitude          Float
+  longitude         Float
+  startLocationText String?
+  /// Local start time, e.g. "09:00".
+  startTime         String?
+
+  courseType CourseType @default(UNKNOWN)
+  surface    Surface    @default(UNKNOWN)
+  laps       Int?
+  elevationM Int?
+
+  parking       FacilityStatus @default(UNKNOWN)
+  toilets       FacilityStatus @default(UNKNOWN)
+  cafe          FacilityStatus @default(UNKNOWN)
+  dogs          FacilityStatus @default(UNKNOWN)
+  buggies       FacilityStatus @default(UNKNOWN)
+  accessibility FacilityStatus @default(UNKNOWN)
+
+  officialUrl String?
+  active      Boolean    @default(true)
+  /// DEMO rows are fictional development data and must be labelled as such in the UI.
+  source      DataSource @default(IMPORTED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  occurrences EventOccurrence[]
+  scores      EventScore[]
+  userEvents  UserEvent[]
+
+  @@index([region])
+  @@index([active])
+}
+
+model EventOccurrence {
+  id      String   @id @default(cuid())
+  eventId String
+  event   Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  date    DateTime @db.Date
+
+  participantCount  Int?
+  winnerTimeSeconds Int?
+  thirdTimeSeconds  Int?
+  fifthTimeSeconds  Int?
+  tenthTimeSeconds  Int?
+
+  status      OccurrenceStatus @default(COMPLETED)
+  dataQuality DataQuality      @default(UNVALIDATED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  results Result[]
+
+  /// One occurrence per event per date: re-imports update instead of duplicating.
+  @@unique([eventId, date])
+  @@index([date])
+}
+
+model Result {
+  id                String          @id @default(cuid())
+  occurrenceId      String
+  occurrence        EventOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Cascade)
+  position          Int
+  finishTimeSeconds Int
+  /// Optional pseudonymous key (e.g. a salted hash) for cross-event analysis.
+  /// Only populated where legally permissible. Never a name.
+  athleteKey        String?
+  ageGrade          Float?
+
+  @@unique([occurrenceId, position])
+  @@index([occurrenceId, finishTimeSeconds])
+  @@index([athleteKey])
+}
+
+model User {
+  id          String @id @default(cuid())
+  displayName String
+
+  homeLat   Float?
+  homeLon   Float?
+  homeLabel String?
+
+  defaultTravelMinutes     Int  @default(30)
+  lifetimePbSeconds        Int?
+  recentPbSeconds          Int?
+  current5kEstimateSeconds Int?
+  preferredGoal            Goal @default(PB)
+
+  isDemo Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events UserEvent[]
+}
+
+model UserEvent {
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  visited             Boolean @default(false)
+  favourite           Boolean @default(false)
+  visitCount          Int     @default(0)
+  personalBestSeconds Int?
+
+  updatedAt DateTime @updatedAt
+
+  @@id([userId, eventId])
+  @@index([eventId])
+}
+
+/// Pre-calculated, versioned scores. Clients read these; they are never computed per request.
+model EventScore {
+  id      String @id @default(cuid())
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  pbScore          Float?
+  difficultyScore  Float?
+  competitionScore Float?
+  gemBaseScore     Float?
+
+  pbConfidence          ConfidenceLevel @default(INSUFFICIENT)
+  competitionConfidence ConfidenceLevel @default(INSUFFICIENT)
+
+  /// Normalised (0–100) component values behind each score, keyed by component name.
+  components Json?
+
+  averageParticipants Float?
+  /// Number of event occurrences used.
+  sampleSize          Int    @default(0)
+  /// Analysis window in days (default 90).
+  windowDays          Int    @default(90)
+
+  /// e.g. "pb_score_v1". "demo_v0" marks hand-written demo values.
+  calculationVersion String
+  calculatedAt       DateTime @default(now())
+
+  @@unique([eventId, calculationVersion])
+  @@index([calculationVersion])
+}

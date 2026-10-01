@@ -1,0 +1,61 @@
+@import 'tailwindcss';
+
+/*
+ * RunSaturday design tokens.
+ * Mostly neutral; orange for primary actions; green = positive opportunity,
+ * amber = caution, red = cancellation/problem, blue = informational.
+ * Colour is never the only signal: badges always carry text and/or an icon.
+ */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  --color-canvas: #f7f7f5;
+  --color-surface: #ffffff;
+  --color-ink: #18181b;
+  --color-muted: #52525b;
+  --color-subtle: #71717a;
+  --color-line: #e4e4e7;
+
+  --color-brand-50: #fff4ed;
+  --color-brand-100: #ffe6d5;
+  --color-brand-500: #f97316;
+  --color-brand-600: #ea580c;
+  /* White text on brand-700 meets WCAG AA (≈5.2:1). Use it for filled buttons. */
+  --color-brand-700: #c2410c;
+  --color-brand-800: #9a3412;
+
+  --color-positive-bg: #ecfdf3;
+  --color-positive: #15803d;
+  --color-caution-bg: #fffbeb;
+  --color-caution: #92400e;
+  --color-problem-bg: #fef2f2;
+  --color-problem: #b91c1c;
+  --color-info-bg: #eff6ff;
+  --color-info: #1d4ed8;
+
+  --radius-card: 1.25rem;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-canvas text-ink font-sans antialiased;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand-700;
+  }
+}
+
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}

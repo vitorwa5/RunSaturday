@@ -1,0 +1,116 @@
+/**
+ * Seeds the DEMO dataset (fictional events, NOT real parkrun statistics).
+ *
+ * Idempotent: removes previous DEMO rows (and the demo user) before inserting, and never
+ * touches rows with source = IMPORTED.
+ *
+ *   npm run db:seed
+ */
+import { calendarDateIn } from '@runsaturday/shared';
+import { createPrismaClient } from '../src/db/prisma';
+import { buildDemoDataset, DEMO_WINDOW_DAYS } from '../src/demo/buildDemoDataset';
+
+const RESULT_BATCH_SIZE = 5000;
+const toDate = (iso: string) => new Date(`${iso}T00:00:00Z`);
+
+async function main() {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) throw new Error('DATABASE_URL is not set. Copy apps/api/.env.example to apps/api/.env.');
+
+  const db = createPrismaClient(databaseUrl);
+  const today = calendarDateIn(new Date(), process.env.APP_TIME_ZONE ?? 'Europe/London');
+  const dataset = buildDemoDataset(today);
+
+  try {
+    const removed = await db.event.deleteMany({ where: { source: 'DEMO' } });
+    await db.user.deleteMany({ where: { isDemo: true } });
+    console.log(`Removed ${removed.count} previous DEMO events.`);
+
+    let resultCount = 0;
+    for (const { id, def, occurrences, sampleSize, averageParticipants } of dataset.events) {
+      await db.event.create({
+        data: {
+          id,
+          slug: def.slug,
+          name: def.name,
+          country: 'England',
+          region: 'North West England',
+          town: def.town,
+          latitude: def.latitude,
+          longitude: def.longitude,
+          startLocationText: def.startLocationText,
+          startTime: '09:00',
+          courseType: def.courseType,
+          surface: def.surface,
+          laps: def.laps,
+          elevationM: def.elevationM,
+          ...def.facilities,
+          source: 'DEMO',
+          scores: {
+            create: {
+              ...def.scores,
+              components: { note: 'DEMO placeholder values; no component breakdown yet.' },
+              averageParticipants,
+              sampleSize,
+              windowDays: DEMO_WINDOW_DAYS,
+              calculationVersion: dataset.scoreVersion,
+            },
+          },
+        },
+      });
+
+      for (const o of occurrences) {
+        const occurrence = await db.eventOccurrence.create({
+          data: {
+            eventId: id,
+            date: toDate(o.date),
+            participantCount: o.participantCount,
+            winnerTimeSeconds: o.winnerTimeSeconds,
+            thirdTimeSeconds: o.thirdTimeSeconds,
+            fifthTimeSeconds: o.fifthTimeSeconds,
+            tenthTimeSeconds: o.tenthTimeSeconds,
+            status: o.status,
+            dataQuality: o.status === 'COMPLETED' ? 'VALID' : 'UNVALIDATED',
+          },
+        });
+        for (let i = 0; i < o.results.length; i += RESULT_BATCH_SIZE) {
+          const batch = o.results.slice(i, i + RESULT_BATCH_SIZE);
+          await db.result.createMany({
+            data: batch.map((r) => ({ occurrenceId: occurrence.id, ...r })),
+          });
+          resultCount += batch.length;
+        }
+      }
+    }
+
+    const { history, ...user } = dataset.user;
+    await db.user.create({
+      data: {
+        ...user,
+        isDemo: true,
+        events: {
+          create: history.map((h) => ({
+            eventId: h.slug,
+            visited: true,
+            favourite: h.favourite,
+            visitCount: h.visitCount,
+            personalBestSeconds: h.personalBestSeconds,
+          })),
+        },
+      },
+    });
+
+    const occurrenceCount = dataset.events.reduce((n, e) => n + e.occurrences.length, 0);
+    console.log(
+      `Seeded DEMO data: ${dataset.events.length} events, ${occurrenceCount} occurrences, ` +
+        `${resultCount} results (latest ${dataset.latestDate}), 1 demo user.`,
+    );
+  } finally {
+    await db.$disconnect();
+  }
+}
+
+main().catch((error) => {
+  console.error('Seeding failed:', error);
+  process.exit(1);
+});

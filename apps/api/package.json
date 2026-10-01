@@ -1,0 +1,35 @@
+{
+  "name": "@runsaturday/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RunSaturday API: the only component that reads the database or (later) ingests source data.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=.env src/server.ts",
+    "dev:demo": "DATA_SOURCE=demo tsx watch --env-file-if-exists=.env src/server.ts",
+    "start": "node --env-file-if-exists=.env dist/server.js",
+    "build": "prisma generate && tsc -p tsconfig.json && node scripts/build.mjs",
+    "typecheck": "prisma generate && tsc -p tsconfig.json",
+    "test": "prisma generate && vitest run",
+    "postinstall": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
+    "db:reset": "prisma migrate reset --force"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "@runsaturday/shared": "*",
+    "fastify": "^5.12.5",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "esbuild": "^0.28.2",
+    "prisma": "7.10.0",
+    "tsx": "^4.23.15",
+    "vitest": "^5.0.3"
+  }
+}
