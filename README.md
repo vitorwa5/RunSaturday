@@ -133,11 +133,30 @@ Errors always use the shape `{ "error": { "code", "message" } }` with a human-re
 ## Data model (Prisma)
 
 - **Event**: identity, location, course facts, and facilities (`YES / NO / UNKNOWN`, never guessed). `source` is `DEMO` or `IMPORTED`.
-- **EventOccurrence**: one per event per date (unique). Participant count, winner/3rd/5th/10th times in seconds, `status`, `dataQuality`.
-- **Result**: position, finish seconds, optional pseudonymous `athleteKey` (never a name), optional age grade.
+- **EventOccurrence**: one per event per date (unique). `status`, `dataQuality`, plus a **derived summary cache**: participant count and winner/3rd/5th/10th times (see *Source of truth* below).
+- **Result**: the **canonical** record of each position and finish time (seconds), optional pseudonymous `athleteKey` (never a name), optional age grade.
 - **User**: home location, travel limit, lifetime PB / recent best / current estimate kept separately, preferred goal.
 - **UserEvent**: visited, favourite, visit count, PB per event.
-- **EventScore**: PB / difficulty / competition / gem scores, confidences, component values (JSON), sample size, window, `calculationVersion`, `calculatedAt`.
+- **EventScore**: immutable score **snapshots**: PB / difficulty / competition / gem scores, confidences, component values (JSON), sample size, `calculatedAt`.
+  - Each snapshot is identified by **`(eventId, calculationVersion, windowDays, asOfDate)`** (unique).
+  - So 30/60/90/365-day (and later all-time, `windowDays = 0`) scores coexist, and earlier snapshots stay available to reproduce past calculations and draw trend charts.
+  - `asOfDate` is a calendar date (`DATE`): the last day of data included.
+  - The API serves the latest snapshot of `ACTIVE_SCORE_VERSION` in the default 90-day window (`config/analysis.ts`).
+
+### Source of truth: Result vs EventOccurrence
+
+**`Result` rows are the single source of truth for positions and finish times.** The summary columns on `EventOccurrence` are only a cache for fast listing:
+
+- `participantCount`
+- `winnerTimeSeconds`, `thirdTimeSeconds`, `fifthTimeSeconds`, `tenthTimeSeconds`
+
+The rules:
+
+- **One function computes them:** `summarizeResults()` in `apps/api/src/domain/occurrenceSummary.ts`.
+- **Same write:** they are written in the same operation as the Results they summarise. The seed does this today; ingestion must do the same.
+- **Never edited independently.** If they ever disagree with Results, Results win and the cache is recomputed.
+- **Empty means NULL:** with no results (e.g. a cancelled event), they are NULL.
+- **Tested:** a database test checks every occurrence's cache against its Result rows.
 
 ## Demo data
 

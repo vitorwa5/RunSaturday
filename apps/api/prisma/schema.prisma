@@ -3,8 +3,10 @@
 // Conventions:
 // - Times are whole seconds (Int). Dates of events are calendar dates (@db.Date).
 // - Unknown information is stored as NULL or an explicit UNKNOWN value, never guessed.
-// - Calculated scores live in EventScore, versioned by calculationVersion, so formulas can
-//   change without overwriting earlier results.
+// - Calculated scores live in EventScore as immutable snapshots, keyed by calculation version,
+//   analysis window and as-of date, so formulas can change and history can be reproduced.
+// - Result rows are the canonical source of truth for positions and finish times. Summary
+//   columns on EventOccurrence are a derived cache of them (see EventOccurrence).
 
 generator client {
   provider = "prisma-client"
@@ -114,16 +116,28 @@ model Event {
   @@index([active])
 }
 
+/// One staging of an event on a date.
+///
+/// SOURCE OF TRUTH: the Result rows are canonical for individual positions and times.
+/// participantCount and the *TimeSeconds columns are a DERIVED SUMMARY CACHE, written only by
+/// summarizeResults() (src/domain/occurrenceSummary.ts) in the same write as the Results they
+/// summarise. Never edit them independently; if they disagree with Results, Results win and
+/// the cache must be recomputed. They are NULL when no results exist (e.g. CANCELLED).
 model EventOccurrence {
   id      String   @id @default(cuid())
   eventId String
   event   Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
   date    DateTime @db.Date
 
+  /// Derived: number of Result rows.
   participantCount  Int?
+  /// Derived: finish time of the Result at position 1.
   winnerTimeSeconds Int?
+  /// Derived: finish time of the Result at position 3.
   thirdTimeSeconds  Int?
+  /// Derived: finish time of the Result at position 5.
   fifthTimeSeconds  Int?
+  /// Derived: finish time of the Result at position 10.
   tenthTimeSeconds  Int?
 
   status      OccurrenceStatus @default(COMPLETED)
@@ -139,6 +153,7 @@ model EventOccurrence {
   @@index([date])
 }
 
+/// Canonical individual finishing record. See EventOccurrence for the derived summary cache.
 model Result {
   id                String          @id @default(cuid())
   occurrenceId      String
@@ -194,7 +209,11 @@ model UserEvent {
   @@index([eventId])
 }
 
-/// Pre-calculated, versioned scores. Clients read these; they are never computed per request.
+/// Pre-calculated score snapshot. Clients read these; they are never computed per request.
+///
+/// A snapshot is identified by (event, calculationVersion, windowDays, asOfDate), so one event
+/// can hold 30/60/90/365-day (and later all-time) scores side by side, and keep earlier
+/// snapshots for reproducibility and trend charts. Snapshots are written once, not updated.
 model EventScore {
   id      String @id @default(cuid())
   eventId String
@@ -214,13 +233,16 @@ model EventScore {
   averageParticipants Float?
   /// Number of event occurrences used.
   sampleSize          Int    @default(0)
-  /// Analysis window in days (default 90).
-  windowDays          Int    @default(90)
 
   /// e.g. "pb_score_v1". "demo_v0" marks hand-written demo values.
   calculationVersion String
+  /// Analysis window in days: 30, 60, 90 or 365. 0 is reserved for all-time.
+  windowDays         Int
+  /// Last calendar date of data included: the window covers (asOfDate - windowDays, asOfDate].
+  asOfDate           DateTime @db.Date
+  /// When the snapshot was computed (audit only; asOfDate defines the data used).
   calculatedAt       DateTime @default(now())
 
-  @@unique([eventId, calculationVersion])
-  @@index([calculationVersion])
+  @@unique([eventId, calculationVersion, windowDays, asOfDate])
+  @@index([calculationVersion, windowDays, asOfDate])
 }

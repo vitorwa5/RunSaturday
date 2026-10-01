@@ -8,6 +8,7 @@
  */
 import { calendarDateIn } from '@runsaturday/shared';
 import { createPrismaClient } from '../src/db/prisma';
+import { summarizeResults } from '../src/domain/occurrenceSummary';
 import { buildDemoDataset, DEMO_WINDOW_DAYS } from '../src/demo/buildDemoDataset';
 
 const RESULT_BATCH_SIZE = 5000;
@@ -53,6 +54,7 @@ async function main() {
               averageParticipants,
               sampleSize,
               windowDays: DEMO_WINDOW_DAYS,
+              asOfDate: toDate(dataset.latestDate),
               calculationVersion: dataset.scoreVersion,
             },
           },
@@ -60,15 +62,12 @@ async function main() {
       });
 
       for (const o of occurrences) {
+        // Results are canonical; the occurrence summary columns are derived from them.
         const occurrence = await db.eventOccurrence.create({
           data: {
             eventId: id,
             date: toDate(o.date),
-            participantCount: o.participantCount,
-            winnerTimeSeconds: o.winnerTimeSeconds,
-            thirdTimeSeconds: o.thirdTimeSeconds,
-            fifthTimeSeconds: o.fifthTimeSeconds,
-            tenthTimeSeconds: o.tenthTimeSeconds,
+            ...summarizeResults(o.results),
             status: o.status,
             dataQuality: o.status === 'COMPLETED' ? 'VALID' : 'UNVALIDATED',
           },

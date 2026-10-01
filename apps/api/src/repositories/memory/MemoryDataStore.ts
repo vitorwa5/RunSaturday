@@ -35,6 +35,7 @@ function toRecord(b: DemoEventBundle, dataset: DemoDataset, generatedAt: string)
       competitionConfidence: lower(def.scores.competitionConfidence),
       sampleSize: b.sampleSize,
       windowDays: DEMO_WINDOW_DAYS,
+      asOfDate: dataset.latestDate,
       calculationVersion: dataset.scoreVersion,
       calculatedAt: generatedAt,
     },

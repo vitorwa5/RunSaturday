@@ -3,10 +3,11 @@
  *
  * Each occurrence's results are generated from a seed derived from the event slug and
  * date, so the same date always yields the same results regardless of when you seed.
- * Placing times (winner/3rd/5th/10th) are derived from the generated results, so the
- * summary columns and the result rows always agree.
+ * Results are canonical; the occurrence summary (participant count, winner/3rd/5th/10th
+ * times) is derived from them with summarizeResults(), exactly as real ingestion must do.
  */
 import { addDays } from '@runsaturday/shared';
+import { summarizeResults, type OccurrenceSummary } from '../domain/occurrenceSummary';
 import type { DemoEventDefinition } from './demoEvents';
 
 export interface DemoResult {
@@ -14,14 +15,9 @@ export interface DemoResult {
   finishTimeSeconds: number;
 }
 
-export interface DemoOccurrence {
+export interface DemoOccurrence extends OccurrenceSummary {
   date: string;
   status: 'COMPLETED' | 'CANCELLED';
-  participantCount: number | null;
-  winnerTimeSeconds: number | null;
-  thirdTimeSeconds: number | null;
-  fifthTimeSeconds: number | null;
-  tenthTimeSeconds: number | null;
   results: DemoResult[];
 }
 
@@ -58,16 +54,7 @@ const MAX_DEMO_SECONDS = 60 * 60;
 
 function generateOccurrence(def: DemoEventDefinition, date: string, cancelled: boolean): DemoOccurrence {
   if (cancelled) {
-    return {
-      date,
-      status: 'CANCELLED',
-      participantCount: null,
-      winnerTimeSeconds: null,
-      thirdTimeSeconds: null,
-      fifthTimeSeconds: null,
-      tenthTimeSeconds: null,
-      results: [],
-    };
+    return { date, status: 'CANCELLED', ...summarizeResults([]), results: [] };
   }
 
   const rand = mulberry32(hashString(`${def.slug}|${date}`));
@@ -85,18 +72,7 @@ function generateOccurrence(def: DemoEventDefinition, date: string, cancelled: b
   times.sort((a, b) => a - b);
 
   const results = times.map((finishTimeSeconds, i) => ({ position: i + 1, finishTimeSeconds }));
-  const at = (position: number) => times[position - 1] ?? null;
-
-  return {
-    date,
-    status: 'COMPLETED',
-    participantCount,
-    winnerTimeSeconds: at(1),
-    thirdTimeSeconds: at(3),
-    fifthTimeSeconds: at(5),
-    tenthTimeSeconds: at(10),
-    results,
-  };
+  return { date, status: 'COMPLETED', ...summarizeResults(results), results };
 }
 
 /**

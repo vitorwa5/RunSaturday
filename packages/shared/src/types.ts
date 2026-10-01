@@ -33,7 +33,10 @@ export interface EventScores {
   competitionConfidence: ConfidenceLevel;
   /** Number of event occurrences the scores are based on. Never hidden from users. */
   sampleSize: number;
+  /** Analysis window in days (30, 60, 90, 365; 0 = all-time). */
   windowDays: number;
+  /** Last date of data included in this snapshot (ISO "YYYY-MM-DD"). */
+  asOfDate: string;
   calculationVersion: string;
   calculatedAt: string;
 }

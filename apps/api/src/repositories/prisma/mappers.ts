@@ -50,6 +50,7 @@ export function mapEvent(event: Event, score: EventScore | undefined): EventReco
           competitionConfidence: mapConfidence(score.competitionConfidence),
           sampleSize: score.sampleSize,
           windowDays: score.windowDays,
+          asOfDate: isoDate(score.asOfDate),
           calculationVersion: score.calculationVersion,
           calculatedAt: score.calculatedAt.toISOString(),
         }

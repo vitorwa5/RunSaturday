@@ -3,10 +3,12 @@
  * database seed and the in-memory data store, so the two modes show identical data.
  */
 import { addDays, nextSaturday } from '@runsaturday/shared';
+import { DEFAULT_SCORE_WINDOW_DAYS } from '../config/analysis';
 import { DEMO_EVENTS, DEMO_SCORE_VERSION, DEMO_USER, type DemoEventDefinition } from './demoEvents';
 import { generateDemoHistory, type DemoOccurrence } from './generateDemoHistory';
 
-export const DEMO_WINDOW_DAYS = 90;
+/** Demo scores exist only for the default window. */
+export const DEMO_WINDOW_DAYS = DEFAULT_SCORE_WINDOW_DAYS;
 
 export interface DemoEventBundle {
   /** Demo ids equal slugs so URLs are stable across re-seeds and between modes. */
@@ -19,6 +21,7 @@ export interface DemoEventBundle {
 }
 
 export interface DemoDataset {
+  /** Latest occurrence date; also the asOfDate of the demo score snapshots. */
   latestDate: string;
   scoreVersion: string;
   events: DemoEventBundle[];

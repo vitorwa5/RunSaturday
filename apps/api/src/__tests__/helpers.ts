@@ -38,6 +38,7 @@ export function makeEvent(overrides: Partial<EventSummary> & { id: string }): Ev
       competitionConfidence: 'high',
       sampleSize: 12,
       windowDays: 90,
+      asOfDate: '2026-09-26',
       calculationVersion: 'test_v0',
       calculatedAt: '2026-10-01T00:00:00Z',
     },

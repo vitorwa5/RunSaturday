@@ -1,4 +1,5 @@
 import { addDays } from '@runsaturday/shared';
+import { DEFAULT_SCORE_WINDOW_DAYS } from '../../config/analysis';
 import type { Db } from '../../db/prisma';
 import type { DataStore, EventDetailRecord, EventRecord, UserRecord } from '../DataStore';
 import { mapEvent, mapFacility, mapGoal, mapOccurrence } from './mappers';
@@ -13,8 +14,15 @@ export class PrismaDataStore implements DataStore {
     private readonly activeScoreVersion: string,
   ) {}
 
+  /** The most recent snapshot for the active calculation version in the default window. */
   private scoreInclude() {
-    return { scores: { where: { calculationVersion: this.activeScoreVersion }, take: 1 } } as const;
+    return {
+      scores: {
+        where: { calculationVersion: this.activeScoreVersion, windowDays: DEFAULT_SCORE_WINDOW_DAYS },
+        orderBy: { asOfDate: 'desc' },
+        take: 1,
+      },
+    } as const;
   }
 
   async listActiveEvents(): Promise<EventRecord[]> {
