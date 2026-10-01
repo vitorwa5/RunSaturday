@@ -1,35 +1,32 @@
-import { formatFinishTime, formatShortDate, type EventDetail } from '@runsaturday/shared';
-import { CalendarClock, CircleCheck, Heart, LineChart, MapPin, Route, SearchX, Target } from 'lucide-react';
-import { useState } from 'react';
+import {
+  DEFAULT_HISTORY_WINDOW,
+  formatShortDate,
+  HISTORY_WINDOWS,
+  type EventDetail,
+  type EventHistoryResponse,
+  type HistoryWindowId,
+} from '@runsaturday/shared';
+import { CalendarClock, Car, Heart, LineChart, MapPin, Mountain, Route, SearchX, Timer } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 import { useParams } from 'react-router';
+import { ApiError } from '../api/client';
+import { EventHeroMetrics } from '../components/events/EventHeroMetrics';
+import { FacilityList } from '../components/events/FacilityList';
+import { CoverageNote, HistoricalTimes, OccurrenceTable, ParticipantsChart, SampleNote } from '../components/events/HistoryViews';
+import { OutlookCard } from '../components/events/OutlookCard';
 import { AlertBanner } from '../components/ui/AlertBanner';
 import { ButtonLink } from '../components/ui/Button';
-import { Card } from '../components/ui/Card';
-import { ConfidenceBadge } from '../components/ui/ConfidenceBadge';
+import { ChoiceChips } from '../components/ui/ChoiceChips';
 import { DefinitionList } from '../components/ui/DefinitionList';
 import { DemoBadge } from '../components/ui/DemoBadge';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ErrorState } from '../components/ui/ErrorState';
-import { LoadingState } from '../components/ui/LoadingState';
-import { MetricCard } from '../components/ui/MetricCard';
-import { PageHeader } from '../components/ui/PageHeader';
+import { LoadingState, Skeleton } from '../components/ui/LoadingState';
+import { PageHeader, SectionHeading } from '../components/ui/PageHeader';
+import { ReservedFeature } from '../components/ui/ReservedFeature';
 import { Tabs, type TabDef } from '../components/ui/Tabs';
-import { TravelBadge } from '../components/ui/TravelBadge';
-import { ApiError } from '../api/client';
-import { useEvent } from '../hooks/queries';
-import {
-  competitionBand,
-  CONFIDENCE_DISPLAY,
-  COURSE_TYPE_LABEL,
-  difficultyBand,
-  FACILITY_LABEL,
-  formatCount,
-  formatDifficulty,
-  formatMeters,
-  formatScore,
-  opportunityBand,
-  SURFACE_LABEL,
-} from '../lib/display';
+import { useEvent, useEventHistory, useProfile } from '../hooks/queries';
+import { COURSE_TYPE_LABEL, formatCount, formatMeters, SURFACE_LABEL } from '../lib/display';
 
 type TabId = 'overview' | 'results' | 'course' | 'info';
 const TABS: TabDef<TabId>[] = [
@@ -39,129 +36,108 @@ const TABS: TabDef<TabId>[] = [
   { id: 'info', label: 'Info' },
 ];
 
-const time = (s: number | null) => (s == null ? '—' : formatFinishTime(s));
+const windowPhrase = (id: HistoryWindowId) =>
+  id === 'all' ? 'across all stored history' : id === '365' ? 'in the last year' : `in the last ${id} days`;
 
-function SampleNote({ event }: { event: EventDetail }) {
-  return (
-    <p className="text-xs text-muted">
-      Based on {event.occurrencesLast90Days} {event.occurrencesLast90Days === 1 ? 'event' : 'events'} during the last 90 days.
-    </p>
-  );
+function courseFacts(event: EventDetail) {
+  return [
+    { label: 'Course type', value: COURSE_TYPE_LABEL[event.courseType] },
+    { label: 'Surface', value: SURFACE_LABEL[event.surface] },
+    { label: 'Laps', value: event.laps ?? 'Unknown' },
+    { label: 'Elevation', value: formatMeters(event.elevationM) },
+  ];
+}
+
+function HistoryLoader({ id, window, children }: { id: string; window: HistoryWindowId; children: (history: EventHistoryResponse) => ReactNode }) {
+  const { data, isPending, isError, error, refetch, isPlaceholderData } = useEventHistory(id, window);
+  if (isPending) {
+    return (
+      <div role="status" className="space-y-2">
+        <span className="sr-only">Loading history…</span>
+        <Skeleton className="h-24 w-full rounded-2xl" />
+        <Skeleton className="h-4 w-48" />
+      </div>
+    );
+  }
+  if (isError) return <ErrorState error={error} title="History could not be loaded" onRetry={() => refetch()} />;
+  return <div className={isPlaceholderData ? 'opacity-60 transition-opacity' : 'transition-opacity'} aria-busy={isPlaceholderData}>{children(data)}</div>;
 }
 
 function OverviewTab({ event }: { event: EventDetail }) {
-  const s = event.scores;
   return (
-    <div className="space-y-3">
-      <DefinitionList
-        items={[
-          { label: 'Course type', value: COURSE_TYPE_LABEL[event.courseType] },
-          { label: 'Surface', value: SURFACE_LABEL[event.surface] },
-          { label: 'Laps', value: event.laps ?? 'Unknown' },
-          { label: 'Elevation', value: formatMeters(event.elevationM) },
-          { label: 'Average participants', value: formatCount(event.averageParticipants) },
-          { label: 'PB Score', value: `${formatScore(s?.pbScore)} / 100` },
-          { label: 'Difficulty', value: `${formatDifficulty(s?.difficultyScore)} / 10` },
-          { label: 'Competition', value: `${formatScore(s?.competitionScore)} / 100` },
-          { label: 'Data confidence', value: s ? CONFIDENCE_DISPLAY[s.pbConfidence].label : 'Limited data' },
-          { label: 'Score version', value: s?.calculationVersion ?? '—' },
-          { label: 'Last update', value: new Date(event.lastUpdated).toLocaleDateString('en-GB') },
-        ]}
-      />
-      <SampleNote event={event} />
-      <AlertBanner tone="neutral" title="Median placing times arrive with the Competition Score">
-        Median winner, 3rd, 5th and 10th place times will be calculated server-side in a later phase.
-      </AlertBanner>
+    <div className="space-y-6">
+      <section aria-labelledby="hist-times">
+        <SectionHeading>
+          <span id="hist-times">Historical times</span>
+        </SectionHeading>
+        <HistoryLoader id={event.id} window={DEFAULT_HISTORY_WINDOW}>
+          {(history) => <HistoricalTimes history={history} windowLabel={windowPhrase(DEFAULT_HISTORY_WINDOW)} />}
+        </HistoryLoader>
+      </section>
+      <section aria-labelledby="course-summary">
+        <SectionHeading>
+          <span id="course-summary">Course summary</span>
+        </SectionHeading>
+        <DefinitionList items={[...courseFacts(event), { label: 'Average participants', value: formatCount(event.averageParticipants) }]} />
+      </section>
     </div>
   );
 }
 
 function ResultsTab({ event }: { event: EventDetail }) {
-  if (event.recentOccurrences.length === 0) {
-    return (
-      <EmptyState
-        icon={LineChart}
-        title="No results imported yet"
-        description="Update event data to see historical results and generate scores."
-      />
-    );
-  }
+  const [window, setWindow] = useState<HistoryWindowId>(DEFAULT_HISTORY_WINDOW);
   return (
     <div className="space-y-3">
-      <div className="overflow-hidden rounded-2xl border border-line bg-surface">
-        <table className="w-full text-sm">
-          <caption className="sr-only">Recent results, most recent first</caption>
-          <thead className="bg-canvas text-left text-xs text-muted">
-            <tr>
-              <th scope="col" className="px-3 py-2 font-semibold">Date</th>
-              <th scope="col" className="px-3 py-2 text-right font-semibold">Runners</th>
-              <th scope="col" className="px-3 py-2 text-right font-semibold">1st</th>
-              <th scope="col" className="px-3 py-2 text-right font-semibold">10th</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line tabular-nums">
-            {event.recentOccurrences.map((o) => (
-              <tr key={o.date}>
-                <th scope="row" className="px-3 py-2 text-left font-medium">{formatShortDate(o.date)}</th>
-                {o.status === 'cancelled' ? (
-                  <td colSpan={3} className="px-3 py-2 text-right font-semibold text-problem">
-                    Cancelled
-                  </td>
-                ) : (
-                  <>
-                    <td className="px-3 py-2 text-right">{formatCount(o.participantCount)}</td>
-                    <td className="px-3 py-2 text-right">{time(o.winnerTimeSeconds)}</td>
-                    <td className="px-3 py-2 text-right">{time(o.tenthTimeSeconds)}</td>
-                  </>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="text-xs text-muted">
-        Showing the {event.recentOccurrences.length} most recent events. Charts and 30/60/90/365-day ranges arrive in a later phase.
-      </p>
+      <ChoiceChips
+        label="Time period"
+        options={HISTORY_WINDOWS.map((w) => ({ value: w.id, label: w.label }))}
+        value={window}
+        onChange={setWindow}
+      />
+      <HistoryLoader id={event.id} window={window}>
+        {(history) =>
+          history.occurrences.length === 0 ? (
+            <EmptyState icon={LineChart} title="No results in this period" description="Try a longer time period. Results appear here once they have been imported." />
+          ) : (
+            <div className="space-y-3">
+              <SampleNote history={history} windowLabel={windowPhrase(window)} />
+              <CoverageNote history={history} />
+              <ParticipantsChart occurrences={history.occurrences} />
+              <OccurrenceTable occurrences={history.occurrences} />
+            </div>
+          )
+        }
+      </HistoryLoader>
     </div>
   );
 }
 
 function CourseTab({ event }: { event: EventDetail }) {
   return (
-    <div className="space-y-3">
-      <DefinitionList
-        items={[
-          { label: 'Course type', value: COURSE_TYPE_LABEL[event.courseType] },
-          { label: 'Laps', value: event.laps ?? 'Unknown' },
-          { label: 'Surface', value: SURFACE_LABEL[event.surface] },
-          { label: 'Elevation', value: formatMeters(event.elevationM) },
-          { label: 'Estimated course adjustment', value: 'Not yet calculated' },
-        ]}
-      />
-      <EmptyState
-        icon={Route}
-        title="Course map and elevation profile coming later"
-        description="Course details will be added once course data is available. We will not guess them."
-      />
+    <div className="space-y-4">
+      <DefinitionList items={courseFacts(event)} />
+      <div className="space-y-2">
+        <ReservedFeature icon={MapPin} title="Course map" description="The route, start and finish on a map." />
+        <ReservedFeature icon={Mountain} title="Elevation profile" description="Where the climbs and descents are." />
+        <ReservedFeature
+          icon={Timer}
+          title="Estimated course adjustment"
+          description="Roughly how many seconds faster or slower than a neutral 5K. Always an estimate."
+        />
+      </div>
     </div>
   );
 }
 
 function InfoTab({ event }: { event: EventDetail }) {
-  const f = event.facilities;
   const latest = event.recentOccurrences[0];
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      <FacilityList facilities={event.facilities} />
       <DefinitionList
         items={[
           { label: 'Start point', value: event.startLocationText ?? 'Unknown' },
           { label: 'Start time', value: event.startTime ?? 'Unknown' },
-          { label: 'Parking', value: FACILITY_LABEL[f.parking] },
-          { label: 'Toilets', value: FACILITY_LABEL[f.toilets] },
-          { label: 'Cafe', value: FACILITY_LABEL[f.cafe] },
-          { label: 'Dogs', value: FACILITY_LABEL[f.dogs] },
-          { label: 'Buggies', value: FACILITY_LABEL[f.buggies] },
-          { label: 'Accessibility', value: FACILITY_LABEL[f.accessibility] },
           {
             label: 'Latest event',
             value: latest ? `${formatShortDate(latest.date)} · ${latest.status === 'cancelled' ? 'Cancelled' : 'Took place'}` : 'Unknown',
@@ -178,14 +154,31 @@ function InfoTab({ event }: { event: EventDetail }) {
           },
         ]}
       />
-      <p className="text-xs text-muted">“Unknown” means we do not have this information yet. Always check the official event page before travelling.</p>
+      <p className="text-xs text-muted">“Unknown” means we don't have this information yet. Always check the official event page before travelling.</p>
     </div>
+  );
+}
+
+function FavouriteButton({ saved }: { saved: boolean }) {
+  return (
+    <button
+      type="button"
+      disabled
+      aria-pressed={saved}
+      title="Saving events arrives with accounts"
+      className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-line bg-surface px-3 text-sm font-semibold text-ink disabled:cursor-not-allowed"
+    >
+      <Heart className={`size-4 ${saved ? 'fill-brand-600 text-brand-600' : 'text-subtle'}`} aria-hidden />
+      {saved ? 'Saved' : 'Save'}
+      <span className="sr-only"> (changing saved events is coming later)</span>
+    </button>
   );
 }
 
 export function EventPage() {
   const { id = '' } = useParams();
   const { data: event, isPending, isError, error, refetch } = useEvent(id);
+  const { data: profile } = useProfile();
   const [tab, setTab] = useState<TabId>('overview');
 
   if (isPending) {
@@ -213,50 +206,42 @@ export function EventPage() {
     );
   }
 
-  const s = event.scores;
   const latest = event.recentOccurrences[0];
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        back
-        title={event.name}
-        subtitle={
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            {event.town && (
-              <span className="inline-flex items-center gap-1">
-                <MapPin className="size-3.5" aria-hidden />
-                {event.town}
-              </span>
-            )}
-            <TravelBadge travel={event.travel} />
-          </span>
-        }
-        actions={
-          event.favourite ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-800">
-              <Heart className="size-3.5 fill-brand-600 text-brand-600" aria-hidden />
-              Saved
-            </span>
-          ) : null
-        }
-      />
+      <PageHeader back title={event.name} actions={<FavouriteButton saved={event.favourite === true} />} />
 
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span
-          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${
-            event.active ? 'bg-positive-bg text-positive' : 'bg-problem-bg text-problem'
-          }`}
-        >
-          <CircleCheck className="size-3.5" aria-hidden />
-          {event.active ? 'ACTIVE' : 'INACTIVE'}
-        </span>
-        {event.source === 'demo' && <DemoBadge />}
-        <span className="inline-flex items-center gap-1 text-muted">
-          <CalendarClock className="size-4" aria-hidden />
-          Saturday {event.startTime ?? ''}
-          {event.startLocationText && ` · ${event.startLocationText}`}
-        </span>
+      <div className="-mt-3 space-y-2 text-sm">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          {event.town && (
+            <span className="inline-flex items-center gap-1 text-muted">
+              <MapPin className="size-4" aria-hidden />
+              {event.town}
+            </span>
+          )}
+          {event.travel && (
+            <span className="inline-flex items-center gap-1 text-muted" title={`Estimated from straight-line distance (${event.travel.distanceKm} km)`}>
+              <Car className="size-4" aria-hidden />~{event.travel.minutes} min estimated travel
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ${
+              event.active ? 'bg-positive-bg text-positive' : 'bg-problem-bg text-problem'
+            }`}
+          >
+            {event.active ? 'Active' : 'Inactive'}
+          </span>
+          {event.source === 'demo' && <DemoBadge />}
+          {event.startTime && (
+            <span className="inline-flex items-center gap-1 text-muted">
+              <CalendarClock className="size-4" aria-hidden />
+              Saturdays {event.startTime}
+            </span>
+          )}
+        </div>
       </div>
 
       {latest?.status === 'cancelled' && (
@@ -265,34 +250,9 @@ export function EventPage() {
         </AlertBanner>
       )}
 
-      <section aria-label="Key metrics" className="grid grid-cols-2 gap-2">
-        <MetricCard label="PB Score" value={formatScore(s?.pbScore)} suffix="/ 100" band={opportunityBand(s?.pbScore)} />
-        <MetricCard label="Difficulty" value={formatDifficulty(s?.difficultyScore)} suffix="/ 10" band={difficultyBand(s?.difficultyScore)} />
-        <MetricCard label="Competition" value={formatScore(s?.competitionScore)} suffix="/ 100" band={competitionBand(s?.competitionScore)} />
-        <MetricCard label="Avg participants" value={formatCount(event.averageParticipants)} />
-        <MetricCard label="Elevation" value={event.elevationM ?? '—'} suffix={event.elevationM != null ? 'm' : undefined} />
-        <div className="rounded-2xl border border-line bg-surface p-3">
-          <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">Data confidence</p>
-          <div className="mt-2">
-            <ConfidenceBadge level={s?.pbConfidence ?? 'insufficient'} />
-          </div>
-          <p className="mt-1.5 text-xs text-subtle">
-            {s ? `${s.sampleSize} events / ${s.windowDays} days` : 'No scores yet'}
-          </p>
-        </div>
-      </section>
+      <EventHeroMetrics event={event} />
 
-      <Card>
-        <div className="flex items-start gap-3">
-          <Target className="mt-0.5 size-5 shrink-0 text-brand-700" aria-hidden />
-          <div>
-            <h2 className="font-semibold">Your personal forecast</h2>
-            <p className="mt-1 text-sm text-muted">
-              Expected time and how that time would historically have placed here arrive with “Where Could I Place?”.
-            </p>
-          </div>
-        </div>
-      </Card>
+      <OutlookCard profile={profile} />
 
       <Tabs tabs={TABS} value={tab} onChange={setTab} label="Event details">
         {tab === 'overview' && <OverviewTab event={event} />}
@@ -300,6 +260,11 @@ export function EventPage() {
         {tab === 'course' && <CourseTab event={event} />}
         {tab === 'info' && <InfoTab event={event} />}
       </Tabs>
+
+      <p className="flex items-center gap-1.5 text-xs text-subtle">
+        <Route className="size-3.5" aria-hidden />
+        Scores {event.scores ? `calculated as of ${formatShortDate(event.scores.asOfDate)} (${event.scores.calculationVersion})` : 'not yet calculated'}.
+      </p>
     </div>
   );
 }

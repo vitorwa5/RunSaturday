@@ -1,115 +1,168 @@
 /**
- * PHASE 1 PLACEHOLDER RANKING.
+ * PLACEHOLDER RANKING (Phase 1/2A).
  *
- * Orders events by one stored metric per goal so the Home screen can be built and
- * tested. It deliberately does NOT compute a Saturday Score; that objective-weighted
- * model (PB Score, conditions, travel, reliability…) replaces this in a later phase.
+ * Orders events by one stored metric per goal so Home and the Saturday Planner can be
+ * built and tested. It deliberately does NOT compute a Saturday Score; that objective-
+ * weighted model (PB Score, conditions, travel, reliability…) replaces this later.
  *
  * Rules that already apply and must survive the replacement:
  * - every pick says which metric it was ranked by and why;
  * - low-data events never outrank events with sufficient data;
  * - wording stays historical, never a promise about this Saturday.
  */
-import type { BestPickResponse, EventSummary, Goal, Recommendation, RecommendationReason } from '@runsaturday/shared';
+import {
+  goalDefinition,
+  type BestPickResponse,
+  type EventSummary,
+  type Goal,
+  type Recommendation,
+  type RecommendationReason,
+} from '@runsaturday/shared';
+
+type RankableGoal = Exclude<Goal, 'challenge'>;
 
 interface GoalStrategy {
+  /** Short description shown after "Demo recommendation ·". */
   method: string;
-  rankedByLabel: string;
-  unit?: string;
+  rankedBy: Omit<Recommendation['rankedBy'], 'value'>;
   /** Metric used for ranking; null = cannot be ranked for this goal. */
   metric: (e: EventSummary) => number | null;
-  /** true when a lower metric is better. */
-  ascending: boolean;
-  /** Optional eligibility filter. */
+  /** Optional eligibility rule. */
   eligible?: (e: EventSummary) => boolean;
+  /** Highlight tags to prefer for this goal, in order. */
+  highlightPriority: string[];
 }
 
-const STRATEGIES: Record<Exclude<Goal, 'challenge'>, GoalStrategy> = {
+const STRATEGIES: Record<RankableGoal, GoalStrategy> = {
   pb: {
-    method: 'Ranked by PB Score (demo values) within your travel limit.',
-    rankedByLabel: 'PB Score',
+    method: 'ranked using PB Score',
+    rankedBy: { key: 'pb_score', label: 'PB opportunity', outOf: 100, direction: 'higher_is_better' },
     metric: (e) => e.scores?.pbScore ?? null,
-    ascending: false,
+    highlightPriority: ['Fast', 'Flat', 'Tarmac', 'Close by'],
   },
   place: {
-    method: 'Ranked by lowest Competition Score (demo values) within your travel limit.',
-    rankedByLabel: 'Competition',
+    method: 'ranked using lowest Competition Score',
+    rankedBy: { key: 'competition_score', label: 'Competition', outOf: 100, direction: 'lower_is_better' },
     metric: (e) => e.scores?.competitionScore ?? null,
-    ascending: true,
+    highlightPriority: ['Lower competition', 'Small field', 'Close by'],
   },
   hidden_gem: {
-    method: 'Ranked by base Gem Score (demo values) within your travel limit.',
-    rankedByLabel: 'Gem Score',
+    method: 'ranked using Gem Score',
+    rankedBy: { key: 'gem_score', label: 'Gem score', outOf: 100, direction: 'higher_is_better' },
     metric: (e) => e.scores?.gemBaseScore ?? null,
-    ascending: false,
+    highlightPriority: ['Small field', 'Lower competition', 'New to you'],
   },
   new_event: {
-    method: 'Events you have not visited, nearest first.',
-    rankedByLabel: 'Travel',
-    unit: 'min',
+    method: 'events you have not run, nearest first',
+    rankedBy: { key: 'travel_minutes', label: 'Estimated travel', unit: 'min', direction: 'lower_is_better' },
     metric: (e) => e.travel?.minutes ?? null,
-    ascending: true,
     eligible: (e) => e.visited !== true,
+    highlightPriority: ['New to you', 'Close by'],
   },
   quiet: {
-    method: 'Ranked by fewest average runners within your travel limit.',
-    rankedByLabel: 'Avg runners',
+    method: 'ranked using fewest average runners',
+    rankedBy: { key: 'average_participants', label: 'Average runners', direction: 'lower_is_better' },
     metric: (e) => e.averageParticipants,
-    ascending: true,
+    highlightPriority: ['Small field', 'Close by'],
   },
 };
 
 const hasLimitedData = (e: EventSummary) => !e.scores || e.scores.pbConfidence === 'insufficient';
 
-export function explain(e: EventSummary, goal: Goal): RecommendationReason[] {
+/** Short tags describing an event, most relevant to the goal first (max 3). */
+export function highlights(e: EventSummary, goal: Goal): string[] {
+  const s = e.scores;
+  const tags = new Set<string>();
+  if (s?.pbScore != null && s.pbScore >= 85) tags.add('Fast');
+  if (e.elevationM != null && e.elevationM < 25) tags.add('Flat');
+  if (e.elevationM != null && e.elevationM >= 80) tags.add('Hilly');
+  if (e.surface === 'tarmac') tags.add('Tarmac');
+  if (e.surface === 'trail') tags.add('Trail');
+  if (s?.competitionScore != null && s.competitionScore < 45) tags.add('Lower competition');
+  if (e.averageParticipants != null && e.averageParticipants < 150) tags.add('Small field');
+  if (e.averageParticipants != null && e.averageParticipants >= 350) tags.add('Big field');
+  if (e.visited === false) tags.add('New to you');
+  if (e.travel && e.travel.minutes <= 15) tags.add('Close by');
+
+  const priority = goal === 'challenge' ? [] : STRATEGIES[goal].highlightPriority;
+  const ordered = [...priority.filter((t) => tags.has(t)), ...[...tags].filter((t) => !priority.includes(t))];
+  return ordered.slice(0, 3);
+}
+
+/** Full "Why this?" explanation using only stored values. */
+export function explain(e: EventSummary, goal: Goal, maxTravelMinutes: number | null): RecommendationReason[] {
   const reasons: RecommendationReason[] = [];
   const s = e.scores;
   const add = (text: string, tone: RecommendationReason['tone'] = 'positive') => reasons.push({ text, tone });
+  const round = (n: number) => Math.round(n);
 
-  if (goal === 'pb' && s?.pbScore != null) add(`PB Score ${Math.round(s.pbScore)}/100`);
-  if (goal === 'place' && s?.competitionScore != null && s.competitionScore < 55)
-    add(`Lower historical competition (${Math.round(s.competitionScore)}/100)`);
-  if (goal === 'hidden_gem' && s?.gemBaseScore != null) add(`Gem Score ${Math.round(s.gemBaseScore)}/100`);
-  if ((goal === 'quiet' || goal === 'hidden_gem') && e.averageParticipants != null && e.averageParticipants < 150)
-    add(`Small field (~${e.averageParticipants} runners on average)`);
-  if (goal === 'new_event' && e.visited === false) add('You have not run here yet');
-
+  if (goal === 'pb' && s?.pbScore != null) {
+    if (s.pbScore >= 85) add(`High PB Score (${round(s.pbScore)}/100)`);
+    else if (s.pbScore >= 65) add(`Good PB Score (${round(s.pbScore)}/100)`);
+    else add(`Lower PB Score (${round(s.pbScore)}/100)`, 'caution');
+  }
+  if ((goal === 'pb' || goal === 'place') && s?.difficultyScore != null) {
+    if (s.difficultyScore <= 3.5) add(`Low course difficulty (${s.difficultyScore.toFixed(1)}/10)`);
+    else if (s.difficultyScore >= 6.5) add(`Demanding course (${s.difficultyScore.toFixed(1)}/10)`, 'caution');
+  }
+  if (goal === 'place' && s?.competitionScore != null) {
+    if (s.competitionScore < 55) add(`Lower historical competition (${round(s.competitionScore)}/100)`);
+    else if (s.competitionScore >= 70) add(`Strong historical competition (${round(s.competitionScore)}/100)`, 'caution');
+  }
+  if (goal === 'hidden_gem' && s?.gemBaseScore != null && s.gemBaseScore >= 70) add(`High Gem Score (${round(s.gemBaseScore)}/100)`);
+  if (e.averageParticipants != null && (goal === 'quiet' || goal === 'hidden_gem' || goal === 'place')) {
+    if (e.averageParticipants < 150) add(`Small field (about ${e.averageParticipants} runners on average)`);
+    else if (goal === 'quiet' && e.averageParticipants >= 300) add(`Large field (about ${e.averageParticipants} runners)`, 'caution');
+  }
   if (e.elevationM != null && e.elevationM < 25) add(`Very low elevation (${e.elevationM} m)`);
-  else if (e.elevationM != null && e.elevationM >= 80 && goal === 'pb') add(`Hilly (${e.elevationM} m)`, 'caution');
-  if (e.surface === 'tarmac' && goal === 'pb') add('Tarmac surface');
-  if (e.travel) add(`About ${e.travel.minutes} min away (estimate)`);
+  else if (e.elevationM != null && e.elevationM >= 80 && goal === 'pb') add(`Hilly (${e.elevationM} m elevation)`, 'caution');
+  if (e.visited === false && (goal === 'new_event' || goal === 'hidden_gem')) add('You have not run here yet');
+
+  if (e.travel) {
+    add(
+      maxTravelMinutes != null
+        ? `Within your travel limit (about ${e.travel.minutes} of ${maxTravelMinutes} min, estimated)`
+        : `About ${e.travel.minutes} min away (estimated)`,
+    );
+  }
 
   if (hasLimitedData(e)) add(`Limited data: only ${s?.sampleSize ?? 0} recent events`, 'caution');
   else if (s?.pbConfidence === 'high') add(`High data confidence (${s.sampleSize} events in ${s.windowDays} days)`);
+  else if (s?.pbConfidence === 'medium') add(`Medium data confidence (${s.sampleSize} events in ${s.windowDays} days)`);
+  else if (s?.pbConfidence === 'low') add(`Low data confidence (${s.sampleSize} events)`, 'caution');
 
   return reasons;
 }
 
-export function bestPick(
-  goal: Goal,
-  events: EventSummary[],
-  options: { date: string; maxTravelMinutes: number | null; alternatives?: number },
-): BestPickResponse {
-  const base = { goal, date: options.date, alternatives: [] as Recommendation[] };
+export interface Ranking {
+  goal: Goal;
+  method: string;
+  results: Recommendation[];
+  /** Explanation when goal cannot be ranked. */
+  unavailableMessage?: string;
+}
 
-  if (goal === 'challenge') {
-    return {
-      ...base,
-      method: 'Not available yet.',
-      pick: null,
-      message: 'Challenge tracking is not available yet. It arrives once personal run history is supported.',
-    };
+export const CHALLENGE_UNAVAILABLE =
+  'Challenge recommendations arrive once personal run history and challenges are supported. Choose another goal for now.';
+
+/**
+ * Rank already-filtered events for a goal. Events outside `maxTravelMinutes` are excluded.
+ * Deterministic: ties are broken alphabetically.
+ */
+export function rankEvents(goal: Goal, events: EventSummary[], maxTravelMinutes: number | null): Ranking {
+  if (!goalDefinition(goal).available || goal === 'challenge') {
+    return { goal, method: 'not available yet', results: [], unavailableMessage: CHALLENGE_UNAVAILABLE };
   }
 
   const strategy = STRATEGIES[goal];
   const candidates = events.filter(
     (e) =>
-      (options.maxTravelMinutes == null || (e.travel && e.travel.minutes <= options.maxTravelMinutes)) &&
+      (maxTravelMinutes == null || (e.travel != null && e.travel.minutes <= maxTravelMinutes)) &&
       (strategy.eligible?.(e) ?? true) &&
       strategy.metric(e) != null,
   );
 
-  const direction = strategy.ascending ? 1 : -1;
+  const direction = strategy.rankedBy.direction === 'lower_is_better' ? 1 : -1;
   const ranked = [...candidates].sort(
     (a, b) =>
       Number(hasLimitedData(a)) - Number(hasLimitedData(b)) ||
@@ -117,29 +170,39 @@ export function bestPick(
       a.name.localeCompare(b.name),
   );
 
-  const toRecommendation = (e: EventSummary): Recommendation => ({
-    event: e,
-    rankedBy: { label: strategy.rankedByLabel, value: strategy.metric(e), ...(strategy.unit ? { unit: strategy.unit } : {}) },
-    reasons: explain(e, goal),
-  });
+  return {
+    goal,
+    method: strategy.method,
+    results: ranked.map((e, i) => ({
+      rank: i + 1,
+      event: e,
+      rankedBy: { ...strategy.rankedBy, value: strategy.metric(e) },
+      highlights: highlights(e, goal),
+      reasons: explain(e, goal, maxTravelMinutes),
+    })),
+  };
+}
 
-  const [first, ...rest] = ranked;
+export function bestPick(
+  goal: Goal,
+  events: EventSummary[],
+  options: { date: string; maxTravelMinutes: number | null; alternatives?: number },
+): BestPickResponse {
+  const ranking = rankEvents(goal, events, options.maxTravelMinutes);
+  const [first, ...rest] = ranking.results;
+  const base = { goal, date: options.date, method: ranking.method };
+
+  if (ranking.unavailableMessage) return { ...base, pick: null, alternatives: [], message: ranking.unavailableMessage };
   if (!first) {
     return {
       ...base,
-      method: strategy.method,
       pick: null,
+      alternatives: [],
       message:
         options.maxTravelMinutes != null
-          ? `No suitable events within ${options.maxTravelMinutes} minutes. Try increasing your travel limit.`
+          ? `No suitable events within ${options.maxTravelMinutes} minutes. Try a longer travel limit in the planner.`
           : 'No suitable events found.',
     };
   }
-
-  return {
-    ...base,
-    method: strategy.method,
-    pick: toRecommendation(first),
-    alternatives: rest.slice(0, options.alternatives ?? 3).map(toRecommendation),
-  };
+  return { ...base, pick: first, alternatives: rest.slice(0, options.alternatives ?? 3) };
 }

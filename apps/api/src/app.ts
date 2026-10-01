@@ -6,6 +6,7 @@ import { registerErrorHandling } from './http/errors';
 import type { DataStore } from './repositories/DataStore';
 import { eventRoutes } from './routes/events';
 import { healthRoutes } from './routes/health';
+import { plannerRoutes } from './routes/planner';
 import { profileRoutes } from './routes/profile';
 import { recommendationRoutes } from './routes/recommendations';
 
@@ -27,6 +28,7 @@ export async function buildApp({ config, store, now = () => new Date(), logger }
   await healthRoutes(app, ctx);
   await eventRoutes(app, ctx);
   await recommendationRoutes(app, ctx);
+  await plannerRoutes(app, ctx);
   await profileRoutes(app, ctx);
 
   app.addHook('onClose', async () => store.close());

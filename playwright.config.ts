@@ -19,6 +19,7 @@ export default defineConfig({
   },
   projects: [
     { name: 'mobile-360', use: { ...devices['Pixel 5'], viewport: { width: 360, height: 760 }, launchOptions } },
+    { name: 'mobile-390', use: { ...devices['Pixel 5'], viewport: { width: 390, height: 844 }, launchOptions } },
     { name: 'mobile-430', use: { ...devices['Pixel 5'], viewport: { width: 430, height: 900 }, launchOptions } },
   ],
   webServer: [

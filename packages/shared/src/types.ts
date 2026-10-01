@@ -3,6 +3,7 @@
  * These are transport shapes (DTOs), not database models.
  */
 import type { Goal } from './goals';
+import type { HistoryWindowId, PlannerFilters } from './planner';
 
 export type Surface = 'tarmac' | 'trail' | 'grass' | 'mixed' | 'unknown';
 export type CourseType = 'one_lap' | 'two_laps' | 'three_plus_laps' | 'out_and_back' | 'point_to_point' | 'unknown';
@@ -103,21 +104,82 @@ export interface RecommendationReason {
 }
 
 export interface Recommendation {
+  /** 1-based position in the ranking. */
+  rank: number;
   event: EventSummary;
   /** The metric the pick was ranked by, so the UI never shows an unexplained number. */
-  rankedBy: { label: string; value: number | null; unit?: string };
+  rankedBy: {
+    /** Stable identifier of the metric, for display logic. */
+    key: 'pb_score' | 'competition_score' | 'gem_score' | 'travel_minutes' | 'average_participants';
+    label: string;
+    value: number | null;
+    unit?: string;
+    /** Scale maximum, e.g. 100 for "92 / 100". */
+    outOf?: number;
+    direction: 'higher_is_better' | 'lower_is_better';
+  };
+  /** Up to three short tags summarising the pick, e.g. ["Fast", "Flat", "Close by"]. */
+  highlights: string[];
+  /** Full "Why this?" explanation. */
   reasons: RecommendationReason[];
 }
 
 export interface BestPickResponse {
   goal: Goal;
   date: string;
-  /** Short human description of how ranking works at this stage. */
+  /** How ranking works at this stage, e.g. "ranked using PB Score". */
   method: string;
   pick: Recommendation | null;
   alternatives: Recommendation[];
   /** Explanation when no pick is available (e.g. unsupported goal or no events in range). */
   message?: string;
+}
+
+export interface PlannerResponse {
+  date: string;
+  /** Saturdays that can be planned, upcoming first. */
+  availableDates: string[];
+  goal: Goal;
+  origin: { label: string; source: 'home' | 'coordinates' } | null;
+  maxTravelMinutes: number;
+  filters: PlannerFilters;
+  method: string;
+  results: Recommendation[];
+  counts: {
+    /** Active events considered. */
+    total: number;
+    withinTravel: number;
+    /** Within travel AND matching filters (before goal eligibility). */
+    matchingFilters: number;
+  };
+  /** Why there are no results, when there are none. */
+  message?: string;
+  /** Honest caveats about what the ranking does and does not consider. */
+  notes: string[];
+}
+
+export interface HistorySummary {
+  /** Completed events in the window. */
+  eventsHeld: number;
+  cancelled: number;
+  medianParticipants: number | null;
+  medianWinnerSeconds: number | null;
+  medianThirdSeconds: number | null;
+  medianFifthSeconds: number | null;
+  medianTenthSeconds: number | null;
+}
+
+export interface EventHistoryResponse {
+  eventId: string;
+  window: HistoryWindowId;
+  /** First date included, or null for all history. */
+  from: string | null;
+  to: string;
+  summary: HistorySummary;
+  /** Occurrences in the window, most recent first. */
+  occurrences: OccurrenceSummary[];
+  /** Everything stored for this event, so the UI can explain when a window exceeds it. */
+  coverage: { firstDate: string | null; lastDate: string | null; totalOccurrences: number };
 }
 
 export interface UserProfile {

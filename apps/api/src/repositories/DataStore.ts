@@ -3,7 +3,7 @@
  * interface only, never on Prisma directly, so storage can change (and tests can
  * run without PostgreSQL).
  */
-import type { EventDetail, EventSummary, Goal } from '@runsaturday/shared';
+import type { EventDetail, EventSummary, Goal, OccurrenceSummary } from '@runsaturday/shared';
 
 /** Event as stored, before request-specific context (travel, visited) is added. */
 export type EventRecord = Omit<EventSummary, 'travel' | 'visited' | 'favourite'>;
@@ -40,6 +40,13 @@ export interface DataStore {
   searchEvents(query: string, limit: number): Promise<EventRecord[]>;
   /** Look up by id or slug. `today` (ISO date) anchors the 90-day sample count. */
   getEvent(idOrSlug: string, today: string): Promise<EventDetailRecord | null>;
+  /** Resolve an id or slug to the event id, or null when it does not exist. */
+  findEventId(idOrSlug: string): Promise<string | null>;
+  /**
+   * All occurrences of an event (summary cache only, no Result rows), any order.
+   * Fine at current volumes (~52 per event per year); move windowing into SQL if needed.
+   */
+  listOccurrences(eventId: string): Promise<OccurrenceSummary[]>;
   getUser(userId: string): Promise<UserRecord | null>;
   /** True when the underlying store is reachable. */
   ping(): Promise<boolean>;

@@ -41,6 +41,12 @@ describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
     expect(fromDb?.occurrencesLast90Days).toBe(fromMemory?.occurrencesLast90Days);
   });
 
+  it('lists the same occurrences as the in-memory store', async () => {
+    expect(await store!.findEventId('demo-heath-common-5k')).toBe('demo-heath-common-5k');
+    expect(await store!.findEventId('nope')).toBeNull();
+    expect(await store!.listOccurrences('demo-heath-common-5k')).toEqual(await memory.listOccurrences('demo-heath-common-5k'));
+  });
+
   it('searches case-insensitively in SQL', async () => {
     expect((await store!.searchEvents('wIgAn', 10)).map((e) => e.name)).toEqual(['Canal Towpath 5K']);
   });

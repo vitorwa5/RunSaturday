@@ -4,7 +4,7 @@
 
 RunSaturday is a mobile-first decision-support app for runners choosing *where* to run on Saturday. It turns event data into explained, goal-specific recommendations (PB, placing, hidden gems, new events, quiet events, challenges). It is an independent project and is **not affiliated with or endorsed by parkrun** or any event organiser.
 
-> **Status: Phase 1 (technical foundation and app shell).** All event data is **fictional DEMO data**. No real event statistics are included, and no data is collected from external sites.
+> **Status: Phase 2A (product experience for Home, Saturday Planner and Event page).** All event data is **fictional DEMO data**. No real event statistics are included, and no data is collected from external sites.
 
 ---
 
@@ -123,7 +123,9 @@ Web (optional, `apps/web/.env`): `VITE_API_BASE_URL` (default `/api`) and `VITE_
 | `GET /api/events/search?q=` | match on name, town or region (case-insensitive) |
 | `GET /api/events/nearby?limit=&maxTravel=&lat=&lon=` | nearest events by estimated travel |
 | `GET /api/events/:idOrSlug` | event detail: facilities, recent occurrences, 90-day sample size |
-| `GET /api/recommendations/best-pick?goal=&maxTravel=` | best pick and alternatives, with reasons |
+| `GET /api/events/:idOrSlug/history?window=30\|60\|90\|365\|all` | occurrences in the window, median winner/3rd/5th/10th times, sample size and stored-history coverage |
+| `GET /api/recommendations/best-pick?goal=&maxTravel=` | best pick plus 3 alternatives, with highlights and reasons |
+| `GET /api/planner?date=&goal=&maxTravel=&surface=&elevation=&participants=&visited=&course=&confidence=` | Saturday Planner: ranked results, counts, and caveats |
 | `GET /api/profile` | current (demo) user profile |
 
 Without `lat`/`lon`, the user's saved home location is the origin. There's no authentication yet: every request acts as the demo user (see `http/context.ts`).
@@ -167,6 +169,14 @@ The rules:
 - **Edge cases are included on purpose:** one event has a cancellation, and one new event has too few occurrences for confident scores ("Limited data").
 
 The UI labels this data as DEMO everywhere it appears.
+
+### Placeholder ranking (until the Saturday Score exists)
+
+Home and the Saturday Planner rank events by **one stored metric per goal**: PB Score, lowest Competition, Gem Score, nearest unvisited, or fewest runners. The UI always says which metric was used ("Demo recommendation · ranked using PB Score"), and no Saturday Score is shown.
+
+- **Planner filters** use only stored properties. When a filter is active and an event's value is unknown, the event is left out rather than guessed.
+- **Dates:** planning covers the next 4 Saturdays. Rankings don't yet change with the date.
+- **"Your outlook"** on the Event page shows the runner's current form. Expected time, historical placement and Top-10 frequency stay "Not available yet" until the placement and course-adjustment engines exist.
 
 ## Product rules enforced so far
 

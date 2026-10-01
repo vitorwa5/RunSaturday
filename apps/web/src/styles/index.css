@@ -40,6 +40,8 @@
   html {
     -webkit-text-size-adjust: 100%;
     -webkit-tap-highlight-color: transparent;
+    /* Keep focused or scrolled-to elements clear of the fixed bottom navigation. */
+    scroll-padding-bottom: calc(5rem + env(safe-area-inset-bottom));
   }
   body {
     @apply bg-canvas text-ink font-sans antialiased;

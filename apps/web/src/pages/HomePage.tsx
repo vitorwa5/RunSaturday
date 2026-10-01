@@ -1,5 +1,5 @@
-import { formatLongDate, type Goal } from '@runsaturday/shared';
-import { BellRing, MapPin, Search } from 'lucide-react';
+import { formatLongDate, goalDefinition, type Goal } from '@runsaturday/shared';
+import { ArrowRight, Flag, SearchX } from 'lucide-react';
 import { useState } from 'react';
 import { BestPickCard } from '../components/events/BestPickCard';
 import { EventCard } from '../components/events/EventCard';
@@ -10,59 +10,73 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { ErrorState } from '../components/ui/ErrorState';
 import { LoadingState } from '../components/ui/LoadingState';
 import { SectionHeading } from '../components/ui/PageHeader';
-import { useBestPick, useNearbyEvents, useProfile } from '../hooks/queries';
+import { useBestPick, useProfile } from '../hooks/queries';
 import { upcomingSaturday } from '../lib/saturday';
 
-function BestPickSection({ goal }: { goal: Goal }) {
+function plannerLink(goal: Goal) {
+  return `/saturday?goal=${goal}`;
+}
+
+/** Best pick for the chosen goal, plus a few alternatives, from one request. */
+function Recommendations({ goal }: { goal: Goal }) {
   const { data, isPending, isError, error, refetch, isPlaceholderData } = useBestPick(goal);
 
-  if (isPending) return <LoadingState variant="card" label="Finding your best pick" />;
+  if (isPending) {
+    return (
+      <>
+        <LoadingState variant="card" label="Finding your best pick" />
+        <div className="mt-6">
+          <LoadingState rows={3} label="Loading other options" />
+        </div>
+      </>
+    );
+  }
   if (isError) return <ErrorState error={error} title="Recommendations could not be loaded" onRetry={() => refetch()} />;
+
+  const busy = isPlaceholderData ? 'opacity-60 transition-opacity' : 'transition-opacity';
+
   if (!data.pick) {
+    const unavailable = !goalDefinition(goal).available;
     return (
       <EmptyState
-        icon={Search}
-        title="No pick for this goal yet"
+        icon={unavailable ? Flag : SearchX}
+        title={unavailable ? `${goalDefinition(goal).label} isn't available yet` : 'No pick for this goal yet'}
         description={data.message ?? 'Try another goal.'}
-        action={<ButtonLink to="/explore" variant="secondary">Browse all events</ButtonLink>}
+        action={
+          unavailable ? undefined : (
+            <ButtonLink to={plannerLink(goal)} variant="secondary">
+              Adjust in the planner
+            </ButtonLink>
+          )
+        }
       />
     );
   }
-  return (
-    <div className={isPlaceholderData ? 'opacity-60 transition-opacity' : 'transition-opacity'} aria-busy={isPlaceholderData}>
-      <BestPickCard recommendation={data.pick} method={data.method} />
-    </div>
-  );
-}
 
-function NearYouSection() {
-  const { data, isPending, isError, error, refetch } = useNearbyEvents(5);
   return (
-    <section aria-labelledby="near-you">
-      <SectionHeading action={<ButtonLink to="/explore" variant="ghost" className="min-h-8 px-2">See all</ButtonLink>}>
-        <span id="near-you">Near you</span>
-      </SectionHeading>
-      {isPending ? (
-        <LoadingState rows={3} label="Loading nearby events" />
-      ) : isError ? (
-        <ErrorState error={error} title="Nearby events could not be loaded" onRetry={() => refetch()} />
-      ) : data.length === 0 ? (
-        <EmptyState
-          icon={MapPin}
-          title="No nearby events found"
-          description="Choose a home location to see events near you."
-          action={<ButtonLink to="/profile" variant="secondary">Set location</ButtonLink>}
-        />
-      ) : (
-        <ul className="space-y-2">
-          {data.map((event) => (
-            <li key={event.id}>
-              <EventCard event={event} />
-            </li>
-          ))}
-        </ul>
+    <div className={busy} aria-busy={isPlaceholderData}>
+      <BestPickCard recommendation={data.pick} method={data.method} />
+      {data.alternatives.length > 0 && (
+        <section aria-labelledby="other-options" className="mt-8">
+          <SectionHeading
+            action={
+              <ButtonLink to={plannerLink(goal)} variant="ghost" className="min-h-8 px-2">
+                Plan in detail <ArrowRight className="size-4" aria-hidden />
+              </ButtonLink>
+            }
+          >
+            <span id="other-options">Other options</span>
+          </SectionHeading>
+          <ul className="space-y-2">
+            {data.alternatives.map((r) => (
+              <li key={r.event.id}>
+                <EventCard event={r.event} />
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -76,7 +90,7 @@ function AlertsSection() {
       </SectionHeading>
       <AlertBanner tone="neutral" title="No alerts right now">
         {saved > 0
-          ? `Cancellations and condition alerts for your ${saved} saved ${saved === 1 ? 'event' : 'events'} will appear here.`
+          ? `Cancellation and condition alerts for your ${saved} saved ${saved === 1 ? 'event' : 'events'} will appear here.`
           : 'Save events to get cancellation and condition alerts here.'}
       </AlertBanner>
     </section>
@@ -89,19 +103,14 @@ export function HomePage() {
   const activeGoal = goal ?? profile?.preferredGoal ?? 'pb';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <header className="pt-5">
-        <div className="flex items-center justify-between">
-          <p className="text-lg font-extrabold tracking-tight">
-            Run<span className="text-brand-700">Saturday</span>
-          </p>
-          <BellRing className="size-5 text-subtle" aria-hidden />
-        </div>
-        <p className="mt-4 text-sm font-semibold text-brand-700">{formatLongDate(upcomingSaturday())}</p>
-        <h1 className="text-3xl font-bold tracking-tight">Where are you running?</h1>
+        <p className="text-lg font-extrabold tracking-tight">
+          Run<span className="text-brand-700">Saturday</span>
+        </p>
+        <p className="mt-5 text-sm font-semibold text-muted">{formatLongDate(upcomingSaturday())}</p>
+        <h1 className="mt-0.5 text-[2rem] leading-tight font-extrabold tracking-tight">Where are you running?</h1>
       </header>
-
-      <BestPickSection goal={activeGoal} />
 
       <section aria-labelledby="goal-heading">
         <SectionHeading>
@@ -110,7 +119,8 @@ export function HomePage() {
         <GoalSelector value={activeGoal} onChange={setGoal} />
       </section>
 
-      <NearYouSection />
+      <Recommendations goal={activeGoal} />
+
       <AlertsSection />
     </div>
   );

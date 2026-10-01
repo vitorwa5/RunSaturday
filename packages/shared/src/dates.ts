@@ -39,14 +39,18 @@ export function addDays(isoDate: string, days: number): string {
   return toIsoDate(d);
 }
 
-/** "Saturday 3 October" style label for an ISO date. */
+/** "Saturday, 3 October" style label for an ISO date. */
 export function formatLongDate(isoDate: string, locale = 'en-GB'): string {
-  return new Intl.DateTimeFormat(locale, {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    timeZone: 'UTC',
-  }).format(new Date(`${isoDate}T00:00:00Z`));
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  const weekday = new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(date);
+  const dayMonth = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(date);
+  return `${weekday}, ${dayMonth}`;
+}
+
+/** The next `count` Saturdays starting with the upcoming one. */
+export function upcomingSaturdays(fromIsoDate: string, count: number): string[] {
+  const first = nextSaturday(fromIsoDate);
+  return Array.from({ length: count }, (_, i) => addDays(first, 7 * i));
 }
 
 /** "3 Oct" style label for an ISO date. */

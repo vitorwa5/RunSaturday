@@ -1,4 +1,4 @@
-import { addDays } from '@runsaturday/shared';
+import { addDays, type OccurrenceSummary } from '@runsaturday/shared';
 import { DEFAULT_SCORE_WINDOW_DAYS } from '../../config/analysis';
 import type { Db } from '../../db/prisma';
 import type { DataStore, EventDetailRecord, EventRecord, UserRecord } from '../DataStore';
@@ -59,7 +59,8 @@ export class PrismaDataStore implements DataStore {
       where: {
         eventId: event.id,
         status: 'COMPLETED',
-        date: { gte: new Date(`${addDays(today, -90)}T00:00:00Z`), lte: new Date(`${today}T00:00:00Z`) },
+        // Window (today - 90, today], matching EventScore's window definition.
+        date: { gte: new Date(`${addDays(today, -89)}T00:00:00Z`), lte: new Date(`${today}T00:00:00Z`) },
       },
     });
 
@@ -81,6 +82,16 @@ export class PrismaDataStore implements DataStore {
       recentOccurrences: event.occurrences.map(mapOccurrence),
       occurrencesLast90Days,
     };
+  }
+
+  async findEventId(idOrSlug: string): Promise<string | null> {
+    const event = await this.db.event.findFirst({ where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] }, select: { id: true } });
+    return event?.id ?? null;
+  }
+
+  async listOccurrences(eventId: string): Promise<OccurrenceSummary[]> {
+    const rows = await this.db.eventOccurrence.findMany({ where: { eventId }, orderBy: { date: 'desc' } });
+    return rows.map(mapOccurrence);
   }
 
   async getUser(userId: string): Promise<UserRecord | null> {

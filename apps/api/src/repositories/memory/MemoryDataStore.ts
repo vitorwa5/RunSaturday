@@ -2,7 +2,7 @@
  * In-memory DataStore backed by the DEMO dataset (fictional). Lets the UI run without
  * PostgreSQL (DATA_SOURCE=demo) and gives API tests a deterministic fixture.
  */
-import { addDays } from '@runsaturday/shared';
+import { addDays, type OccurrenceSummary } from '@runsaturday/shared';
 import { buildDemoDataset, DEMO_WINDOW_DAYS, type DemoDataset, type DemoEventBundle } from '../../demo/buildDemoDataset';
 import type { DataStore, EventDetailRecord, EventRecord, UserRecord } from '../DataStore';
 
@@ -42,6 +42,11 @@ function toRecord(b: DemoEventBundle, dataset: DemoDataset, generatedAt: string)
   };
 }
 
+/** Occurrence summaries, oldest first (generation order). */
+function toOccurrenceSummaries(b: DemoEventBundle): OccurrenceSummary[] {
+  return b.occurrences.map(({ results: _results, status, ...o }) => ({ ...o, status: lower(status) }));
+}
+
 export class MemoryDataStore implements DataStore {
   readonly kind = 'demo-memory' as const;
   private readonly dataset: DemoDataset;
@@ -71,7 +76,8 @@ export class MemoryDataStore implements DataStore {
   async getEvent(idOrSlug: string, today: string): Promise<EventDetailRecord | null> {
     const bundle = this.dataset.events.find((b) => b.id === idOrSlug || b.def.slug === idOrSlug);
     if (!bundle) return null;
-    const windowStart = addDays(today, -90);
+    // Window (today - 90, today], matching EventScore's window definition.
+    const windowStart = addDays(today, -89);
     const { facilities } = bundle.def;
 
     return {
@@ -89,14 +95,20 @@ export class MemoryDataStore implements DataStore {
         accessibility: lower(facilities.accessibility),
       },
       lastUpdated: this.generatedAt,
-      recentOccurrences: [...bundle.occurrences]
-        .reverse()
-        .slice(0, RECENT_OCCURRENCES)
-        .map(({ results: _results, status, ...o }) => ({ ...o, status: lower(status) })),
+      recentOccurrences: toOccurrenceSummaries(bundle).reverse().slice(0, RECENT_OCCURRENCES),
       occurrencesLast90Days: bundle.occurrences.filter(
         (o) => o.status === 'COMPLETED' && o.date >= windowStart && o.date <= today,
       ).length,
     };
+  }
+
+  async findEventId(idOrSlug: string): Promise<string | null> {
+    return this.dataset.events.find((b) => b.id === idOrSlug || b.def.slug === idOrSlug)?.id ?? null;
+  }
+
+  async listOccurrences(eventId: string): Promise<OccurrenceSummary[]> {
+    const bundle = this.dataset.events.find((b) => b.id === eventId);
+    return bundle ? toOccurrenceSummaries(bundle).reverse() : [];
   }
 
   async getUser(userId: string): Promise<UserRecord | null> {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, calendarDateIn, formatLongDate, formatShortDate, nextSaturday } from '../dates';
+import { addDays, calendarDateIn, formatLongDate, formatShortDate, nextSaturday, upcomingSaturdays } from '../dates';
 
 describe('nextSaturday', () => {
   it.each([
@@ -24,12 +24,19 @@ describe('date helpers', () => {
   });
 
   it('formats labels in en-GB', () => {
-    expect(formatLongDate('2026-10-03')).toBe('Saturday 3 October');
+    expect(formatLongDate('2026-10-03')).toBe('Saturday, 3 October');
     expect(formatShortDate('2026-10-03')).toBe('3 Oct');
   });
 
   it('resolves the calendar date in a time zone', () => {
     // 23:30 UTC on Friday is already Saturday in London during BST.
     expect(calendarDateIn(new Date('2026-10-02T23:30:00Z'), 'Europe/London')).toBe('2026-10-03');
+  });
+});
+
+describe('upcomingSaturdays', () => {
+  it('lists consecutive Saturdays starting with the upcoming one', () => {
+    expect(upcomingSaturdays('2026-10-01', 4)).toEqual(['2026-10-03', '2026-10-10', '2026-10-17', '2026-10-24']);
+    expect(upcomingSaturdays('2026-10-03', 2)).toEqual(['2026-10-03', '2026-10-10']);
   });
 });

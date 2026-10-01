@@ -2,7 +2,7 @@
  * Presentation mappings: how values are labelled and toned in the UI.
  * No scoring maths lives here, only display thresholds and wording.
  */
-import type { ConfidenceLevel, CourseType, FacilityStatus, Surface } from '@runsaturday/shared';
+import type { ConfidenceLevel, CourseType, FacilityStatus, Recommendation, Surface } from '@runsaturday/shared';
 
 export type Tone = 'positive' | 'caution' | 'problem' | 'info' | 'neutral';
 
@@ -41,6 +41,27 @@ export const CONFIDENCE_DISPLAY: Record<ConfidenceLevel, Band> = {
   low: { label: 'Low confidence', tone: 'caution' },
   insufficient: { label: 'Limited data', tone: 'neutral' },
 };
+
+/** Short confidence labels for compact cards. */
+export const CONFIDENCE_SHORT: Record<ConfidenceLevel, string> = {
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+  insufficient: 'Limited data',
+};
+
+/** Band for the metric a recommendation was ranked by (null when a band would add nothing). */
+export function rankedByBand(rankedBy: Recommendation['rankedBy']): Band | null {
+  switch (rankedBy.key) {
+    case 'pb_score':
+    case 'gem_score':
+      return opportunityBand(rankedBy.value);
+    case 'competition_score':
+      return competitionBand(rankedBy.value);
+    default:
+      return null;
+  }
+}
 
 export const SURFACE_LABEL: Record<Surface, string> = {
   tarmac: 'Tarmac',
