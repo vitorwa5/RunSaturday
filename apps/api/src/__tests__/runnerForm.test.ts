@@ -199,7 +199,9 @@ describe('Runner Form V1: performance frontier fixtures', () => {
       expect(f.frontier).toMatchObject({ supportingRuns: 3, slowerRuns: 5 });
       // The slower runs are listed, not hidden.
       expect(f.inputs.filter((i) => i.role === 'slower').map((i) => i.actualSeconds).sort()).toEqual(['24:30', '25:00', '26:00', '27:00', '28:00'].map(mmss));
-      expect(f.confidence.level).toBe('high');
+      // Only 3 runs support the frontier: at most Medium, however many slower runs exist.
+      expect(f.confidence.level).toBe('medium');
+      expect(f.limitedReason).toBe('Only 3 recent performances support Current Form; slower runs do not add confidence.');
       expect(f.trend.direction).toBe('limited');
     }
   });
@@ -264,5 +266,60 @@ describe('Runner Form V1: performance frontier fixtures', () => {
   it('gives an old PB outside the horizon zero influence on the frontier', () => {
     const recent = chrono(['22:05', '22:10', '21:58', '22:02']);
     expect(form([...recent, run('ref-a', 200, '18:30'), run('ref-b', 210, '18:35')]).formSeconds).toBe(form(recent).formSeconds);
+  });
+});
+
+/**
+ * Phase 4B.2: confidence rests on the runs SUPPORTING the frontier. Slower runs neither drag
+ * Current Form nor add confidence: 2 supporting → at most Low, 3 → at most Medium, 4+ → may be High.
+ */
+describe('Runner Form V1: confidence follows frontier support, not the total sample', () => {
+  /** 20 slower runs, 24:00 → 29:42, interleaved by date with the fast ones. */
+  const slower = (count = 20) => Array.from({ length: count }, (_, i) => run(EVENTS[i % 3]!, 5 + 7 * i, mmss('24:00') + 18 * i));
+
+  it('CASE A: 3 supporting runs + 5 slower stays ~20:07–20:08 at no more than Medium', () => {
+    const f = form(weekly(['20:00', '20:08', '20:14', '24:30', '25:00', '26:00', '27:00', '28:00']));
+    expect(f.formSeconds!).toBeGreaterThanOrEqual(mmss('20:07'));
+    expect(f.formSeconds!).toBeLessThanOrEqual(mmss('20:08'));
+    expect(f.frontier).toMatchObject({ supportingRuns: 3, slowerRuns: 5 });
+    expect(f.inputs.filter((i) => i.role === 'frontier').map((i) => i.actualSeconds).sort()).toEqual(['20:00', '20:08', '20:14'].map(mmss));
+    expect(f.confidence.score).toBeGreaterThanOrEqual(RUNNER_FORM_V1.confidence.levels.high); // the score alone would say High…
+    expect(f.confidence.level).toBe('medium'); // …but 3 supporting runs cap it
+  });
+
+  it('CASE B: 20:00, 20:08 + 20 runs of 24:00–30:00 stays ~20:04 at no more than Low', () => {
+    const fast = [run('ref-a', 2, '20:00'), run('ref-b', 9, '20:08')];
+    const f = form([...fast, ...slower()]);
+    expect(f.sampleSize).toBe(22);
+    expect(f.formSeconds!).toBeGreaterThanOrEqual(mmss('20:00'));
+    expect(f.formSeconds!).toBeLessThanOrEqual(mmss('20:08'));
+    expect(f.frontier).toMatchObject({ supportingRuns: 2, slowerRuns: 20 });
+    expect(f.inputs.filter((i) => i.role === 'slower').every((i) => i.share === 0)).toBe(true);
+    expect(f.confidence.level).toBe('low');
+    expect(f.limitedReason).toMatch(/^Only 2 recent performances support Current Form/);
+    // The 20 slower runs change neither the estimate nor the confidence score.
+    const fewSlower = form([...fast, run('ref-c', 3, '25:00'), run('ref-a', 4, '26:00')]);
+    expect(fewSlower.formSeconds).toBe(f.formSeconds);
+    expect(fewSlower.confidence.score).toBe(f.confidence.score);
+  });
+
+  it('CASE C: 5 supporting runs may be High, and many slower runs neither raise nor lower it', () => {
+    const fast = weekly(['20:00', '20:05', '20:09', '20:12', '20:07']);
+    const alone = form(fast);
+    const withSlow = form([...fast, ...slower()]);
+    expect(withSlow.formSeconds!).toBeGreaterThanOrEqual(mmss('20:00'));
+    expect(withSlow.formSeconds!).toBeLessThanOrEqual(mmss('20:12'));
+    expect(withSlow.formSeconds).toBe(alone.formSeconds);
+    expect(withSlow.frontier).toMatchObject({ supportingRuns: 5, slowerRuns: 20 });
+    expect(withSlow.confidence.level).toBe('high');
+    expect(withSlow.confidence.score).toBe(alone.confidence.score);
+    expect(withSlow.limitedReason).toBeNull();
+  });
+
+  it('applies the support caps exactly: 2 → Low, 3 → Medium, 4 → High allowed', () => {
+    const levelWith = (times: string[]) => form([...weekly(times), ...slower(10)]).confidence.level;
+    expect(levelWith(['20:00', '20:04'])).toBe('low');
+    expect(levelWith(['20:00', '20:04', '20:02'])).toBe('medium');
+    expect(levelWith(['20:00', '20:04', '20:02', '20:03'])).toBe('high');
   });
 });

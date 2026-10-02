@@ -275,9 +275,19 @@ The app never assumes that a particular slow result was an easy run.
    | Different events among the frontier runs | 5% | 3 events |
    | Time coverage of the frontier runs | 5% | 42 days |
 
-   Caps:
-   - If the **newest** run is a faster run that no other run supports, the level is at most Medium until that run is repeated.
-   - 2–3 eligible runs, a latest run over 90 days old, or the median fallback cap the level at Low.
+   Caps (applied after the score; the strictest wins):
+
+   | Runs supporting the frontier | Maximum level |
+   | --- | --- |
+   | 1 eligible run in total | indicative only (no Current Form) |
+   | 2 | Low |
+   | 3 | Medium |
+   | 4 or more | High, if the score reaches it |
+
+   - Only runs that **support the frontier** count. Slower runs never count, so 20 slower runs cannot turn 2–3 fast runs into High confidence. They do not lower it either.
+   - 4 is also where *Frontier support* earns full marks, so High needs both the cap and the score.
+   - 2–3 eligible runs in total, a latest run over 90 days old, or the median fallback: at most Low.
+   - If the **newest** run is a faster run that no other run supports: at most Medium until it is repeated.
 
    Confidence describes the evidence, never the chance of running the time.
 7. **Trend.** A course-weighted least-squares slope of the log course-adjusted time against date. It uses:

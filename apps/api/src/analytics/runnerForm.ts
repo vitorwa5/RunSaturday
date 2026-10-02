@@ -45,8 +45,10 @@
  *    `confidence` below. It rests on the evidence AT THE FRONTIER: how many recent runs support
  *    it and how tightly they agree. Repeated similar fast runs raise it; an unsupported faster
  *    run lowers it; slower runs do not lower it when the frontier is consistently supported. It
- *    describes the evidence for the estimate, never the chance of running that time. Stale data
- *    (latest eligible run older than STALE_DAYS) caps it at Low.
+ *    describes the evidence for the estimate, never the chance of running that time. Caps:
+ *    by SUPPORTING runs (slower runs never count): 2 → at most Low, 3 → at most Medium, 4+ may
+ *    reach High; 2–3 eligible runs, stale data (latest eligible run older than STALE_DAYS) or
+ *    the median fallback → at most Low; an unrepeated faster NEWEST run → at most Medium.
  * 7. TREND. Course-weighted least-squares slope of x against date, over the frontier runs, any
  *    faster level they have replaced (so a genuine decline shows) and other runs within
  *    TREND_ZONE (6%) of Current Form (so far slower runs, which may be easy, social or paced, and
@@ -100,6 +102,11 @@ export const RUNNER_FORM_V1 = {
   },
   /** At most this many eligible runs → confidence capped at Low. */
   LOW_CAP_MAX_RUNS: 3,
+  /**
+   * Maximum confidence by the number of runs SUPPORTING the frontier (slower runs never count):
+   * 2 → Low, 3 → Medium, 4+ → may reach High. (1 eligible run is indicative only.)
+   */
+  SUPPORT_CAP: { LOW_MAX: 2, MEDIUM_MAX: 3 },
   /** Latest eligible run older than this → confidence capped at Low. */
   STALE_DAYS: 90,
   confidence: {
@@ -363,7 +370,8 @@ export function computeRunnerForm(
   // The newest evidence is a faster run nobody has repeated yet: at most Medium until it is.
   const newestUnsupported = eligible.some((e, i) => role[i] === 'faster_unsupported' && e.ageDays < frontierLatest);
   if (newestUnsupported) level = level === 'high' ? 'medium' : level;
-  if (eligible.length <= cfg.LOW_CAP_MAX_RUNS || latestAge > cfg.STALE_DAYS || band == null) level = capAtLow(level);
+  if (eligible.length <= cfg.LOW_CAP_MAX_RUNS || latestAge > cfg.STALE_DAYS || band == null || supportCount <= cfg.SUPPORT_CAP.LOW_MAX) level = capAtLow(level);
+  else if (supportCount <= cfg.SUPPORT_CAP.MEDIUM_MAX && level === 'high') level = 'medium';
 
   // Trend: course-weighted, over the frontier, any faster level it has replaced, and runs within
   // TREND_ZONE of it, so far slower runs (which may be easy, social or paced) and a one-off fast
@@ -382,7 +390,9 @@ export function computeRunnerForm(
         ? `Only ${eligible.length} eligible recent performances.`
         : band == null
           ? 'No two recent performances agree closely, so Current Form is a median of them.'
-          : null;
+          : supportCount <= cfg.SUPPORT_CAP.MEDIUM_MAX
+            ? `Only ${supportCount} recent performances support Current Form; slower runs do not add confidence.`
+            : null;
 
   return {
     ...common,
