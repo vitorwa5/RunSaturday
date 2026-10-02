@@ -13,7 +13,7 @@
  * Adjustment is only offered when both factors are at least Medium confidence; there is no
  * elevation-based fallback.
  */
-import type { ConfidenceLevel, CourseAdjustment } from '@runsaturday/shared';
+import type { ConfidenceLevel, CourseAdjustment, FormReference } from '@runsaturday/shared';
 import { ratioInterval, type CourseFactorResult } from '../analytics/courseSpeed';
 
 export const ADJUSTMENT_UNAVAILABLE = 'Course adjustment unavailable — limited matched-runner data';
@@ -39,6 +39,7 @@ export function adjustPerformance(
   targetFactor: CourseFactorResult | null | undefined,
 ): CourseAdjustment {
   const base = {
+    sourceKind: 'event' as const,
     sourceEventId: source.eventId,
     sourceEventName: source.name,
     sourceSeconds: source.seconds,
@@ -87,5 +88,39 @@ export function adjustPerformance(
       ? { lowSeconds: Math.round(source.seconds * interval.low), highSeconds: Math.round(source.seconds * interval.high), replicates: interval.replicates }
       : null,
     confidence: lower(sourceFactor.confidence.level, targetFactor.confidence.level),
+  };
+}
+
+/**
+ * Current Form → an event. Current Form is ALREADY course-neutral (time at the analysed-cohort
+ * reference course), so:
+ *   equivalent = formSeconds × f_target
+ * It is never divided by a source-event factor, and no source event is invented. The target
+ * factor must be at least Medium confidence. The adjustment's confidence is the lower of the
+ * Current Form confidence and the target factor confidence.
+ */
+export function adjustFromForm(form: FormReference, target: { eventId: string }, targetFactor: CourseFactorResult | null | undefined): CourseAdjustment {
+  const base = {
+    sourceKind: 'current_form' as const,
+    sourceEventId: null,
+    sourceEventName: 'Current Form',
+    sourceSeconds: form.formSeconds,
+    targetEventId: target.eventId,
+    sourceFactor: null,
+    targetFactor: targetFactor?.factor ?? null,
+    conversionRange: null,
+  };
+  if (!isReliableFactor(targetFactor)) {
+    return { ...base, available: false, reason: ADJUSTMENT_UNAVAILABLE, equivalentSeconds: null, deltaSeconds: null, ratio: null, confidence: 'insufficient' };
+  }
+  const equivalentSeconds = Math.round(form.formSeconds * targetFactor.factor);
+  return {
+    ...base,
+    available: true,
+    reason: null,
+    equivalentSeconds,
+    deltaSeconds: equivalentSeconds - form.formSeconds,
+    ratio: targetFactor.factor,
+    confidence: lower(form.confidence, targetFactor.confidence.level),
   };
 }

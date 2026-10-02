@@ -345,7 +345,8 @@ describe('API', () => {
       app = await buildTestApp();
       const body = (await app.inject('/api/hidden-gems')).json<HiddenGemsResponse>();
       expect(body.algorithm).toBe('hidden_gem_v1');
-      expect(body.timeSeconds).toBe(1180);
+      expect(body.timeSeconds).toBe(1218); // Current Form, converted to each course
+      expect(body.notes.join(' ')).toMatch(/your Current Form, converted to each course/);
       expect(body.results.length).toBeGreaterThan(0);
       for (const g of body.results) {
         expect(g.components).toHaveLength(5);
@@ -479,7 +480,9 @@ describe('API', () => {
   it('serves the demo profile with current form separate from lifetime PB', async () => {
     app = await buildTestApp();
     const profile = (await app.inject('/api/profile')).json();
-    expect(profile).toMatchObject({ isDemo: true, lifetimePbSeconds: 1138, current5kEstimateSeconds: 1180 });
+    // Current Form is modelled (course-neutral) and separate from the Overall 5K PB.
+    expect(profile).toMatchObject({ isDemo: true, lifetimePbSeconds: 1138, current5kEstimateSeconds: 1218, currentFormGapToOverallPbSeconds: 80 });
+    expect(profile.currentForm).toMatchObject({ version: 'runner_form_v1', status: 'estimate', formSeconds: 1218, distanceMeters: 5000 });
     expect(profile.recentPbEvent).toEqual({ id: 'demo-riverside-5k', name: 'Riverside 5K' });
     expect(profile.lifetimePbEvent).toEqual({ id: 'demo-riverside-5k', name: 'Riverside 5K' });
     expect(profile.savedEventIds).toContain('demo-riverside-5k');

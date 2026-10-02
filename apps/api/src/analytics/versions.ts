@@ -8,3 +8,4 @@ export const ANALYTICS_WINDOWS = [30, 60, 90, 365, 0] as const;
 export const DEFAULT_ANALYTICS_WINDOW = 90;
 /** Structural metrics do not depend on a results window. */
 export const STRUCTURAL_WINDOW = 0;
+export const RUNNER_FORM_VERSION = 'runner_form_v1';

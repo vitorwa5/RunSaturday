@@ -17,6 +17,7 @@ import {
   type CourseAdjustment,
   type EventPlacement,
   type EventSummary,
+  type FormReference,
   type HiddenGemsResponse,
   type HistoryWindowId,
   type PbFinderResponse,
@@ -25,7 +26,8 @@ import {
   type PlacementTargetId,
 } from '@runsaturday/shared';
 import { z } from 'zod';
-import { currentUser, resolveOrigin, type RequestContext } from '../http/context';
+import { CURRENT_USER_ID, currentUser, resolveOrigin, type RequestContext } from '../http/context';
+import { currentRunnerForm, formReferenceOf, formUnavailableNote } from '../services/runnerForm';
 import { AppError, notFound, parseInput } from '../http/errors';
 import { idsOf, OriginQuery, parseTimeParam, TravelOption, WindowParam } from '../http/schemas';
 import { bestByMetric } from '../services/comparisonService';
@@ -45,12 +47,21 @@ const RAW_FALLBACK = 'Raw time comparison — course adjustment unavailable';
 const ADJUSTED_NOTE =
   'Course adjusted: your time is converted to an equivalent at each course using Course Speed Factors from matched runners, then compared with past results. Equivalent times are historical conversions, not predicted finish times.';
 
+/**
+ * basis=current_form: analyse the runner's Current Form (read from their own snapshot on the
+ * server; `time` and `source` are then ignored). basis=time (default): the given time.
+ */
+const BasisParam = z.enum(['time', 'current_form']).default('time');
+const FORM_NOTE =
+  'Current Form is a modelled, course-neutral estimate of your present 5K ability. Each equivalent is your Current Form converted to that course: an equivalent performance from past results, not a predicted finish time.';
+
 /** auto: course adjusted when a source event with a reliable factor is given, otherwise raw time. */
 const ModeParam = z.enum(['auto', 'adjusted', 'raw']).default('auto');
 const SourceParam = z.string().min(1).max(200).optional();
 
 const PlacementQuery = z.object({
-  time: z.string(),
+  time: z.string().optional(),
+  basis: BasisParam,
   window: WindowParam.default(DEFAULT_HISTORY_WINDOW),
   target: z.enum(idsOf(PLACEMENT_TARGETS)).default(DEFAULT_PLACEMENT_TARGET),
   maxTravel: TravelOption.optional(),
@@ -59,7 +70,8 @@ const PlacementQuery = z.object({
 });
 
 const EventPlacementQuery = z.object({
-  time: z.string(),
+  time: z.string().optional(),
+  basis: BasisParam,
   window: WindowParam.default(DEFAULT_HISTORY_WINDOW),
   mode: ModeParam,
   source: SourceParam,
@@ -83,6 +95,7 @@ const HiddenGemsQuery = z.object({
 const CompareQuery = z.object({
   ids: z.string().min(1),
   time: z.string().optional(),
+  basis: BasisParam,
   window: WindowParam.default(DEFAULT_HISTORY_WINDOW),
   mode: ModeParam,
   source: SourceParam,
@@ -96,6 +109,15 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
     return { user, events };
   }
 
+  /** The time to analyse: the given time, or the user's Current Form (never a client-supplied form). */
+  async function resolveBasis(q: { basis: 'time' | 'current_form'; time?: string | undefined }): Promise<{ timeSeconds: number; form: FormReference | null }> {
+    if (q.basis === 'time') return { timeSeconds: parseTimeParam(q.time), form: null };
+    const form = await currentRunnerForm(ctx.store, CURRENT_USER_ID, ctx.today());
+    const ref = formReferenceOf(form);
+    if (!ref) throw new AppError(409, 'form_unavailable', formUnavailableNote(form));
+    return { timeSeconds: ref.formSeconds, form: ref };
+  }
+
   /**
    * Placements in raw or course-adjusted mode. "auto" adjusts when a source event with a
    * reliable Course Speed Factor is given and says why when it cannot; an explicit "adjusted"
@@ -104,21 +126,36 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
   async function placementsFor(
     all: EventSummary[],
     selected: EventSummary[],
-    q: { timeSeconds: number; mode: 'auto' | 'adjusted' | 'raw'; source?: string | undefined; window: HistoryWindowId; target: PlacementTargetId },
+    q: {
+      timeSeconds: number;
+      form?: FormReference | null;
+      mode: 'auto' | 'adjusted' | 'raw';
+      source?: string | undefined;
+      window: HistoryWindowId;
+      target: PlacementTargetId;
+    },
   ): Promise<{
     mode: PlacementMode;
     modeNote: string | null;
     source: PlacementResponse['source'];
+    formReference: FormReference | null;
     placements: EventPlacement[];
     unavailable: CourseAdjustment[];
     from: string | null;
   }> {
     const base = { window: q.window, target: q.target, today: ctx.today() };
+    const formReference = q.form ?? null;
     const raw = async (modeNote: string | null, source: PlacementResponse['source'] = null) => {
       const { placements, from } = await computePlacements(ctx.store, selected, { ...base, timeSeconds: q.timeSeconds });
-      return { mode: 'raw' as const, modeNote, source, placements, unavailable: [], from };
+      return { mode: 'raw' as const, modeNote, source, formReference, placements, unavailable: [], from };
     };
     if (q.mode === 'raw') return raw(null);
+    if (formReference) {
+      // Current Form is already course-neutral: equivalent = form × target factor. No source event.
+      const factors = new Map((await ctx.store.listCourseFactors()).map((f) => [f.eventId, f]));
+      const result = await computeAdjustedPlacements(ctx.store, selected, { ...base, form: formReference, factors });
+      return { mode: 'adjusted', modeNote: null, source: null, formReference, ...result };
+    }
     if (q.source == null) {
       if (q.mode === 'adjusted') throw new AppError(400, 'source_required', 'Course adjustment requires a source event: choose where the time was achieved.');
       // An event-less time (e.g. an estimated current form) is never treated as if run at a reference course.
@@ -138,26 +175,27 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
     if (!isReliableFactor(sourceFactor)) {
       const note = `${ADJUSTMENT_UNAVAILABLE} at ${sourceEvent.name}.`;
       if (q.mode === 'auto') return raw(`${RAW_FALLBACK}: limited matched-runner data at ${sourceEvent.name}.`, source);
-      return { mode: 'adjusted', modeNote: `${note} Switch to Raw time to compare the time unchanged.`, source, placements: [], unavailable: [], from: windowFrom(q.window, ctx.today()) };
+      return { mode: 'adjusted', modeNote: `${note} Switch to Raw time to compare the time unchanged.`, source, formReference, placements: [], unavailable: [], from: windowFrom(q.window, ctx.today()) };
     }
     const result = await computeAdjustedPlacements(ctx.store, selected, {
       ...base,
       source: { eventId: sourceEvent.id, name: sourceEvent.name, seconds: q.timeSeconds },
       factors,
     });
-    return { mode: 'adjusted', modeNote: null, source, ...result };
+    return { mode: 'adjusted', modeNote: null, source, formReference, ...result };
   }
 
   app.get('/api/placement', async (request): Promise<PlacementResponse> => {
     const origin = parseInput(OriginQuery, request.query);
     const q = parseInput(PlacementQuery, request.query);
-    const timeSeconds = parseTimeParam(q.time);
+    const { timeSeconds, form } = await resolveBasis(q);
     const { user, events } = await contextualEvents(origin);
     const maxTravelMinutes = q.maxTravel ?? user?.defaultTravelMinutes ?? FALLBACK_TRAVEL_MINUTES;
     const inRange = events.filter((e) => e.travel && e.travel.minutes <= maxTravelMinutes);
 
-    const { mode, modeNote, source, placements, unavailable, from } = await placementsFor(events, inRange, {
+    const { mode, modeNote, source, formReference, placements, unavailable, from } = await placementsFor(events, inRange, {
       timeSeconds,
+      form,
       mode: q.mode,
       source: q.source,
       window: q.window as HistoryWindowId,
@@ -169,6 +207,7 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
       mode,
       modeNote,
       source,
+      formReference,
       unavailable: unavailable.map((a) => ({ eventId: a.targetEventId, name: names.get(a.targetEventId) ?? a.targetEventId, reason: a.reason ?? ADJUSTMENT_UNAVAILABLE })),
       timeSeconds,
       window: q.window as HistoryWindowId,
@@ -178,19 +217,20 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
       maxTravelMinutes,
       results: ranked,
       eventsWithoutData: placements.length - ranked.length,
-      notes: [...(mode === 'adjusted' ? [ADJUSTED_NOTE] : []), HISTORY_NOTE, DATA_NOTE, TRAVEL_NOTE],
+      notes: [...(formReference && mode === 'adjusted' ? [FORM_NOTE] : mode === 'adjusted' ? [ADJUSTED_NOTE] : []), HISTORY_NOTE, DATA_NOTE, TRAVEL_NOTE],
     };
   });
 
   app.get('/api/events/:id/placement', async (request): Promise<EventPlacement> => {
     const { id } = parseInput(z.object({ id: z.string().min(1).max(200) }), request.params);
     const q = parseInput(EventPlacementQuery, request.query);
-    const timeSeconds = parseTimeParam(q.time);
     const { events } = await contextualEvents({});
     const event = events.find((e) => e.id === id || e.slug === id);
     if (!event) throw notFound('This event');
+    const { timeSeconds, form } = await resolveBasis(q);
     const result = await placementsFor(events, [event], {
       timeSeconds,
+      form,
       mode: q.mode,
       source: q.source,
       window: q.window as HistoryWindowId,
@@ -209,7 +249,8 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
       ({
         available: false,
         reason: ADJUSTMENT_UNAVAILABLE,
-        sourceEventId: result.source?.eventId ?? '',
+        sourceKind: 'event',
+        sourceEventId: result.source?.eventId ?? null,
         sourceEventName: result.source?.name ?? '',
         sourceSeconds: timeSeconds,
         targetEventId: event.id,
@@ -254,18 +295,18 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
     const q = parseInput(HiddenGemsQuery, request.query);
     const { user, events } = await contextualEvents(origin);
     const maxTravelMinutes = q.maxTravel ?? user?.defaultTravelMinutes ?? FALLBACK_TRAVEL_MINUTES;
-    // Placement opportunity uses the runner's current form by default.
-    const timeSeconds = q.time != null ? parseTimeParam(q.time) : (user?.current5kEstimateSeconds ?? null);
+    // Placement opportunity uses an explicit time, else the runner's Current Form converted to each
+    // course (events whose course cannot be adjusted get no placement opportunity, not a guess).
+    const form = q.time == null && user ? formReferenceOf(user.currentForm) : null;
+    const timeSeconds = q.time != null ? parseTimeParam(q.time) : (form?.formSeconds ?? null);
 
     const top10ByEvent = new Map<string, { count: number; of: number } | null>();
     if (timeSeconds != null) {
       const inRange = events.filter((e) => e.travel && e.travel.minutes <= maxTravelMinutes);
-      const { placements } = await computePlacements(ctx.store, inRange, {
-        timeSeconds,
-        window: DEFAULT_HISTORY_WINDOW,
-        target: 'top10',
-        today: ctx.today(),
-      });
+      const options = { window: DEFAULT_HISTORY_WINDOW, target: 'top10' as const, today: ctx.today() };
+      const { placements } = form
+        ? await computeAdjustedPlacements(ctx.store, inRange, { ...options, form, factors: new Map((await ctx.store.listCourseFactors()).map((f) => [f.eventId, f])) })
+        : await computePlacements(ctx.store, inRange, { ...options, timeSeconds });
       // Only use placement history with enough data behind it.
       for (const p of placements) top10ByEvent.set(p.event.id, p.confidence !== 'insufficient' ? (p.stats?.frequencies.top10 ?? null) : null);
     }
@@ -280,9 +321,11 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
       ...(results.length === 0 ? { message: 'No events match this mode within your travel limit.' } : {}),
       notes: [
         'Gem Score is a 5K Compass ranking (hidden_gem_v1), not an official parkrun metric.',
-        timeSeconds != null
-          ? 'Placement opportunity uses how your current form would historically have placed in the last 90 days.'
-          : 'Placement opportunity uses the inverse of each Competition Score.',
+        form
+          ? 'Placement opportunity uses how your Current Form, converted to each course, would historically have placed in the last 90 days.'
+          : timeSeconds != null
+            ? 'Placement opportunity uses how this time would historically have placed in the last 90 days.'
+            : `Placement opportunity uses the inverse of each Competition Score${user ? ` (${formUnavailableNote(user.currentForm)})` : ''}.`,
         TRAVEL_NOTE,
       ],
     };
@@ -294,7 +337,7 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
     if (ids.length < COMPARE_MIN_EVENTS) throw new AppError(400, 'too_few_events', `Choose at least ${COMPARE_MIN_EVENTS} events to compare.`);
     if (ids.length > COMPARE_MAX_EVENTS) throw new AppError(400, 'too_many_events', `Compare up to ${COMPARE_MAX_EVENTS} events at a time.`);
 
-    const timeSeconds = q.time != null ? parseTimeParam(q.time) : null;
+    const { timeSeconds, form } = q.basis === 'current_form' || q.time != null ? await resolveBasis(q) : { timeSeconds: null, form: null };
     const { events } = await contextualEvents({});
     const found = ids.map((id) => events.find((e) => e.id === id || e.slug === id) ?? null);
     const selected = found.filter((e): e is NonNullable<typeof e> => e != null);
@@ -306,6 +349,7 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
     if (timeSeconds != null && selected.length > 0) {
       const result = await placementsFor(events, selected, {
         timeSeconds,
+        form,
         mode: q.mode,
         source: q.source,
         window: q.window as HistoryWindowId,
@@ -317,6 +361,6 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
     }
 
     const rows = selected.map((event) => ({ event, placement: placementById.get(event.id) ?? null }));
-    return { events: rows, missing, timeSeconds, mode, source, window: q.window as HistoryWindowId, best: bestByMetric(rows) };
+    return { events: rows, missing, timeSeconds, mode, source, formReference: form, window: q.window as HistoryWindowId, best: bestByMetric(rows) };
   });
 }

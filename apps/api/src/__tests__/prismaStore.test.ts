@@ -11,6 +11,7 @@ import { createPrismaClient } from '../db/prisma';
 import { MemoryDataStore } from '../repositories/memory/MemoryDataStore';
 import { PrismaDataStore } from '../repositories/prisma/PrismaDataStore';
 import { DuplicatePerformanceError } from '../repositories/DataStore';
+import { recalculateRunnerForm } from '../services/runnerForm';
 import { loadUser } from '../services/userPerformance';
 
 const url = process.env.TEST_DATABASE_URL;
@@ -201,6 +202,18 @@ describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
     expect(rows.every((r) => r.distanceMeters === 5000 && r.performanceType === 'PARKRUN' && r.externalEventName === null && r.eventId != null)).toBe(true);
     expect(rows.every((r) => r.duplicateKey === `event:${r.eventId}|${r.date.toISOString().slice(0, 10)}|5000`)).toBe(true);
     expect(fromDb?.recentPbEvent).toEqual({ id: 'demo-riverside-5k', name: 'Riverside 5K' });
+  });
+
+  it('stores Current Form snapshots that match the demo store, replacing same-day recalculations', async () => {
+    const [fromDb, fromMemory] = [await recalculateRunnerForm(store!, 'demo-user', today), await recalculateRunnerForm(memory, 'demo-user', today)];
+    expect(fromDb).toEqual(fromMemory);
+    expect(fromDb.status).toBe('estimate');
+    await recalculateRunnerForm(store!, 'demo-user', today);
+    const rows = await db!.runnerFormSnapshot.findMany({ where: { userId: 'demo-user', asOfDate: new Date(`${today}T00:00:00Z`) } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ distanceMeters: 5000, calculationVersion: 'runner_form_v1', status: 'ESTIMATE', formSeconds: fromDb.formSeconds, confidence: fromDb.confidence.level.toUpperCase() });
+    expect(await store!.getRunnerFormSnapshot('demo-user', 5000, 'runner_form_v1', today)).toEqual(fromDb);
+    expect(await store!.getRunnerFormSnapshot('demo-user', 5000, 'runner_form_v1', '2000-01-01')).toBeNull();
   });
 
   describe('UserPerformance (personal data)', () => {

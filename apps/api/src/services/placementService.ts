@@ -1,11 +1,11 @@
 /** Where Could I Place? Orchestrates the data layer and the pure placement engine. */
-import type { CourseAdjustment, EventPlacement, EventSummary, HistoryWindowId, PlacementTargetId } from '@runsaturday/shared';
+import type { CourseAdjustment, FormReference, EventPlacement, EventSummary, HistoryWindowId, PlacementTargetId } from '@runsaturday/shared';
 import type { CourseFactorResult } from '../analytics/courseSpeed';
 import { assessConfidence, STABILITY_SCALES } from '../domain/confidence';
 import { historicalPlacements, summarizePlacements, targetFrequency, type PlacementOccurrenceInput } from '../domain/placementEngine';
 import { windowFrom } from '../domain/windows';
 import type { DataStore } from '../repositories/DataStore';
-import { adjustPerformance, type AdjustmentSource } from './courseAdjustment';
+import { adjustFromForm, adjustPerformance, type AdjustmentSource } from './courseAdjustment';
 
 const HISTORY_SHOWN = 12;
 
@@ -105,11 +105,15 @@ export async function computePlacements(
 export async function computeAdjustedPlacements(
   store: DataStore,
   events: EventSummary[],
-  options: PlacementOptions & { source: AdjustmentSource; factors: ReadonlyMap<string, CourseFactorResult> },
+  options: PlacementOptions & { factors: ReadonlyMap<string, CourseFactorResult> } & ({ source: AdjustmentSource } | { form: FormReference }),
 ): Promise<{ placements: EventPlacement[]; unavailable: CourseAdjustment[]; from: string | null }> {
   const from = windowFrom(options.window, options.today);
-  const sourceFactor = options.factors.get(options.source.eventId);
-  const adjustments = events.map((e) => ({ event: e, adjustment: adjustPerformance(options.source, sourceFactor, { eventId: e.id }, options.factors.get(e.id)) }));
+  // A recorded performance converts via its source event's factor; Current Form is already neutral.
+  const adjust = (eventId: string) =>
+    'form' in options
+      ? adjustFromForm(options.form, { eventId }, options.factors.get(eventId))
+      : adjustPerformance(options.source, options.factors.get(options.source.eventId), { eventId }, options.factors.get(eventId));
+  const adjustments = events.map((e) => ({ event: e, adjustment: adjust(e.id) }));
 
   // One data query per distinct equivalent time (events often share one).
   const bySeconds = new Map<number, string[]>();

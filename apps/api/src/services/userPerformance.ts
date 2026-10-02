@@ -11,13 +11,14 @@
  *   totals           performance count; distinct places (internal events + external names)
  * A performance at an external course (externalEventName, no eventId) is a valid personal
  * performance and counts towards the 5K PB, but is never a course-adjustment source.
- * Current form is NOT a performance and is not derived here (Runner Form Model, Phase 4B).
+ * Current Form is NOT a performance: it is modelled separately (services/runnerForm.ts, Phase 4B).
  */
 import { COURSE_NOT_MODELLED_MESSAGE, FIVE_K_METERS, type EventPerformanceSummary, type PerformanceSummary, type UserPerformance } from '@runsaturday/shared';
 import { cleanExternalEventName } from '../domain/performanceKey';
 import { RECENT_PERFORMANCE_WINDOW_DAYS } from '../config/analysis';
 import { windowStart } from '../domain/confidence';
 import type { DataStore, PerformanceRecord, UserEventRecord, UserRecord } from '../repositories/DataStore';
+import { currentRunnerForm, formReferenceOf } from './runnerForm';
 
 /** Only manually entered performances may be edited or deleted by the user. */
 export const isEditable = (p: Pick<PerformanceRecord, 'source'>) => p.source === 'manual';
@@ -120,9 +121,12 @@ export async function loadUser(store: DataStore, userId: string, today: string):
     personalBestSeconds: visited.get(eventId)?.pb.finishTimeSeconds ?? null,
   }));
 
+  const currentForm = await currentRunnerForm(store, userId, today);
   return {
     ...user,
     performance: summary,
+    currentForm,
+    current5kEstimateSeconds: formReferenceOf(currentForm)?.formSeconds ?? null,
     lifetimePbSeconds: summary.lifetimePb?.finishTimeSeconds ?? null,
     recentPbSeconds: summary.recentBest?.finishTimeSeconds ?? null,
     lifetimePbEvent: ref(summary.lifetimePb),

@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { FIVE_K_METERS, formatShortDate, parsePerformanceTime, type PerformanceSummary, type UserPerformance, type UserPerformancesResponse, type UserProfile } from '@runsaturday/shared';
+import { FIVE_K_METERS, formatShortDate, parsePerformanceTime, type PerformanceSummary, type RunnerForm, type UserPerformance, type UserPerformancesResponse, type UserProfile } from '@runsaturday/shared';
 import { z } from 'zod';
 import { CURRENT_USER_ID, currentUser, type RequestContext } from '../http/context';
 import { AppError, notFound, parseInput } from '../http/errors';
 import { DuplicatePerformanceError, type NewPerformance, type PerformanceRecord } from '../repositories/DataStore';
 import { cleanExternalEventName } from '../domain/performanceKey';
+import { currentRunnerForm, recalculateRunnerForm } from '../services/runnerForm';
 import { isEditable, summarizePerformances, toPerformanceDto } from '../services/userPerformance';
 
 /** Typo guard only (e.g. "1026" for "2026"); not a judgement on old results. */
@@ -107,8 +108,15 @@ export async function profileRoutes(app: FastifyInstance, ctx: RequestContext) {
       savedEventIds: user.favouriteEventIds,
       isDemo: user.isDemo,
       performance: user.performance,
+      currentForm: user.currentForm,
+      // Descriptive only: no readiness or improvement prediction.
+      currentFormGapToOverallPbSeconds:
+        user.current5kEstimateSeconds != null && user.lifetimePbSeconds != null ? user.current5kEstimateSeconds - user.lifetimePbSeconds : null,
     };
   });
+
+  /** Current Form (runner_form_v1) with its full explanation: inputs, weights, exclusions. */
+  app.get('/api/profile/current-form', async (): Promise<RunnerForm> => currentRunnerForm(ctx.store, userId, ctx.today()));
 
   app.get('/api/profile/performance-summary', async (): Promise<PerformanceSummary> => {
     return summarizePerformances(await ctx.store.listUserPerformances(userId), ctx.today());
@@ -133,6 +141,7 @@ export async function profileRoutes(app: FastifyInstance, ctx: RequestContext) {
     const input = await validated(parseInput(PerformanceBody, request.body));
     try {
       const created = await ctx.store.createUserPerformance(userId, input);
+      await recalculateRunnerForm(ctx.store, userId, ctx.today());
       reply.status(201);
       return toPerformanceDto(created);
     } catch (error) {
@@ -148,6 +157,7 @@ export async function profileRoutes(app: FastifyInstance, ctx: RequestContext) {
     try {
       const updated = await ctx.store.updateUserPerformance(userId, id, input);
       if (!updated) throw notFound('This performance');
+      await recalculateRunnerForm(ctx.store, userId, ctx.today());
       return toPerformanceDto(updated);
     } catch (error) {
       if (error instanceof DuplicatePerformanceError) throw await duplicate(input);
@@ -159,6 +169,7 @@ export async function profileRoutes(app: FastifyInstance, ctx: RequestContext) {
     const { id } = parseInput(z.object({ id: Id }), request.params);
     await editableOr404(id);
     await ctx.store.deleteUserPerformance(userId, id);
+    await recalculateRunnerForm(ctx.store, userId, ctx.today());
     return reply.status(204).send();
   });
 }

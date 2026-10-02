@@ -224,8 +224,6 @@ export const DEMO_USER = {
   homeLon: -2.5970,
   homeLabel: 'Warrington (demo home)',
   defaultTravelMinutes: 45,
-  /** An ESTIMATE of current fitness (not a performance) until the Runner Form Model (Phase 4B). */
-  current5kEstimateSeconds: 1180, // 19:40
   preferredGoal: 'PB' as const,
   favouriteEventIds: ['demo-riverside-5k', 'demo-lakeside-5k'],
 };

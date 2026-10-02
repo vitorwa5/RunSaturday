@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  formatFinishTime,
   CONFIDENCE_FILTERS,
   COURSE_FILTERS,
   ELEVATION_FILTERS,
@@ -17,6 +18,7 @@ import { currentUser, resolveOrigin, type RequestContext } from '../http/context
 import { AppError, parseInput } from '../http/errors';
 import { GoalParam, OriginQuery } from '../http/schemas';
 import { withContext } from '../services/eventContext';
+import { formReferenceOf, formUnavailableNote } from '../services/runnerForm';
 import { matchesFilters } from '../services/plannerFilters';
 import { rankEvents } from '../services/recommendations';
 
@@ -69,7 +71,18 @@ export async function plannerRoutes(app: FastifyInstance, ctx: RequestContext) {
     else if (matching.length === 0) message = 'No events match these filters.';
     else if (ranking.results.length === 0) message = 'No events suit this goal with the current settings.';
 
+    // Personalised ability reference: Current Form only. An old Overall 5K PB is never used as
+    // current ability; when there is no Current Form the response says so.
+    const formReference = user ? formReferenceOf(user.currentForm) : null;
+    const ability = {
+      formReference,
+      note: formReference
+        ? `Your personalised reference is your Current Form ≈ ${formatFinishTime(formReference.formSeconds)} (${formReference.confidence} confidence), a course-neutral estimate of present ability. Event rankings here use course and event data; see Where Could I Place? for how it would place.`
+        : `${user ? formUnavailableNote(user.currentForm) : 'Current Form unavailable.'} Your Overall 5K PB is not used as current ability.`,
+    };
+
     return {
+      ability,
       date,
       availableDates,
       goal,

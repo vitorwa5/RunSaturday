@@ -32,6 +32,20 @@ enum PerformanceSource {
   STRAVA
 }
 
+/// Runner Form (Phase 4B).
+enum RunnerFormStatus {
+  ESTIMATE
+  INDICATIVE
+  UNAVAILABLE
+}
+
+enum FormTrend {
+  IMPROVING
+  STABLE
+  DECLINING
+  LIMITED
+}
+
 /// What kind of event a performance was (Phase 4A.1). The product is 5K/parkrun-focused, but a
 /// performance is not assumed to be a parkrun.
 enum PerformanceType {
@@ -211,7 +225,8 @@ model User {
   recentPbSeconds          Int?
   recentPbEventId          String?
   recentPbEvent            Event?  @relation("RecentPbEvent", fields: [recentPbEventId], references: [id], onDelete: SetNull)
-  /// CANONICAL: an estimate of current fitness, not a performance (Runner Form Model in Phase 4B).
+  /// TRANSITIONAL (Phase 4B): no longer read or written. Current Form comes from
+  /// RunnerFormSnapshot (runner_form_v1). Kept so the change is non-destructive.
   current5kEstimateSeconds Int?
   preferredGoal            Goal    @default(PB)
 
@@ -222,6 +237,36 @@ model User {
 
   events       UserEvent[]
   performances UserPerformance[]
+  runnerForms  RunnerFormSnapshot[]
+}
+
+/// Current Form snapshots (runner_form_v1): a modelled estimate of present ability, per user and
+/// distance (5000 m only in V1). Derived from UserPerformance and Course Speed Factors; recomputed
+/// when performances change and by `npm run runner-form:recalculate`. One per (user, distance,
+/// version, asOfDate); a recalculation on the same day replaces it.
+model RunnerFormSnapshot {
+  id                 String           @id @default(cuid())
+  userId             String
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  distanceMeters     Int
+  status             RunnerFormStatus
+  /// Course-neutral Current Form (ESTIMATE only).
+  formSeconds        Int?
+  /// Single-run reference value (INDICATIVE only).
+  indicativeSeconds  Int?
+  confidenceScore    Int
+  confidence         ConfidenceLevel
+  trend              FormTrend
+  sampleSize         Int
+  eventCount         Int
+  asOfDate           DateTime         @db.Date
+  calculationVersion String
+  /// Full breakdown: inputs with weights, exclusions, confidence factors, trend statistics.
+  components         Json
+  createdAt          DateTime         @default(now())
+
+  @@unique([userId, distanceMeters, calculationVersion, asOfDate])
+  @@index([userId, distanceMeters, asOfDate])
 }
 
 /// CANONICAL source of a user's actual 5K performances (Phase 4A). Lifetime PB, recent best,

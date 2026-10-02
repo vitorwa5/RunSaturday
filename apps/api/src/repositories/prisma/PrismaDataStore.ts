@@ -13,7 +13,7 @@ import {
   type PerformanceRecord,
   type StoredUser,
 } from '../DataStore';
-import type { PerformanceSource, PerformanceType } from '@runsaturday/shared';
+import type { PerformanceSource, PerformanceType, RunnerForm } from '@runsaturday/shared';
 import { cleanExternalEventName, performanceDuplicateKey } from '../../domain/performanceKey';
 import { breakdownOf, isoDate, mapEvent, mapFacility, mapGoal, mapOccurrence, type EventSnapshots } from './mappers';
 import type { CompetitionBreakdown, DifficultyBreakdown, PbBreakdown } from '@runsaturday/shared';
@@ -291,7 +291,6 @@ export class PrismaDataStore implements DataStore {
       homeLon: user.homeLon,
       homeLabel: user.homeLabel,
       defaultTravelMinutes: user.defaultTravelMinutes,
-      current5kEstimateSeconds: user.current5kEstimateSeconds,
       preferredGoal: mapGoal(user.preferredGoal),
       isDemo: user.isDemo,
       favouriteEventIds: user.events.map((ue) => ue.eventId).sort(),
@@ -343,6 +342,31 @@ export class PrismaDataStore implements DataStore {
   async deleteUserPerformance(userId: string, id: string): Promise<boolean> {
     const { count } = await this.db.userPerformance.deleteMany({ where: { id, userId } });
     return count > 0;
+  }
+
+  async getRunnerFormSnapshot(userId: string, distanceMeters: number, version: string, asOfDate: string): Promise<RunnerForm | null> {
+    const row = await this.db.runnerFormSnapshot.findUnique({
+      where: { userId_distanceMeters_calculationVersion_asOfDate: { userId, distanceMeters, calculationVersion: version, asOfDate: new Date(`${asOfDate}T00:00:00Z`) } },
+      select: { components: true },
+    });
+    // The full model output is stored in `components`; the columns duplicate its headline values.
+    return row ? (row.components as unknown as RunnerForm) : null;
+  }
+
+  async saveRunnerFormSnapshot(userId: string, form: RunnerForm): Promise<void> {
+    const key = { userId, distanceMeters: form.distanceMeters, calculationVersion: form.version, asOfDate: new Date(`${form.asOfDate}T00:00:00Z`) };
+    const data = {
+      status: form.status.toUpperCase() as 'ESTIMATE' | 'INDICATIVE' | 'UNAVAILABLE',
+      formSeconds: form.formSeconds,
+      indicativeSeconds: form.indicativeSeconds,
+      confidenceScore: form.confidence.score,
+      confidence: form.confidence.level.toUpperCase() as 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT',
+      trend: form.trend.direction.toUpperCase() as 'IMPROVING' | 'STABLE' | 'DECLINING' | 'LIMITED',
+      sampleSize: form.sampleSize,
+      eventCount: form.eventCount,
+      components: form as unknown as Prisma.InputJsonValue,
+    };
+    await this.db.runnerFormSnapshot.upsert({ where: { userId_distanceMeters_calculationVersion_asOfDate: key }, create: { ...key, ...data }, update: data });
   }
 
   async ping(): Promise<boolean> {

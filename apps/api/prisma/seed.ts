@@ -8,6 +8,8 @@
  */
 import { calendarDateIn } from '@runsaturday/shared';
 import { recalculateAnalytics } from '../src/analytics/recalculate';
+import { PrismaDataStore } from '../src/repositories/prisma/PrismaDataStore';
+import { recalculateRunnerForm } from '../src/services/runnerForm';
 import { createPrismaClient } from '../src/db/prisma';
 import { summarizeResults } from '../src/domain/occurrenceSummary';
 import { buildDemoDataset, DEMO_WINDOW_DAYS } from '../src/demo/buildDemoDataset';
@@ -114,6 +116,10 @@ async function main() {
       `Calculated analytics as of ${analytics.asOfDate}: ${analytics.courseFactorSnapshots} course factors (${analytics.fittedFactors} fitted), ` +
         `${analytics.competitionSnapshots + analytics.difficultySnapshots + analytics.pbSnapshots} score snapshots.`,
     );
+
+    // Current Form (runner_form_v1) from the demo user's performances and the new course factors.
+    const form = await recalculateRunnerForm(new PrismaDataStore(db, dataset.scoreVersion), user.id, today);
+    console.log(`Current Form: ${form.status}${form.formSeconds != null ? ` ${form.formSeconds}s (${form.confidence.level})` : ''}.`);
 
     const occurrenceCount = dataset.events.reduce((n, e) => n + e.occurrences.length, 0);
     console.log(

@@ -15,6 +15,7 @@ import type {
   PerformanceSource,
   PerformanceSummary,
   PerformanceType,
+  RunnerForm,
 } from '@runsaturday/shared';
 import type { CourseFactorResult, PerformanceInput } from '../analytics/courseSpeed';
 import type { CompetitionOccurrenceInput } from '../analytics/competition';
@@ -40,8 +41,6 @@ export interface StoredUser {
   homeLon: number | null;
   homeLabel: string | null;
   defaultTravelMinutes: number;
-  /** An estimate of current fitness, not a performance (Runner Form Model in Phase 4B). */
-  current5kEstimateSeconds: number | null;
   preferredGoal: Goal;
   isDemo: boolean;
   favouriteEventIds: string[];
@@ -53,6 +52,10 @@ export interface StoredUser {
  */
 export interface UserRecord extends StoredUser {
   performance: PerformanceSummary;
+  /** Current Form (runner_form_v1), from its snapshot. */
+  currentForm: RunnerForm;
+  /** currentForm.formSeconds when it is an estimate, else null. */
+  current5kEstimateSeconds: number | null;
   lifetimePbSeconds: number | null;
   recentPbSeconds: number | null;
   lifetimePbEvent: { id: string; name: string } | null;
@@ -139,6 +142,10 @@ export interface DataStore {
   updateUserPerformance(userId: string, id: string, patch: PerformancePatch): Promise<PerformanceRecord | null>;
   /** False when the user has no such performance. */
   deleteUserPerformance(userId: string, id: string): Promise<boolean>;
+  /** Runner Form snapshot for exactly that date, or null. */
+  getRunnerFormSnapshot(userId: string, distanceMeters: number, version: string, asOfDate: string): Promise<RunnerForm | null>;
+  /** Insert or replace the snapshot for (user, distance, version, asOfDate). */
+  saveRunnerFormSnapshot(userId: string, form: RunnerForm): Promise<void>;
   /**
    * Latest stored analytics for an event: Competition V1 for the window (days; 0 = all history)
    * and Difficulty V1. Read from snapshots; never recalculated per request.

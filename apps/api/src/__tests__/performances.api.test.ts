@@ -31,7 +31,7 @@ describe('personal performances API', () => {
       recentPbEvent: { id: 'demo-riverside-5k', name: 'Riverside 5K' },
       runsCompleted: 43,
       uniqueEventsVisited: 4,
-      current5kEstimateSeconds: 1180, // an estimate, kept separate
+      current5kEstimateSeconds: 1218, // Current Form (modelled), kept separate from the PBs
     });
     expect(p.performance.latest?.date).toBe(all.performances[0]!.date);
     expect(await summary()).toEqual(p.performance);

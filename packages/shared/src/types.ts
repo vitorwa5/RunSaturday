@@ -170,6 +170,8 @@ export interface PlannerResponse {
   message?: string;
   /** Honest caveats about what the ranking does and does not consider. */
   notes: string[];
+  /** The runner's personalised ability reference (Current Form), or why there is none. */
+  ability: { formReference: FormReference | null; note: string };
 }
 
 export interface HistorySummary {
@@ -281,6 +283,89 @@ export interface PerformanceInput {
   time: string;
 }
 
+// ---------------------------------------------------------------------------
+// Runner Form (Phase 4B): Current Form, a modelled estimate of present 5K ability
+// ---------------------------------------------------------------------------
+
+export type RunnerFormStatus = 'estimate' | 'indicative' | 'unavailable';
+export type FormTrendDirection = 'improving' | 'stable' | 'declining' | 'limited';
+
+/** Why a performance is not part of Current Form. */
+export type RunnerFormExclusion =
+  | 'not_5k'
+  | 'future'
+  | 'outside_horizon'
+  | 'course_not_modelled'
+  | 'factor_unavailable'
+  | 'factor_low_confidence';
+
+/** One performance used in Current Form, with its course-normalised value and weights. */
+export interface RunnerFormInput {
+  performanceId: string;
+  eventId: string;
+  eventName: string;
+  date: string;
+  ageDays: number;
+  actualSeconds: number;
+  courseFactor: number;
+  /** actual ÷ course factor: the time at the analysed-cohort reference course. */
+  neutralSeconds: number;
+  recencyWeight: number;
+  courseWeight: number;
+  /** 1 = full influence; below 1 = reduced influence (unusually slow or fast for this runner). */
+  robustWeight: number;
+  /** Share of the final estimate (all shares sum to 1). */
+  share: number;
+}
+
+export interface RunnerFormExcludedPerformance {
+  performanceId: string;
+  eventName: string;
+  date: string;
+  finishTimeSeconds: number;
+  reason: RunnerFormExclusion;
+  explanation: string;
+}
+
+/**
+ * CURRENT FORM (runner_form_v1): an estimate of the runner's present 5K ability, expressed as a
+ * course-neutral time at the analysed-cohort reference course (Course Speed Factor 1.000). It is
+ * not a recorded performance and not a prediction of a finish time.
+ */
+export interface RunnerForm {
+  version: string;
+  distanceMeters: number;
+  asOfDate: string;
+  status: RunnerFormStatus;
+  /** Course-neutral Current Form (status "estimate" only). */
+  formSeconds: number | null;
+  /** With a single eligible performance: its course-neutral value, for reference only. */
+  indicativeSeconds: number | null;
+  /** Confidence in the estimate of underlying form, not the chance of running that time. */
+  confidence: ConfidenceAssessment;
+  trend: {
+    direction: FormTrendDirection;
+    /** Fitted change per 90 days, in percent (negative = faster). Null when not assessed. */
+    changePercentPer90Days: number | null;
+    observations: number;
+    spanDays: number;
+  };
+  sampleSize: number;
+  eventCount: number;
+  lastPerformanceDate: string | null;
+  limitedReason: string | null;
+  inputs: RunnerFormInput[];
+  excluded: RunnerFormExcludedPerformance[];
+  method: { horizonDays: number; halfLifeDays: number };
+}
+
+/** What a forward-looking tool used as the runner's ability reference. */
+export interface FormReference {
+  formSeconds: number;
+  confidence: ConfidenceLevel;
+  version: string;
+}
+
 export interface UserProfile {
   id: string;
   displayName: string;
@@ -290,8 +375,14 @@ export interface UserProfile {
   lifetimePbSeconds: number | null;
   /** Derived from UserPerformance (fastest in the recent window). */
   recentPbSeconds: number | null;
-  /** An ESTIMATE of current fitness (demo value until the Runner Form Model, Phase 4B); not a performance. */
+  /**
+   * Current Form in seconds (course-neutral, runner_form_v1) when an estimate exists, else null.
+   * Kept under this name for compatibility; see `currentForm` for the full model output.
+   */
   current5kEstimateSeconds: number | null;
+  currentForm: RunnerForm;
+  /** Current Form minus Overall 5K PB (seconds; positive = slower than the PB). Descriptive only. */
+  currentFormGapToOverallPbSeconds: number | null;
   preferredGoal: Goal;
   /** Derived from UserPerformance: number of recorded performances. */
   runsCompleted: number;
@@ -383,7 +474,15 @@ export interface CourseAdjustment {
   available: boolean;
   /** Why it is unavailable, e.g. limited matched-runner data. */
   reason: string | null;
-  sourceEventId: string;
+  /**
+   * "event": a recorded performance at a known event (equivalent = source ÷ f_source × f_target).
+   * "current_form": the course-neutral Current Form (equivalent = form × f_target; never divided
+   * by a source factor, and no source event is invented).
+   */
+  sourceKind: 'event' | 'current_form';
+  /** Null for Current Form. */
+  sourceEventId: string | null;
+  /** The event name, or "Current Form". */
   sourceEventName: string;
   sourceSeconds: number;
   targetEventId: string;
@@ -434,6 +533,8 @@ export interface PlacementResponse {
   source: { eventId: string; name: string; factor: number | null; confidence: ConfidenceLevel } | null;
   /** Events in range that could not be course-adjusted (limited matched-runner data). */
   unavailable: { eventId: string; name: string; reason: string }[];
+  /** Set when the analysis used the runner's Current Form (basis=current_form). */
+  formReference: FormReference | null;
   timeSeconds: number;
   window: HistoryWindowId;
   from: string | null;
@@ -522,6 +623,8 @@ export interface CompareResponse {
   timeSeconds: number | null;
   mode: PlacementMode;
   source: { eventId: string; name: string } | null;
+  /** Set when placement rows used the runner's Current Form. */
+  formReference: FormReference | null;
   window: HistoryWindowId;
   /** Event ids with the most favourable value per metric (ties included); absent when not comparable. */
   best: Partial<Record<CompareMetricKey, string[]>>;
@@ -542,7 +645,11 @@ export interface ConfidenceFactor {
     | 'comparisons'
     | 'connectivity'
     | 'proximity'
-    | 'agreement';
+    | 'agreement'
+    | 'consistency'
+    | 'course_factors'
+    | 'events'
+    | 'coverage';
   label: string;
   /** Weight as a fraction (factors with weight sum to 1). */
   weight: number;

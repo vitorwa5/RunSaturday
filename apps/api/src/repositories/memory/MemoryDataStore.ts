@@ -2,7 +2,7 @@
  * In-memory DataStore backed by the DEMO dataset (fictional). Lets the UI run without
  * PostgreSQL (DATA_SOURCE=demo) and gives API tests a deterministic fixture.
  */
-import { addDays, type OccurrenceSummary } from '@runsaturday/shared';
+import { addDays, type OccurrenceSummary, type RunnerForm } from '@runsaturday/shared';
 import { computeCoreAnalytics, usablePerformances, type CoreAnalytics } from '../../analytics/core';
 import type { CourseFactorResult, PerformanceInput } from '../../analytics/courseSpeed';
 import { toCourseSpeedBreakdown, toPbBreakdown } from '../../analytics/dto';
@@ -109,6 +109,8 @@ export class MemoryDataStore implements DataStore {
   private readonly dataset: DemoDataset;
   private readonly analytics: CoreAnalytics;
   private readonly performances: PerformanceInput[];
+  /** Runner Form snapshots, keyed by user|distance|version|asOfDate; private to this instance. */
+  private readonly runnerForms = new Map<string, RunnerForm>();
   /** The demo user's own history; mutable, and private to this store instance. */
   private readonly userPerformances: PerformanceRecord[];
   private readonly generatedAt = new Date().toISOString();
@@ -251,7 +253,6 @@ export class MemoryDataStore implements DataStore {
       homeLon: u.homeLon,
       homeLabel: u.homeLabel,
       defaultTravelMinutes: u.defaultTravelMinutes,
-      current5kEstimateSeconds: u.current5kEstimateSeconds,
       preferredGoal: 'pb',
       isDemo: true,
       favouriteEventIds: [...u.favouriteEventIds].sort(),
@@ -294,6 +295,15 @@ export class MemoryDataStore implements DataStore {
     if (index < 0) return false;
     this.userPerformances.splice(index, 1);
     return true;
+  }
+
+  async getRunnerFormSnapshot(userId: string, distanceMeters: number, version: string, asOfDate: string): Promise<RunnerForm | null> {
+    const form = this.runnerForms.get(`${userId}|${distanceMeters}|${version}|${asOfDate}`);
+    return form ? structuredClone(form) : null;
+  }
+
+  async saveRunnerFormSnapshot(userId: string, form: RunnerForm): Promise<void> {
+    this.runnerForms.set(`${userId}|${form.distanceMeters}|${form.version}|${form.asOfDate}`, structuredClone(form));
   }
 
   /** Same normalisation as the Prisma store: cleaned external name, internal name looked up. */
