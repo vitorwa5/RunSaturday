@@ -313,47 +313,46 @@ export class PrismaDataStore implements DataStore {
     return row ? mapPerformance(row) : null;
   }
 
+  /** Mutations, revision increment and removal of every historical derived copy are atomic. */
+  private async mutate<T>(userId: string, write: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return uniqueOrDuplicate(() => this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+      const result = await write(tx);
+      await tx.user.update({ where: { id: userId }, data: { performanceRevision: { increment: 1 } } });
+      await tx.runnerFormSnapshot.deleteMany({ where: { userId } });
+      return result;
+    }));
+  }
   async createUserPerformance(userId: string, input: NewPerformance): Promise<PerformanceRecord> {
-    return uniqueOrDuplicate(async () =>
-      mapPerformance(
-        await this.db.userPerformance.create({
-          data: { userId, ...performanceData(input), source: PERFORMANCE_SOURCE_DB[input.source] },
-          include: PERFORMANCE_INCLUDE,
-        }),
-      ),
-    );
+    return this.mutate(userId, async (tx) => mapPerformance(await tx.userPerformance.create({
+      data: { userId, ...performanceData(input), source: PERFORMANCE_SOURCE_DB[input.source] }, include: PERFORMANCE_INCLUDE,
+    })));
   }
-
   async updateUserPerformance(userId: string, id: string, patch: PerformancePatch): Promise<PerformanceRecord | null> {
-    // Scoped by userId: another user's id is simply "not found".
-    const existing = await this.db.userPerformance.findFirst({ where: { id, userId }, select: { id: true } });
-    if (!existing) return null;
-    return uniqueOrDuplicate(async () =>
-      mapPerformance(
-        await this.db.userPerformance.update({
-          where: { id: existing.id },
-          data: performanceData(patch),
-          include: PERFORMANCE_INCLUDE,
-        }),
-      ),
-    );
+    return this.mutate(userId, async (tx) => {
+      const existing = await tx.userPerformance.findFirst({ where: { id, userId }, select: { id: true } });
+      if (!existing) return null;
+      return mapPerformance(await tx.userPerformance.update({ where: { id, userId }, data: performanceData(patch), include: PERFORMANCE_INCLUDE }));
+    });
   }
-
   async deleteUserPerformance(userId: string, id: string): Promise<boolean> {
-    const { count } = await this.db.userPerformance.deleteMany({ where: { id, userId } });
-    return count > 0;
+    return this.mutate(userId, async (tx) => (await tx.userPerformance.deleteMany({ where: { id, userId } })).count > 0);
+  }
+  async getPerformanceRevision(userId: string): Promise<number> {
+    return (await this.db.user.findUniqueOrThrow({ where: { id: userId }, select: { performanceRevision: true } })).performanceRevision;
   }
 
   async getRunnerFormSnapshot(userId: string, distanceMeters: number, version: string, asOfDate: string): Promise<RunnerForm | null> {
-    const row = await this.db.runnerFormSnapshot.findUnique({
-      where: { userId_distanceMeters_calculationVersion_asOfDate: { userId, distanceMeters, calculationVersion: version, asOfDate: new Date(`${asOfDate}T00:00:00Z`) } },
+    const revision = await this.getPerformanceRevision(userId);
+    const row = await this.db.runnerFormSnapshot.findFirst({
+      where: { userId, distanceMeters, calculationVersion: version, asOfDate: new Date(`${asOfDate}T00:00:00Z`), performanceRevision: revision },
       select: { components: true },
     });
     // The full model output is stored in `components`; the columns duplicate its headline values.
     return row ? (row.components as unknown as RunnerForm) : null;
   }
 
-  async saveRunnerFormSnapshot(userId: string, form: RunnerForm): Promise<void> {
+  async saveRunnerFormSnapshot(userId: string, form: RunnerForm, expectedRevision?: number): Promise<boolean> {
     const key = { userId, distanceMeters: form.distanceMeters, calculationVersion: form.version, asOfDate: new Date(`${form.asOfDate}T00:00:00Z`) };
     const data = {
       status: form.status.toUpperCase() as 'ESTIMATE' | 'INDICATIVE' | 'UNAVAILABLE',
@@ -366,7 +365,14 @@ export class PrismaDataStore implements DataStore {
       eventCount: form.eventCount,
       components: form as unknown as Prisma.InputJsonValue,
     };
-    await this.db.runnerFormSnapshot.upsert({ where: { userId_distanceMeters_calculationVersion_asOfDate: key }, create: { ...key, ...data }, update: data });
+    return this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+      const user = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { performanceRevision: true } });
+      if (expectedRevision != null && user.performanceRevision !== expectedRevision) return false;
+      const revisionData = { ...data, performanceRevision: user.performanceRevision };
+      await tx.runnerFormSnapshot.upsert({ where: { userId_distanceMeters_calculationVersion_asOfDate: key }, create: { ...key, ...revisionData }, update: revisionData });
+      return true;
+    });
   }
 
   async ping(): Promise<boolean> {

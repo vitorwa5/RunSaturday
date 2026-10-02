@@ -26,7 +26,7 @@ import {
   type PlacementTargetId,
 } from '@runsaturday/shared';
 import { z } from 'zod';
-import { CURRENT_USER_ID, currentUser, resolveOrigin, type RequestContext } from '../http/context';
+import { currentUserId, currentUser, resolveOrigin, type RequestContext } from '../http/context';
 import { currentRunnerForm, formReferenceOf, formUnavailableNote } from '../services/runnerForm';
 import { AppError, notFound, parseInput } from '../http/errors';
 import { idsOf, OriginQuery, parseTimeParam, TravelOption, WindowParam } from '../http/schemas';
@@ -112,7 +112,7 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
   /** The time to analyse: the given time, or the user's Current Form (never a client-supplied form). */
   async function resolveBasis(q: { basis: 'time' | 'current_form'; time?: string | undefined }): Promise<{ timeSeconds: number; form: FormReference | null }> {
     if (q.basis === 'time') return { timeSeconds: parseTimeParam(q.time), form: null };
-    const form = await currentRunnerForm(ctx.store, CURRENT_USER_ID, ctx.today());
+    const form = await currentRunnerForm(ctx.store, currentUserId(ctx), ctx.today());
     const ref = formReferenceOf(form);
     if (!ref) throw new AppError(409, 'form_unavailable', formUnavailableNote(form));
     return { timeSeconds: ref.formSeconds, form: ref };

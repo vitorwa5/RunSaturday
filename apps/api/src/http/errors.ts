@@ -1,6 +1,6 @@
 /**
  * Errors with a safe, user-facing message. Anything else that reaches the error handler
- * is logged in full and answered with a generic message: raw technical errors
+ * is logged by error class and answered with a generic message: raw technical errors
  * (stack traces, driver messages, "list index out of range"…) never reach clients.
  */
 import type { FastifyInstance } from 'fastify';
@@ -40,18 +40,23 @@ export function registerErrorHandling(app: FastifyInstance) {
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof AppError) {
-      if (error.statusCode >= 500) request.log.error({ err: error }, error.userMessage);
+      if (error.statusCode >= 500) request.log.error({ code: error.code }, error.userMessage);
       return reply.status(error.statusCode).send(body(error.code, error.userMessage));
+    }
+
+    if (request.url.startsWith('/api/auth')) {
+      request.log.warn('Authentication request failed');
+      return reply.status((error as { statusCode?: number }).statusCode ?? 503).send(body('authentication_unavailable', 'Sign-in could not be completed. Please try again.'));
     }
 
     const status = (error as { statusCode?: number }).statusCode;
     if (status && status >= 400 && status < 500) {
-      request.log.warn({ err: error }, 'Client error');
+      request.log.warn({ status }, 'Client error');
       return reply.status(status).send(body('bad_request', 'The request could not be processed.'));
     }
 
-    // Unexpected: full details go to the structured log only.
-    request.log.error({ err: error }, 'Unhandled error');
+    // Unexpected errors may contain auth/driver credentials; log only their class.
+    request.log.error({ errorType: error instanceof Error ? error.name : 'Error' }, 'Unhandled error');
     return reply.status(500).send(body('internal_error', 'Something went wrong on our side. Please try again.'));
   });
 }

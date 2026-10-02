@@ -208,8 +208,12 @@ model Result {
 }
 
 model User {
-  id          String @id @default(cuid())
-  displayName String
+  id                  String  @id @default(cuid())
+  displayName         String
+  email               String? @unique
+  emailVerified       Boolean @default(false)
+  image               String?
+  performanceRevision Int     @default(0)
 
   homeLat   Float?
   homeLon   Float?
@@ -235,6 +239,8 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  accounts     Account[]
+  sessions     Session[]
   events       UserEvent[]
   performances UserPerformance[]
   runnerForms  RunnerFormSnapshot[]
@@ -245,25 +251,26 @@ model User {
 /// when performances change and by `npm run runner-form:recalculate`. One per (user, distance,
 /// version, asOfDate); a recalculation on the same day replaces it.
 model RunnerFormSnapshot {
-  id                 String           @id @default(cuid())
-  userId             String
-  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  distanceMeters     Int
-  status             RunnerFormStatus
+  id                  String           @id @default(cuid())
+  userId              String
+  user                User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  distanceMeters      Int
+  performanceRevision Int              @default(0)
+  status              RunnerFormStatus
   /// Current Form on the 5K Compass course-reference scale (ESTIMATE only).
-  formSeconds        Int?
+  formSeconds         Int?
   /// Single-run reference value (INDICATIVE only).
-  indicativeSeconds  Int?
-  confidenceScore    Int
-  confidence         ConfidenceLevel
-  trend              FormTrend
-  sampleSize         Int
-  eventCount         Int
-  asOfDate           DateTime         @db.Date
-  calculationVersion String
+  indicativeSeconds   Int?
+  confidenceScore     Int
+  confidence          ConfidenceLevel
+  trend               FormTrend
+  sampleSize          Int
+  eventCount          Int
+  asOfDate            DateTime         @db.Date
+  calculationVersion  String
   /// Full breakdown: inputs with weights, exclusions, confidence factors, trend statistics.
-  components         Json
-  createdAt          DateTime         @default(now())
+  components          Json
+  createdAt           DateTime         @default(now())
 
   @@unique([userId, distanceMeters, calculationVersion, asOfDate])
   @@index([userId, distanceMeters, asOfDate])
@@ -403,4 +410,57 @@ model CourseFactorSnapshot {
 
   @@unique([eventId, version, windowDays, asOfDate])
   @@index([version, windowDays, asOfDate])
+}
+
+// Better Auth's server-side identity, session and verification storage.
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+}
+
+model RateLimit {
+  id          String @id @default(cuid())
+  key         String @unique
+  count       Int
+  lastRequest BigInt
 }

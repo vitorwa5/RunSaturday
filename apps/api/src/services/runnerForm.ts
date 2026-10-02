@@ -9,6 +9,7 @@
 import type { FormReference, RunnerForm } from '@runsaturday/shared';
 import { computeRunnerForm, RUNNER_FORM_V1, type FormCourseFactor } from '../analytics/runnerForm';
 import { RUNNER_FORM_VERSION } from '../analytics/versions';
+import { AppError } from '../http/errors';
 import type { DataStore } from '../repositories/DataStore';
 
 export async function computeUserRunnerForm(store: DataStore, userId: string, today: string): Promise<RunnerForm> {
@@ -22,9 +23,16 @@ export async function computeUserRunnerForm(store: DataStore, userId: string, to
 }
 
 export async function recalculateRunnerForm(store: DataStore, userId: string, today: string): Promise<RunnerForm> {
-  const form = await computeUserRunnerForm(store, userId, today);
-  await store.saveRunnerFormSnapshot(userId, form);
-  return form;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const revision = await store.getPerformanceRevision(userId);
+    try {
+      const form = await computeUserRunnerForm(store, userId, today);
+      if (await store.saveRunnerFormSnapshot(userId, form, revision)) return form;
+    } catch {
+      throw new AppError(503, 'form_unavailable', 'Current Form could not be updated. Please try again.');
+    }
+  }
+  throw new AppError(503, 'form_pending', 'Current Form is being updated. Please try again.');
 }
 
 /** Today's snapshot, calculating it once if it does not exist yet. */

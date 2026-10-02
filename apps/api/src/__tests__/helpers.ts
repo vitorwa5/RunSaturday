@@ -7,7 +7,7 @@ import { MemoryDataStore } from '../repositories/memory/MemoryDataStore';
 /** Thursday 1 October 2026, 10:00 UK time. */
 export const FIXED_NOW = new Date('2026-10-01T09:00:00Z');
 
-export const testConfig = () => loadConfig({ DATA_SOURCE: 'demo', LOG_LEVEL: 'silent' });
+export const testConfig = () => loadConfig({ APP_MODE: 'demo', DATA_SOURCE: 'demo', LOG_LEVEL: 'silent' });
 
 export async function buildTestApp(store: DataStore = new MemoryDataStore('2026-10-01')) {
   return buildApp({ config: testConfig(), store, now: () => FIXED_NOW, logger: false });

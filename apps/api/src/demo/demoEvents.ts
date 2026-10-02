@@ -216,7 +216,7 @@ export const DEMO_EVENTS: DemoEventDefinition[] = [
   },
 ];
 
-/** Demo user used until authentication exists. Fictional. */
+/** Fictional user available only in explicit demo mode. */
 export const DEMO_USER = {
   id: 'demo-user',
   displayName: 'Demo Runner',

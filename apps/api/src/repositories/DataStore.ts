@@ -142,10 +142,11 @@ export interface DataStore {
   updateUserPerformance(userId: string, id: string, patch: PerformancePatch): Promise<PerformanceRecord | null>;
   /** False when the user has no such performance. */
   deleteUserPerformance(userId: string, id: string): Promise<boolean>;
+  getPerformanceRevision(userId: string): Promise<number>;
   /** Runner Form snapshot for exactly that date, or null. */
   getRunnerFormSnapshot(userId: string, distanceMeters: number, version: string, asOfDate: string): Promise<RunnerForm | null>;
   /** Insert or replace the snapshot for (user, distance, version, asOfDate). */
-  saveRunnerFormSnapshot(userId: string, form: RunnerForm): Promise<void>;
+  saveRunnerFormSnapshot(userId: string, form: RunnerForm, expectedRevision?: number): Promise<boolean>;
   /**
    * Latest stored analytics for an event: Competition V1 for the window (days; 0 = all history)
    * and Difficulty V1. Read from snapshots; never recalculated per request.

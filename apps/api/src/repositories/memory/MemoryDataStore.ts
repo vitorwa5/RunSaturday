@@ -110,6 +110,7 @@ export class MemoryDataStore implements DataStore {
   private readonly analytics: CoreAnalytics;
   private readonly performances: PerformanceInput[];
   /** Runner Form snapshots, keyed by user|distance|version|asOfDate; private to this instance. */
+  private readonly revisions = new Map<string, number>();
   private readonly runnerForms = new Map<string, RunnerForm>();
   /** The demo user's own history; mutable, and private to this store instance. */
   private readonly userPerformances: PerformanceRecord[];
@@ -278,6 +279,7 @@ export class MemoryDataStore implements DataStore {
     this.assertUnique(userId, values, null);
     const record: PerformanceRecord = { id: randomUUID(), userId, ...values, source: input.source, externalResultId: null, verified: false };
     this.userPerformances.push(record);
+    this.invalidateForm(userId);
     return { ...record };
   }
 
@@ -287,6 +289,7 @@ export class MemoryDataStore implements DataStore {
     const values = this.performanceValues(patch);
     this.assertUnique(userId, values, id);
     Object.assign(p, values);
+    this.invalidateForm(userId);
     return { ...p };
   }
 
@@ -294,16 +297,25 @@ export class MemoryDataStore implements DataStore {
     const index = this.userPerformances.findIndex((x) => x.userId === userId && x.id === id);
     if (index < 0) return false;
     this.userPerformances.splice(index, 1);
+    this.invalidateForm(userId);
     return true;
   }
+
+  private invalidateForm(userId: string) {
+    this.revisions.set(userId, (this.revisions.get(userId) ?? 0) + 1);
+    for (const key of this.runnerForms.keys()) if (key.startsWith(`${userId}|`)) this.runnerForms.delete(key);
+  }
+  async getPerformanceRevision(userId: string) { return this.revisions.get(userId) ?? 0; }
 
   async getRunnerFormSnapshot(userId: string, distanceMeters: number, version: string, asOfDate: string): Promise<RunnerForm | null> {
     const form = this.runnerForms.get(`${userId}|${distanceMeters}|${version}|${asOfDate}`);
     return form ? structuredClone(form) : null;
   }
 
-  async saveRunnerFormSnapshot(userId: string, form: RunnerForm): Promise<void> {
+  async saveRunnerFormSnapshot(userId: string, form: RunnerForm, expectedRevision?: number): Promise<boolean> {
+    if (expectedRevision != null && expectedRevision !== await this.getPerformanceRevision(userId)) return false;
     this.runnerForms.set(`${userId}|${form.distanceMeters}|${form.version}|${form.asOfDate}`, structuredClone(form));
+    return true;
   }
 
   /** Same normalisation as the Prisma store: cleaned external name, internal name looked up. */

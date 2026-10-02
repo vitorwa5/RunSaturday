@@ -73,12 +73,12 @@ cp apps/api/.env.example apps/api/.env   # local config (git-ignored)
 
 npm run db:up        # start PostgreSQL in Docker
 npm run db:migrate   # apply migrations
-npm run db:seed      # load the fictional DEMO dataset
+APP_MODE=demo npm run db:seed # development-only fictional DEMO dataset
 
 npm run dev          # API on :3001, web on http://localhost:5173
 ```
 
-**No database? Use demo mode:** `npm run dev:demo` serves the same DEMO dataset from memory (`DATA_SOURCE=demo`).
+**No database? Use demo mode:** `npm run dev:demo` serves the same DEMO dataset from memory (`APP_MODE=demo DATA_SOURCE=demo`).
 
 ### Scripts (root)
 
@@ -89,7 +89,7 @@ npm run dev          # API on :3001, web on http://localhost:5173
 | `npm test` | Vitest across all workspaces |
 | `npm run build` | API bundle (`apps/api/dist`) + web build (`apps/web/dist`) |
 | `npm run check` | typecheck + test + build |
-| `npm run test:e2e` | Playwright at 360, 390 and 430 px (starts its own demo servers) |
+| `npm run test:e2e` | existing demo + focused authenticated Playwright flows at 360, 390 and 430 px (auth requires TEST_DATABASE_URL) |
 | `npm run db:up` / `db:down` | start/stop the Docker database |
 | `npm run db:migrate` / `db:seed` / `db:reset` | Prisma migrations / DEMO seed / full reset |
 | `npm run analytics:recalculate` | recalculate Course Speed, Difficulty, Competition and PB Score snapshots (`-- --as-of=YYYY-MM-DD` optional); the seed runs it too |
@@ -108,6 +108,7 @@ If Playwright's bundled browsers aren't installed, point it at an existing Chrom
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `APP_MODE` | required | `demo` (explicit fictional identity) or `beta` (verified PostgreSQL accounts) |
 | `DATA_SOURCE` | `database` | `database` (Prisma/PostgreSQL) or `demo` (in-memory) |
 | `DATABASE_URL` | – | required when `DATA_SOURCE=database` |
 | `HOST` / `PORT` | `127.0.0.1` / `3001` | API bind address |
@@ -117,6 +118,10 @@ If Playwright's bundled browsers aren't installed, point it at an existing Chrom
 | `ACTIVE_SCORE_VERSION` | `demo_v0` | which `EventScore.calculationVersion` the API serves |
 
 Web (optional, `apps/web/.env`): `VITE_API_BASE_URL` (default `/api`) and `VITE_API_PROXY_TARGET` (dev proxy target).
+
+## Authentication (B1)
+
+Passwordless email codes and opaque HttpOnly sessions are implemented with Better Auth and PostgreSQL. New accounts start empty. Profile supports sign-out, confirmed account deletion and JSON export. Beta requires `AUTH_BASE_URL`, `AUTH_SECRET`, real Resend email delivery and the additive migration; production additionally requires HTTPS. [Authentication architecture, modes, security, cache isolation and deployment instructions](docs/B1-authentication.md).
 
 ## API (Phase 1)
 
@@ -151,9 +156,9 @@ Web (optional, `apps/web/.env`): `VITE_API_BASE_URL` (default `/api`) and `VITE_
 | `GET /api/profile/challenges/:id/opportunities?item=` | events in the dataset that would complete one item (Explore's challenge filter) |
 | `GET /api/profile/events/:idOrSlug/visits` | the user's visits to one event and the challenge items a visit would complete |
 
-Without `lat`/`lon`, the user's saved home location is the origin. There's no authentication yet: every request acts as the demo user (see `http/context.ts`).
+Without `lat`/`lon`, the user's saved home location is the origin. In beta, personal context comes only from the verified session. The fixed demo user is available exclusively with explicit `APP_MODE=demo`. See [B1 authentication](docs/B1-authentication.md) for deployment configuration and endpoint access rules.
 
-Errors always use the shape `{ "error": { "code", "message" } }` with a human-readable message. Stack traces and driver errors go only to the structured server log.
+Errors always use the shape `{ "error": { "code", "message" } }` with a human-readable message. Structured logs record safe error classes/codes; raw auth/driver errors and credentials are not logged.
 
 ## Data model (Prisma)
 
@@ -202,7 +207,7 @@ Errors always use the shape `{ "error": { "code", "message" } }` with a human-re
 - **External courses (Phase 4A.1):** a performance with only `externalEventName` is a valid personal performance. It counts towards the overall 5K PB and recent best, and can be used in Raw time mode. It is **never** a course-adjustment source: the API gives it no source event, and the UI says "Course adjustment unavailable — this performance was recorded at a course not currently modelled by 5K Compass." The Add performance form offers just *parkrun* (choose an event) or *Other 5K race* (enter its name). No other distances are offered.
 - **Duplicates (Phase 4A.1):** `duplicateKey` is `event:<eventId>|<date>|<distanceMeters>` for internal events, and `external:<name, lower-cased, whitespace collapsed>|<date>|<distanceMeters>` for external races (`domain/performanceKey.ts`). It has a unique index per user, so duplicates never depend on how SQL treats NULLs. Importer idempotency stays on the unique `(userId, source, externalResultId)` index.
 - **Migration 4A.1** is additive. It adds the columns, backfills existing rows to `distanceMeters = 5000`, `PARKRUN` and their `event:` key, makes `eventId` nullable, adds the CHECK constraints, and swaps the old `(userId, eventId, date)` unique index for the key. Ids and data are unchanged; I verified the 43 existing rows column for column.
-- **Privacy:** every store method takes the owning `userId` and filters by it; another user's id is simply "not found". Until authentication exists, routes act as the demo user.
+- **Privacy:** every store method takes the owning `userId` and filters by it; another user's id is simply "not found". Beta routes obtain ownership from the validated server session; explicit demo mode retains its fictional identity.
 - **Where Could I Place?, Compare and the outlook** use the derived lifetime PB and recent best, together with the event where each was run, so course-adjusted mode needs no manual "Achieved at" for them. Typed times still need one.
 
 ### Runner Form V1 (`runner_form_v1`, Phase 4B): Current Form

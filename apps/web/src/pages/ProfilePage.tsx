@@ -1,3 +1,4 @@
+import { AccountControls } from '../auth/AccountControls';
 import { formatDateWithYear, formatFinishTime, GOALS, type UserPerformance, type UserProfile } from '@runsaturday/shared';
 import { ChevronRight, Heart, Link2, MapPin, Plus, ShieldCheck, Timer } from 'lucide-react';
 import { useId } from 'react';
@@ -190,6 +191,7 @@ export function ProfilePage() {
     <div className="space-y-6">
       <PageHeader title="Profile" subtitle={profile ? profile.displayName : undefined} actions={profile?.isDemo ? <DemoBadge /> : null} />
 
+      <AccountControls />
       {isPending ? (
         <LoadingState variant="card" label="Loading profile" />
       ) : isError ? (
@@ -304,7 +306,7 @@ export function ProfilePage() {
           <div className="text-sm text-muted">
             <h2 className="font-semibold text-ink">Privacy and independence</h2>
             <p className="mt-1">
-              Your performances are personal and only shown to you. Location is optional and only used to find events near you. 5K Compass is an
+              {profile?.isDemo ? 'This demo profile contains fictional performances.' : 'Your performances belong to your signed-in account.'} Location is optional and only used to find events near you. 5K Compass is an
               independent app and is not affiliated with, or endorsed by, parkrun or any event organiser.
             </p>
           </div>

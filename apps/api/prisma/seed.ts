@@ -18,6 +18,9 @@ const RESULT_BATCH_SIZE = 5000;
 const toDate = (iso: string) => new Date(`${iso}T00:00:00Z`);
 
 async function main() {
+  if (process.env.APP_MODE !== 'demo' || process.env.NODE_ENV === 'production') {
+    throw new Error('Demo seed requires explicit APP_MODE=demo and is forbidden in production. Beta uses migrations only.');
+  }
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL is not set. Copy apps/api/.env.example to apps/api/.env.');
 

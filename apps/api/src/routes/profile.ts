@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { FIVE_K_METERS, formatShortDate, parsePerformanceTime, type PerformanceSummary, type RunnerForm, type UserPerformance, type UserPerformancesResponse, type UserProfile } from '@runsaturday/shared';
 import { z } from 'zod';
-import { CURRENT_USER_ID, currentUser, type RequestContext } from '../http/context';
+import { currentUserId, currentUser, type RequestContext } from '../http/context';
 import { AppError, notFound, parseInput } from '../http/errors';
 import { DuplicatePerformanceError, type NewPerformance, type PerformanceRecord } from '../repositories/DataStore';
 import { cleanExternalEventName } from '../domain/performanceKey';
@@ -32,9 +32,10 @@ const ListQuery = z.object({
 const isCalendarDate = (iso: string) => /^\d{4}-\d{2}-\d{2}$/.test(iso) && new Date(`${iso}T00:00:00Z`).toISOString().slice(0, 10) === iso;
 
 export async function profileRoutes(app: FastifyInstance, ctx: RequestContext) {
-  // Phase 4A: no authentication yet, so the user is always the demo user. Every store call
-  // below passes that userId explicitly; the store never returns another user's rows.
-  const userId = CURRENT_USER_ID;
+  async function refreshForm() {
+    try { await recalculateRunnerForm(ctx.store, currentUserId(ctx), ctx.today()); }
+    catch { app.log.warn('Current Form recomputation deferred; invalidated snapshots cannot be served'); }
+  }
 
   /** Validates input against business rules; returns the values to store. */
   async function validated(body: z.infer<typeof PerformanceBody>): Promise<NewPerformance> {
@@ -80,7 +81,7 @@ export async function profileRoutes(app: FastifyInstance, ctx: RequestContext) {
   };
 
   async function editableOr404(id: string): Promise<PerformanceRecord> {
-    const existing = await ctx.store.getUserPerformance(userId, id);
+    const existing = await ctx.store.getUserPerformance(currentUserId(ctx), id);
     if (!existing) throw notFound('This performance');
     if (!isEditable(existing)) throw new AppError(403, 'read_only', 'Imported performances cannot be edited here.');
     return existing;
@@ -116,23 +117,23 @@ export async function profileRoutes(app: FastifyInstance, ctx: RequestContext) {
   });
 
   /** Current Form (runner_form_v1) with its full explanation: inputs, weights, exclusions. */
-  app.get('/api/profile/current-form', async (): Promise<RunnerForm> => currentRunnerForm(ctx.store, userId, ctx.today()));
+  app.get('/api/profile/current-form', async (): Promise<RunnerForm> => currentRunnerForm(ctx.store, currentUserId(ctx), ctx.today()));
 
   app.get('/api/profile/performance-summary', async (): Promise<PerformanceSummary> => {
-    return summarizePerformances(await ctx.store.listUserPerformances(userId), ctx.today());
+    return summarizePerformances(await ctx.store.listUserPerformances(currentUserId(ctx)), ctx.today());
   });
 
   app.get('/api/profile/performances', async (request): Promise<UserPerformancesResponse> => {
     const q = parseInput(ListQuery, request.query);
     const eventId = q.eventId != null ? await ctx.store.findEventId(q.eventId) : undefined;
     if (q.eventId != null && !eventId) throw notFound('This event');
-    const all = await ctx.store.listUserPerformances(userId, eventId ? { eventId } : {});
+    const all = await ctx.store.listUserPerformances(currentUserId(ctx), eventId ? { eventId } : {});
     return { performances: all.slice(0, q.limit ?? all.length).map(toPerformanceDto), total: all.length };
   });
 
   app.get('/api/profile/performances/:id', async (request): Promise<UserPerformance> => {
     const { id } = parseInput(z.object({ id: Id }), request.params);
-    const p = await ctx.store.getUserPerformance(userId, id);
+    const p = await ctx.store.getUserPerformance(currentUserId(ctx), id);
     if (!p) throw notFound('This performance');
     return toPerformanceDto(p);
   });
@@ -140,8 +141,8 @@ export async function profileRoutes(app: FastifyInstance, ctx: RequestContext) {
   app.post('/api/profile/performances', async (request, reply): Promise<UserPerformance> => {
     const input = await validated(parseInput(PerformanceBody, request.body));
     try {
-      const created = await ctx.store.createUserPerformance(userId, input);
-      await recalculateRunnerForm(ctx.store, userId, ctx.today());
+      const created = await ctx.store.createUserPerformance(currentUserId(ctx), input);
+      await refreshForm();
       reply.status(201);
       return toPerformanceDto(created);
     } catch (error) {
@@ -155,9 +156,9 @@ export async function profileRoutes(app: FastifyInstance, ctx: RequestContext) {
     await editableOr404(id);
     const input = await validated(parseInput(PerformanceBody, request.body));
     try {
-      const updated = await ctx.store.updateUserPerformance(userId, id, input);
+      const updated = await ctx.store.updateUserPerformance(currentUserId(ctx), id, input);
       if (!updated) throw notFound('This performance');
-      await recalculateRunnerForm(ctx.store, userId, ctx.today());
+      await refreshForm();
       return toPerformanceDto(updated);
     } catch (error) {
       if (error instanceof DuplicatePerformanceError) throw await duplicate(input);
@@ -168,8 +169,8 @@ export async function profileRoutes(app: FastifyInstance, ctx: RequestContext) {
   app.delete('/api/profile/performances/:id', async (request, reply) => {
     const { id } = parseInput(z.object({ id: Id }), request.params);
     await editableOr404(id);
-    await ctx.store.deleteUserPerformance(userId, id);
-    await recalculateRunnerForm(ctx.store, userId, ctx.today());
+    await ctx.store.deleteUserPerformance(currentUserId(ctx), id);
+    await refreshForm();
     return reply.status(204).send();
   });
 }

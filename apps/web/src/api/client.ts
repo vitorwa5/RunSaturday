@@ -26,12 +26,14 @@ export async function apiSend<T>(method: 'POST' | 'PATCH' | 'DELETE', path: stri
   try {
     response = await fetch(`${BASE_URL}${path}`, {
       method,
+      credentials: 'same-origin',
       headers: { Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
     throw new ApiError(0, 'network_error', 'We could not reach 5K Compass. Check your connection and try again.');
   }
+  if (response.status === 401) window.dispatchEvent(new Event('compass-session-expired'));
   if (!response.ok) {
     const errorBody = (await response.json().catch(() => null)) as ApiErrorBody | null;
     throw new ApiError(response.status, errorBody?.error.code ?? 'unknown_error', errorBody?.error.message ?? 'Something went wrong. Please try again.');
@@ -48,12 +50,13 @@ export async function apiGet<T>(path: string, query: Record<string, QueryValue> 
 
   let response: Response;
   try {
-    response = await fetch(`${BASE_URL}${path}${qs}`, { signal, headers: { Accept: 'application/json' } });
+    response = await fetch(`${BASE_URL}${path}${qs}`, { signal, credentials: 'same-origin', headers: { Accept: 'application/json' } });
   } catch (error) {
     if ((error as Error).name === 'AbortError') throw error;
     throw new ApiError(0, 'network_error', 'We could not reach 5K Compass. Check your connection and try again.');
   }
 
+  if (response.status === 401) window.dispatchEvent(new Event('compass-session-expired'));
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as ApiErrorBody | null;
     throw new ApiError(

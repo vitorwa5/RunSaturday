@@ -6,7 +6,7 @@ import type { ChallengeOpportunitiesResponse, ChallengeResult, ChallengesRespons
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eventsMatching, findChallenge, isChallengeItem, itemRef } from '../challenges/engine';
-import { CURRENT_USER_ID, currentUser, resolveOrigin, type RequestContext } from '../http/context';
+import { currentUserId, currentUser, resolveOrigin, type RequestContext } from '../http/context';
 import { AppError, notFound, parseInput } from '../http/errors';
 import { withContext } from '../services/eventContext';
 import { eventVisitSummary, exploreSummary, loadExploreState } from '../services/explore';
@@ -15,10 +15,9 @@ const IdParams = z.object({ id: z.string().min(1).max(200) });
 const ItemQuery = z.object({ item: z.string().trim().min(1).max(50) });
 
 export async function challengeRoutes(app: FastifyInstance, ctx: RequestContext) {
-  const userId = CURRENT_USER_ID;
   const state = async () => {
-    if (!(await ctx.store.getUser(userId))) throw notFound('Your profile');
-    return loadExploreState(ctx.store, userId, ctx.today());
+    if (!(await ctx.store.getUser(currentUserId(ctx)))) throw notFound('Your profile');
+    return loadExploreState(ctx.store, currentUserId(ctx), ctx.today());
   };
   const challengeOr404 = (id: string) => {
     const def = findChallenge(id);

@@ -1,4 +1,5 @@
 import { calendarDateIn } from '@runsaturday/shared';
+import { createAuth } from './auth/auth';
 import { buildApp } from './app';
 import { loadConfig } from './config/env';
 import { createPrismaClient } from './db/prisma';
@@ -8,15 +9,22 @@ import { PrismaDataStore } from './repositories/prisma/PrismaDataStore';
 
 async function main() {
   const config = loadConfig();
+  const db = config.DATA_SOURCE === 'database' ? createPrismaClient(config.DATABASE_URL!) : undefined;
   const store: DataStore =
     config.DATA_SOURCE === 'demo'
       ? new MemoryDataStore(calendarDateIn(new Date(), config.APP_TIME_ZONE))
-      : new PrismaDataStore(createPrismaClient(config.DATABASE_URL!), config.ACTIVE_SCORE_VERSION);
+      : new PrismaDataStore(db!, config.ACTIVE_SCORE_VERSION);
 
-  const app = await buildApp({ config, store });
+  const app = await buildApp({ config, store, authRuntime: config.APP_MODE === 'beta' ? { db: db!, auth: createAuth(db!, config) } : undefined });
 
   if (store.kind === 'database' && !(await store.ping())) {
-    app.log.warn('Database is not reachable. Start it with `npm run db:up`, or run with DATA_SOURCE=demo.');
+    if (config.APP_MODE === 'beta') throw new Error('Beta database is unavailable');
+    app.log.warn('Demo database is unavailable');
+  }
+  if (config.APP_MODE === 'beta') {
+    try {
+      await Promise.all([db!.user.findFirst({ select: { email: true, performanceRevision: true } }), db!.session.findFirst({ select: { id: true } }), db!.verification.findFirst({ select: { id: true } }), db!.account.findFirst({ select: { id: true } }), db!.rateLimit.findFirst({ select: { id: true } })]);
+    } catch { throw new Error('Beta requires the B1 database migration; run db:deploy before startup'); }
   }
   app.log.info({ dataSource: store.kind }, 'Starting RunSaturday API');
 
@@ -31,6 +39,7 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
+  const message = error instanceof Error ? error.message : '';
+  console.error(message.startsWith('Invalid environment configuration:') || message.startsWith('Beta ') ? message : 'API startup failed. Check the service configuration and database availability.');
   process.exit(1);
 });

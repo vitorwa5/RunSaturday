@@ -4,11 +4,16 @@ import type { DataStore, UserRecord } from '../repositories/DataStore';
 import type { Coordinates } from '../services/travel';
 import { loadUser } from '../services/userPerformance';
 
-/**
- * PHASE 1 STAND-IN: there is no authentication yet, so every request acts as the demo
- * user. Replace this single function when accounts arrive.
- */
-export const CURRENT_USER_ID = 'demo-user';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { AppError } from './errors';
+
+/** Handler-local identity, populated only by the validated HTTP session boundary. */
+export const identities = new AsyncLocalStorage<{ userId: string | null }>();
+export function currentUserId(ctx: RequestContext): string {
+  const id = identities.getStore()?.userId;
+  if (!id || (ctx.config.APP_MODE === 'beta' && id === 'demo-user')) throw new AppError(401, 'authentication_required', 'Sign in to access your account.');
+  return id;
+}
 
 export interface RequestContext {
   store: DataStore;
@@ -27,7 +32,8 @@ export function createTodayFn(config: AppConfig, now: () => Date) {
 
 /** The current user with performance-derived values (lifetime PB, recent best, visits). */
 export async function currentUser(ctx: RequestContext): Promise<UserRecord | null> {
-  return loadUser(ctx.store, CURRENT_USER_ID, ctx.today());
+  const id = identities.getStore()?.userId;
+  return id ? loadUser(ctx.store, id, ctx.today()) : null;
 }
 
 /** Explicit lat/lon wins; otherwise fall back to the user's saved home location. */
