@@ -1,4 +1,4 @@
-import { formatDateWithYear, formatFinishTime, type RunnerForm } from '@runsaturday/shared';
+import { CURRENT_FORM_EXPLANATION, formatDateWithYear, formatFinishTime, type RunnerForm, type RunnerFormInputRole } from '@runsaturday/shared';
 import { Medal } from 'lucide-react';
 import { ButtonLink } from '../components/ui/Button';
 import { ConfidenceBadge } from '../components/ui/ConfidenceBadge';
@@ -9,6 +9,14 @@ import { useCurrentForm } from '../hooks/queries';
 import { formatAgo, TREND_LABEL } from '../lib/display';
 
 const pct = (w: number) => `${Math.round(w * 100)}%`;
+
+/** How each run was treated. A slower run is never called "easy": it may simply not be the strongest evidence. */
+const ROLE_TEXT: Record<RunnerFormInputRole, string> = {
+  frontier: 'supports Current Form',
+  slower: 'slower than your supported level · no influence',
+  faster_unsupported: 'faster, not yet repeated · not assumed',
+  faster_outweighed: 'earlier faster level · less recent support',
+};
 
 function Summary({ form }: { form: RunnerForm }) {
   const lastAge = form.lastPerformanceDate ? formatAgo(form.lastPerformanceDate, form.asOfDate) : null;
@@ -29,6 +37,11 @@ function Summary({ form }: { form: RunnerForm }) {
           <dt className="text-muted">Based on</dt>
           <dd className="font-semibold">
             {form.sampleSize} recent {form.sampleSize === 1 ? 'performance' : 'performances'}
+            {form.status === 'estimate' && form.frontier && (
+              <span className="block text-xs font-normal text-subtle">
+                {form.frontier.supportingRuns} at your strongest supported level
+              </span>
+            )}
           </dd>
         </div>
         <div>
@@ -86,15 +99,20 @@ export function CurrentFormPage() {
             <SectionHeading>
               <span id="form-method">Method</span>
             </SectionHeading>
+            <p className="text-ink">{CURRENT_FORM_EXPLANATION}</p>
             <p>
-              Current Form is a modelled estimate of your present 5K ability, not a recorded result and not a prediction of a finish time. It uses your 5K runs
-              from the last {form.method.horizonDays} days at courses 5K Compass models.
+              It is your current demonstrated race capability, not your typical parkrun time, not your single fastest run and not a prediction of a finish time.
+              It uses your 5K runs from the last {form.method.horizonDays} days at courses 5K Compass models.
             </p>
             <ul className="list-disc space-y-1 pl-5">
               <li>Each run is course-adjusted: your time ÷ the course’s Speed Factor, so a hilly course and a fast one are compared fairly.</li>
-              <li>Recent runs count more: a run {form.method.halfLifeDays} days old counts half as much as one today.</li>
-              <li>An unusually slow run (an easy day, pacing, illness) keeps a reduced influence; a genuine fast run counts in full.</li>
-              <li>Your PBs are achievements, not current ability: an old PB does not pull Current Form towards it.</li>
+              <li>
+                Current Form comes from your fastest level that at least two recent runs agree on (within {form.frontier?.bandPercent ?? 3}%). Repeated runs at that
+                level reinforce each other; more recent runs count more (a run {form.method.halfLifeDays} days old counts half as much as one today).
+              </li>
+              <li>Slower runs are still listed below, but have no pull on the estimate while faster runs keep being repeated. Nothing assumes a slower run was an easy one.</li>
+              <li>A single faster run that no other run supports is not assumed, and lowers confidence until it is repeated. Two runs at a new, faster level move Current Form straight away.</li>
+              <li>Your PBs are achievements, not current ability: an old PB has no influence on Current Form.</li>
             </ul>
             <p>
               Current Form is expressed on the 5K Compass course-reference scale, based on the analysed course cohort:
@@ -111,9 +129,9 @@ export function CurrentFormPage() {
           {form.inputs.length > 0 && (
             <section aria-labelledby="form-inputs">
               <SectionHeading>
-                <span id="form-inputs">Recent runs used</span>
+                <span id="form-inputs">Recent runs considered</span>
               </SectionHeading>
-              <ul aria-label="Recent runs used" className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface text-sm">
+              <ul aria-label="Recent runs considered" className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface text-sm">
                 {form.inputs.map((i) => (
                   <li key={i.performanceId} className="px-3 py-2">
                     <div className="flex items-baseline justify-between gap-2">
@@ -125,8 +143,8 @@ export function CurrentFormPage() {
                         {formatDateWithYear(i.date)} · ran {formatFinishTime(i.actualSeconds)} · course {i.courseFactor.toFixed(3)}
                       </span>
                       <span>
-                        weight {pct(i.share)}
-                        {i.robustWeight < 1 && ' · reduced influence'}
+                        {ROLE_TEXT[i.role]}
+                        {i.role === 'frontier' && ` · weight ${pct(i.share)}`}
                       </span>
                     </div>
                   </li>

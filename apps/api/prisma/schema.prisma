@@ -240,7 +240,7 @@ model User {
   runnerForms  RunnerFormSnapshot[]
 }
 
-/// Current Form snapshots (runner_form_v1): a modelled estimate of present ability, per user and
+/// Current Form snapshots (runner_form_v1): current demonstrated 5K capability, per user and
 /// distance (5000 m only in V1). Derived from UserPerformance and Course Speed Factors; recomputed
 /// when performances change and by `npm run runner-form:recalculate`. One per (user, distance,
 /// version, asOfDate); a recalculation on the same day replaces it.
@@ -250,7 +250,7 @@ model RunnerFormSnapshot {
   user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   distanceMeters     Int
   status             RunnerFormStatus
-  /// Course-neutral Current Form (ESTIMATE only).
+  /// Current Form on the 5K Compass course-reference scale (ESTIMATE only).
   formSeconds        Int?
   /// Single-run reference value (INDICATIVE only).
   indicativeSeconds  Int?

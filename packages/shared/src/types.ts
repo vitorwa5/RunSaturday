@@ -287,7 +287,7 @@ export interface PerformanceInput {
 }
 
 // ---------------------------------------------------------------------------
-// Runner Form (Phase 4B): Current Form, a modelled estimate of present 5K ability
+// Runner Form (Phase 4B): Current Form, the runner's current demonstrated 5K race capability
 // ---------------------------------------------------------------------------
 
 export type RunnerFormStatus = 'estimate' | 'indicative' | 'unavailable';
@@ -302,7 +302,18 @@ export type RunnerFormExclusion =
   | 'factor_unavailable'
   | 'factor_low_confidence';
 
-/** One performance used in Current Form, with its course-normalised value and weights. */
+/**
+ * How an eligible run relates to the supported performance frontier:
+ *   frontier            agrees (within the band) with the strongest supported level: used
+ *   slower              slower than that level: listed, no influence on the estimate (not
+ *                       assumed to be an easy run; it may simply not be the strongest evidence)
+ *   faster_unsupported  faster, but no other run agrees with it: not assumed (lowers confidence)
+ *   faster_outweighed   faster runs that agree with each other but carry much less recent support
+ *                       than the current level (e.g. older): history, not current form
+ */
+export type RunnerFormInputRole = 'frontier' | 'slower' | 'faster_unsupported' | 'faster_outweighed';
+
+/** One eligible performance, with its course-normalised value, weights and frontier role. */
 export interface RunnerFormInput {
   performanceId: string;
   eventId: string;
@@ -318,9 +329,8 @@ export interface RunnerFormInput {
   referenceSeconds: number;
   recencyWeight: number;
   courseWeight: number;
-  /** 1 = full influence; below 1 = reduced influence (unusually slow or fast for this runner). */
-  robustWeight: number;
-  /** Share of the final estimate (all shares sum to 1). */
+  role: RunnerFormInputRole;
+  /** Share of the final estimate (all shares sum to 1; 0 outside the frontier). */
   share: number;
 }
 
@@ -334,7 +344,8 @@ export interface RunnerFormExcludedPerformance {
 }
 
 /**
- * CURRENT FORM (runner_form_v1): an estimate of the runner's present 5K ability, expressed as a
+ * CURRENT FORM (runner_form_v1): the runner's current DEMONSTRATED 5K race capability, estimated
+ * from their strongest supported recent performances (not their typical parkrun time), expressed as a
  * time on the 5K Compass course-reference scale: Course Speed Factors are centred on the analysed
  * course cohort (geometric centre 1.000), which is not a universal neutral 5K course. It is
  * not a recorded performance and not a prediction of a finish time.
@@ -364,6 +375,15 @@ export interface RunnerForm {
   inputs: RunnerFormInput[];
   excluded: RunnerFormExcludedPerformance[];
   method: { horizonDays: number; halfLifeDays: number };
+  /** Supported performance frontier summary (null with no eligible runs). */
+  frontier: {
+    /** Agreement band in percent, or null when no runs agreed and the median was used. */
+    bandPercent: number | null;
+    supportingRuns: number;
+    fasterUnsupportedRuns: number;
+    fasterOutweighedRuns: number;
+    slowerRuns: number;
+  } | null;
 }
 
 /** What a forward-looking tool used as the runner's ability reference. */
@@ -657,7 +677,8 @@ export interface ConfidenceFactor {
     | 'consistency'
     | 'course_factors'
     | 'events'
-    | 'coverage';
+    | 'coverage'
+    | 'support';
   label: string;
   /** Weight as a fraction (factors with weight sum to 1). */
   weight: number;

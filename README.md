@@ -208,7 +208,13 @@ Four separate concepts, never mixed:
 | **Overall 5K PB** | best recorded 5000 m performance ever (any race): an achievement |
 | **parkrun PB** | best recorded 5000 m parkrun: an achievement |
 | **Recent best** | best recorded 5000 m performance in the last 90 days |
-| **Current Form** | a *modelled* estimate of present 5K ability, estimated from several recent runs after accounting for course differences |
+| **Current Form** | a *modelled* estimate of current **demonstrated 5K race capability**, from the strongest supported recent runs after accounting for course differences |
+
+**Definition.** Current Form is *not* "your typical recent parkrun time". parkrun is often run easy, socially, while pacing someone or pushing a buggy, so a typical time understates what a runner can do. It is also not the single fastest result. In the app it is explained as:
+
+> Current Form estimates your present 5K capability from your strongest supported recent performances, adjusted for course differences. Slower social or easy runs have less influence when faster performances are consistently demonstrated.
+
+The app never assumes that a particular slow result was an easy run.
 
 **Method** (`analytics/runnerForm.ts`; all parameters in `RUNNER_FORM_V1`):
 
@@ -221,28 +227,65 @@ Four separate concepts, never mixed:
 3. **Weights.**
    - *Recency:* `0.5^(age / 45 days)`, a smooth exponential half-life of 45 days. 45 days ago counts ½ and 90 days ago ¼.
    - *Course-factor confidence:* High 1.0, Medium 0.75.
-4. **Robust centre.** An asymmetric weighted Huber M-estimate in log space, iterated to convergence.
-   - It starts at the weighted median, with scale = max(1%, 1.4826 × weighted MAD).
-   - **Slow results** beyond 1.5 scale units are down-weighted in proportion (k/u). A jog or a bad day keeps reduced influence and is never deleted.
-   - **Fast results** are tolerated twice as far (3 units), so a genuine new best counts in full. Only an implausible outlier, such as a mistyped time, is down-weighted.
-   - Current Form is `exp(centre)`. It is never the single fastest run.
+4. **Supported performance frontier.** In log space, with evidence weight `b = recency × course`:
+   - **Window.** For each run *i*, its window is the runs from *x_i* up to 3% slower (`BAND`): the runs that agree with it.
+   - **Support.** The window's support is Σ *b* over its runs, so recent, well-normalised runs count more.
+   - **Anchor.** The **fastest** run whose window holds **at least 2 runs** and at least **25%** of the best-supported window's support.
+   - **Estimate.** Current Form = `exp(Σ b·x / Σ b)` over the anchor's window.
+   - If no two runs agree within 3%, the band widens once to 6%. If still none agree, the recency-weighted median is used, capped at Low confidence.
+
+   What this does:
+   - Repeated near-fast runs reinforce each other.
+   - Slower runs are listed as *slower* with no pull on the estimate while faster runs keep being repeated.
+   - A single fast run that no other run agrees with is *not assumed*. It is listed as *faster, not yet repeated*, and it lowers confidence.
+   - Two runs at a new, faster level move Current Form at once.
+   - A faster level that now has much less support, for example because it is older, does not hold Current Form up. It is listed as an *earlier faster level*, so a genuine decline is followed.
+   - An old PB outside the 180-day horizon has zero influence.
+
+   **Why this method.** `src/__tests__/runnerFormCandidates.test.ts` runs five deterministic candidates on the same fixtures (times are course-adjusted, weekly, oldest first, recency-weighted):
+
+   | Fixture (acceptable) | Weighted median | Previous Huber centre | Weighted 20th pct | Single fastest | **Supported frontier** |
+   | --- | --- | --- | --- | --- | --- |
+   | 20:00, 20:08, 20:14, 24:30–28:00 (20:00–20:20) | 25:00 ✗ | 24:23 ✗ | 20:14 | 20:00 | **20:08** |
+   | same, fast runs most recent (20:00–20:20) | 24:30 ✗ | 22:56 ✗ | 20:08 | 20:00 | **20:07** |
+   | 21:31, 21:44, 22:05, 23:18, 23:42, 24:05, 26:00 (21:31–22:05) | 23:42 ✗ | 23:28 ✗ | 21:44 | 21:31 | **21:48** |
+   | 19:00, then 21:40–22:05 (21:40–22:05) | 21:52 | 21:48 | 21:40 | 19:00 ✗ | **21:54** |
+   | 21:40–22:05, then 19:00 most recent (21:40–22:05) | 21:45 | 21:39 ✗ | 19:00 ✗ | 19:00 ✗ | **21:51** |
+   | improvement 22:30 → 21:29 (21:29–21:45) | 21:46 ✗ | 21:50 ✗ | 21:29 | 21:29 | **21:41** |
+   | ~22:06 runs + mistyped 15:00 (22:00–22:10) | 22:05 | 21:54 ✗ | 15:00 ✗ | 15:00 ✗ | **22:07** |
+   | steady ~22:06 (22:03–22:10) | 22:06 | 22:06 | 22:04 | 22:03 | **22:06** |
+
+   - The median and the previous Huber centre estimate a *typical* time, so slower runs drag them and they lag improvement.
+   - A fixed percentile depends on the *share* of runs rather than on agreement, so one recent one-off becomes Current Form.
+   - The single fastest run assumes one-offs and typos.
+   - Only the supported frontier meets every fixture.
 5. **Minimum data.**
    - No eligible runs: unavailable.
    - One run: *indicative* (its course-adjusted reference value, for reference only; no Current Form).
    - Two or three runs: an estimate capped at Low confidence.
-6. **Confidence** (0–100, then High ≥ 75 / Medium ≥ 55 / Low ≥ 35 / Limited data), a weighted sum of six parts:
+6. **Confidence** (0–100, then High ≥ 75 / Medium ≥ 55 / Low ≥ 35 / Limited data). It is a weighted sum of seven parts, all measured **on the frontier runs**, so slower runs do not lower it while the frontier is consistently supported:
 
    | Part | Weight | Full marks |
    | --- | --- | --- |
-   | Amount: effective number of weighted runs | 30% | 8 |
-   | Recency of the latest run | 20% | ≤ 14 days old; 0 at 120 days |
-   | Consistency: robust spread | 20% | ≤ 1.5%; 0 at 6% |
-   | Course-factor confidence | 15% | — |
-   | Different events | 10% | 3 events |
-   | Time coverage | 5% | 42 days |
+   | Amount: effective number of frontier runs (recency-weighted) | 25% | 5 |
+   | Frontier support: runs agreeing with the frontier | 20% | 4 runs; **halved** when a faster run is unsupported |
+   | Recency of the latest frontier run | 20% | ≤ 14 days old; 0 at 120 days |
+   | Consistency: weighted spread of the frontier runs | 15% | ≤ 0.8%; 0 at 2.5% |
+   | Course-factor confidence of the frontier runs | 10% | — |
+   | Different events among the frontier runs | 5% | 3 events |
+   | Time coverage of the frontier runs | 5% | 42 days |
 
-   If the latest run is over 90 days old, the level is capped at Low. Confidence describes the evidence, never the chance of running the time.
-7. **Trend.** A weighted least-squares slope of the log course-adjusted reference time against date, weighted by course weight × robust weight so an outlier cannot create a trend.
+   Caps:
+   - If the **newest** run is a faster run that no other run supports, the level is at most Medium until that run is repeated.
+   - 2–3 eligible runs, a latest run over 90 days old, or the median fallback cap the level at Low.
+
+   Confidence describes the evidence, never the chance of running the time.
+7. **Trend.** A course-weighted least-squares slope of the log course-adjusted time against date. It uses:
+   - the frontier runs;
+   - any earlier faster level they replaced, so a genuine decline shows;
+   - other runs within 6% of Current Form.
+
+   Far slower runs, which may be easy, social or paced, and a one-off fast run therefore cannot manufacture a trend.
    - It needs at least 4 runs spanning at least 28 days; otherwise *Limited data*.
    - It is *Improving* or *Declining* only when the change is at least 1.5% per 90 days **and** |slope / standard error| ≥ 2. Otherwise it is *Stable*.
 8. **Snapshots.** Current Form is stored in `RunnerFormSnapshot`, unique per (user, distance, version, asOfDate). It is recalculated:
@@ -271,6 +314,8 @@ Four separate concepts, never mixed:
   The response's `ability` says whether the goal used Current Form (`usesCurrentForm`) and what it used. Goals that do not depend on ability never load it.
 - **When Current Form is unavailable:** every tool says so and falls back transparently. An old PB is never used as current ability.
 - **Profile:** shows the descriptive *gap* between Current Form and the Overall 5K PB. There are no readiness or improvement predictions.
+
+**Future effort metadata (documented only; V1 works without it).** A later version could record per-performance effort: *Hard/race*, *Normal*, *Easy/social*, *Pacing*, *Buggy/stroller*. Evidence from Garmin or Strava (heart rate, splits) could support it. Known easy efforts could then be set aside outright instead of relying on the frontier. V1 needs none of this, and never guesses a run's effort.
 
 **Scope and future.** V1 is 5000 m only. A future 10K, half or marathon form must be its own distance-specific model with distance-specific course factors; a 5K Current Form is never reused for them. Current Form is the foundation for later features (PB gap, form trend, PB-attempt recommendations, adaptive training plans), none of which are implemented yet.
 

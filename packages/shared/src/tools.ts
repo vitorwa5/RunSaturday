@@ -46,6 +46,10 @@ export const RUNNER_TIME_SOURCES = [
   { id: 'manual', label: 'Enter a time' },
 ] as const;
 
+/** User-facing definition of Current Form (runner_form_v1). */
+export const CURRENT_FORM_EXPLANATION =
+  'Current Form estimates your present 5K capability from your strongest supported recent performances, adjusted for course differences. Slower social or easy runs have less influence when faster performances are consistently demonstrated.';
+
 export type RunnerTimeSourceId = (typeof RUNNER_TIME_SOURCES)[number]['id'];
 
 /** "1st", "2nd", "3rd", "11th", "22nd"… */

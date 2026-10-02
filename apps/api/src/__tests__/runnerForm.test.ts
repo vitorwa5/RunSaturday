@@ -50,18 +50,18 @@ describe('Runner Form V1: critical regressions', () => {
     const f = form([run('hilly', 3, '22:45'), run('fast', 10, '21:50'), run('hilly', 17, '22:45'), run('fast', 24, '21:50'), run('hilly', 31, '22:45'), run('fast', 38, '21:50')]);
     expect(Math.abs(f.formSeconds! - mmss('22:05'))).toBeLessThanOrEqual(2);
     for (const i of f.inputs) expect(Math.abs(i.referenceSeconds - mmss('22:05'))).toBeLessThanOrEqual(2);
-    expect(f.inputs.every((i) => i.robustWeight === 1)).toBe(true);
+    expect(f.inputs.every((i) => i.role === 'frontier')).toBe(true);
     expect(f.trend.direction).toBe('stable');
   });
 
-  it('keeps a 25:30 bad day represented but with reduced influence', () => {
+  it('keeps a slower 25:30 visible in the breakdown without dragging Current Form', () => {
     const f = form(weekly(['22:05', '22:08', '22:03', '22:10', '25:30']));
     expect(f.formSeconds!).toBeGreaterThanOrEqual(mmss('22:03'));
-    expect(f.formSeconds!).toBeLessThanOrEqual(mmss('22:15'));
+    expect(f.formSeconds!).toBeLessThanOrEqual(mmss('22:10'));
     const slow = f.inputs.find((i) => i.actualSeconds === mmss('25:30'))!;
-    expect(slow.robustWeight).toBeGreaterThan(0);
-    expect(slow.robustWeight).toBeLessThan(0.2);
-    expect(f.inputs.filter((i) => i.actualSeconds !== mmss('25:30')).every((i) => i.robustWeight === 1)).toBe(true);
+    expect(slow).toMatchObject({ role: 'slower', share: 0 });
+    expect(f.inputs.filter((i) => i.actualSeconds !== mmss('25:30')).every((i) => i.role === 'frontier')).toBe(true);
+    expect(f.frontier).toEqual({ bandPercent: 3, supportingRuns: 4, fasterUnsupportedRuns: 0, fasterOutweighedRuns: 0, slowerRuns: 1 });
   });
 
   it('follows real improvement and reports an improving trend, without jumping to the single best run', () => {
@@ -93,17 +93,18 @@ describe('Runner Form V1: behaviour', () => {
     expect(recentFaster.formSeconds!).toBeLessThan((mmss('21:51') + mmss('22:41')) / 2);
   });
 
-  it('counts a legitimate fast run in full (a new best is not treated as an error)', () => {
+  it('counts a fast run that the other runs support in full (a new best is not treated as an error)', () => {
     const f = form(weekly(['21:40', '22:05', '22:08', '22:03', '22:10']));
     const fast = f.inputs.find((i) => i.actualSeconds === mmss('21:40'))!;
-    expect(fast.robustWeight).toBe(1);
+    expect(fast.role).toBe('frontier');
     expect(f.formSeconds!).toBeLessThan(mmss('22:05'));
   });
 
-  it('down-weights an implausibly fast outlier (e.g. a mistyped time)', () => {
+  it('does not assume an implausibly fast one-off (e.g. a mistyped time)', () => {
     const f = form(weekly(['15:00', '22:05', '22:08', '22:03', '22:10']));
-    expect(f.inputs.find((i) => i.actualSeconds === mmss('15:00'))!.robustWeight).toBeLessThan(0.2);
-    expect(f.formSeconds!).toBeGreaterThan(mmss('21:30'));
+    expect(f.inputs.find((i) => i.actualSeconds === mmss('15:00'))).toMatchObject({ role: 'faster_unsupported', share: 0 });
+    expect(f.formSeconds!).toBeGreaterThanOrEqual(mmss('22:03'));
+    expect(f.formSeconds!).toBeLessThanOrEqual(mmss('22:10'));
   });
 
   it('gives no Current Form without evidence, and only an indicative value from a single run', () => {
@@ -121,7 +122,8 @@ describe('Runner Form V1: behaviour', () => {
     const many = form(weekly(['22:05', '22:08', '22:03', '22:10', '22:06', '22:04', '22:09', '22:07']));
     expect(['high', 'medium']).toContain(many.confidence.level);
     expect(many.confidence.score).toBeGreaterThan(three.confidence.score);
-    expect(many.confidence.factors.map((f) => f.key)).toEqual(['amount', 'recency', 'consistency', 'course_factors', 'events', 'coverage']);
+    expect(many.confidence.factors.map((f) => f.key)).toEqual(['amount', 'support', 'recency', 'consistency', 'course_factors', 'events', 'coverage']);
+    expect(many.confidence.factors.reduce((s, f) => s + f.weight, 0)).toBeCloseTo(1, 10);
     expect(many.eventCount).toBe(3);
   });
 
@@ -159,8 +161,108 @@ describe('Runner Form V1: behaviour', () => {
     expect(form([...runs].reverse())).toEqual(form(runs));
   });
 
+  it('falls back to the recency-weighted median, at Low confidence, when no two runs agree', () => {
+    const f = form(weekly(['20:00', '21:30', '23:00', '24:40']));
+    expect(f.frontier).toMatchObject({ bandPercent: null, supportingRuns: 4 });
+    // Newest first, so recency weights put the weighted median on 21:30 (not the fastest 20:00).
+    expect(f.formSeconds).toBe(mmss('21:30'));
+    expect(f.confidence.level).toBe('low');
+    expect(f.limitedReason).toMatch(/No two recent performances agree closely/);
+  });
+
+  it('widens the agreement band once before falling back', () => {
+    const f = form(weekly(['20:00', '21:00', '23:30', '25:00']));
+    expect(f.frontier).toMatchObject({ bandPercent: 6, supportingRuns: 2 });
+    expect(f.formSeconds!).toBeGreaterThan(mmss('20:00'));
+    expect(f.formSeconds!).toBeLessThan(mmss('21:00'));
+  });
+
   it('uses a deterministic weighted median', () => {
     expect(weightedMedian([3, 1, 2], [1, 1, 1])).toBe(2);
     expect(weightedMedian([1, 2, 3], [5, 1, 1])).toBe(1);
+  });
+});
+
+/**
+ * Current Form = current DEMONSTRATED 5K race capability (supported performance frontier), not a
+ * typical parkrun time. Each fixture is checked in both chronological orders.
+ */
+describe('Runner Form V1: performance frontier fixtures', () => {
+  /** Weekly runs, listed OLDEST first, newest 2 days ago, rotating events. */
+  const chrono = (times: string[]) => times.map((t, i) => run(EVENTS[i % 3]!, 2 + 7 * (times.length - 1 - i), t));
+  const both = (times: string[]) => [form(chrono(times)), form(chrono([...times].reverse()))];
+
+  it('20:00, 20:08, 20:14 + five runs of 24:30–28:00 stays near 20 minutes, not the median', () => {
+    for (const f of both(['20:00', '20:08', '20:14', '24:30', '25:00', '26:00', '27:00', '28:00'])) {
+      expect(f.formSeconds!).toBeGreaterThanOrEqual(mmss('20:00'));
+      expect(f.formSeconds!).toBeLessThanOrEqual(mmss('20:10'));
+      expect(f.frontier).toMatchObject({ supportingRuns: 3, slowerRuns: 5 });
+      // The slower runs are listed, not hidden.
+      expect(f.inputs.filter((i) => i.role === 'slower').map((i) => i.actualSeconds).sort()).toEqual(['24:30', '25:00', '26:00', '27:00', '28:00'].map(mmss));
+      expect(f.confidence.level).toBe('high');
+      expect(f.trend.direction).toBe('limited');
+    }
+  });
+
+  it('21:31, 21:44, 22:05, 23:18, 23:42, 24:05, 26:00 reflects the low-22 / high-21 range', () => {
+    for (const f of both(['21:31', '21:44', '22:05', '23:18', '23:42', '24:05', '26:00'])) {
+      expect(f.formSeconds!).toBeGreaterThanOrEqual(mmss('21:40'));
+      expect(f.formSeconds!).toBeLessThanOrEqual(mmss('21:50'));
+      expect(f.frontier).toMatchObject({ supportingRuns: 3, slowerRuns: 4 });
+    }
+  });
+
+  it('19:00 then 21:40–22:05 does not assume 19:00, and the one-off lowers confidence', () => {
+    const steady = form(chrono(['21:40', '21:45', '21:52', '22:00', '22:05']));
+    for (const f of both(['19:00', '21:40', '21:45', '21:52', '22:00', '22:05'])) {
+      expect(f.formSeconds!).toBeGreaterThanOrEqual(mmss('21:45'));
+      expect(f.formSeconds!).toBeLessThanOrEqual(mmss('22:00'));
+      expect(f.inputs.find((i) => i.actualSeconds === mmss('19:00'))).toMatchObject({ role: 'faster_unsupported', share: 0 });
+      expect(f.confidence.score).toBeLessThan(steady.confidence.score);
+      expect(f.confidence.factors.find((c) => c.key === 'support')!.detail).toMatch(/1 run faster but not repeated, so not assumed/);
+    }
+    // When the unrepeated 19:00 is the NEWEST run, confidence is at most Medium until it is repeated.
+    const newest = form(chrono(['22:05', '22:00', '21:52', '21:45', '21:40', '19:00']));
+    expect(newest.confidence.level).toBe('medium');
+  });
+
+  it('moves with genuine improvement: 22:30, 22:15, 21:58, 21:46, 21:35, 21:29', () => {
+    const times = ['22:30', '22:15', '21:58', '21:46', '21:35', '21:29'];
+    const f = form(chrono(times));
+    expect(f.formSeconds!).toBeGreaterThan(mmss('21:29')); // not the single latest/fastest run
+    expect(f.formSeconds!).toBeLessThanOrEqual(mmss('21:42'));
+    const median = [...times.map(mmss)].sort((a, b) => a - b)[3]!;
+    expect(f.formSeconds!).toBeLessThan(median);
+    expect(f.trend.direction).toBe('improving');
+    // A second run at a new, faster level moves Current Form at once.
+    const breakthrough = form([run('ref-a', 1, '20:50'), run('ref-b', 8, '20:55'), ...chrono(times).map((p) => ({ ...p, date: addDays(p.date, -14) }))]);
+    expect(breakthrough.formSeconds!).toBeLessThanOrEqual(mmss('20:55'));
+  });
+
+  it('follows a genuine decline: an older faster level that recent runs no longer support is history', () => {
+    const f = form([
+      ...['22:30', '22:35', '22:28', '22:40', '22:33', '22:31'].map((t, i) => run(EVENTS[i % 3]!, 2 + 14 * i, t)),
+      ...['20:00', '20:05', '20:10'].map((t, i) => run(EVENTS[i % 3]!, 86 + 14 * i, t)),
+    ]);
+    expect(f.formSeconds!).toBeGreaterThanOrEqual(mmss('22:28'));
+    expect(f.formSeconds!).toBeLessThanOrEqual(mmss('22:40'));
+    expect(f.frontier).toMatchObject({ fasterOutweighedRuns: 3, fasterUnsupportedRuns: 0 });
+    expect(f.trend.direction).toBe('declining');
+  });
+
+  it('many slower runs do not lower confidence when the frontier is consistently supported', () => {
+    const frontier = ['20:02', '20:05', '20:00', '20:08', '20:04'];
+    const alone = form(weekly(frontier));
+    const withSlow = form([...weekly(frontier), ...['24:30', '25:10', '26:00', '27:20', '24:50', '25:40'].map((t, i) => run(EVENTS[i % 3]!, 5 + 7 * i, t))]);
+    expect(withSlow.formSeconds).toBe(alone.formSeconds);
+    expect(withSlow.confidence.score).toBe(alone.confidence.score);
+    expect(withSlow.confidence.level).toBe('high');
+    // Repeated similar fast runs raise confidence compared with just two.
+    expect(alone.confidence.score).toBeGreaterThan(form(weekly(frontier.slice(0, 2))).confidence.score);
+  });
+
+  it('gives an old PB outside the horizon zero influence on the frontier', () => {
+    const recent = chrono(['22:05', '22:10', '21:58', '22:02']);
+    expect(form([...recent, run('ref-a', 200, '18:30'), run('ref-b', 210, '18:35')]).formSeconds).toBe(form(recent).formSeconds);
   });
 });

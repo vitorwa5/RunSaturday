@@ -121,12 +121,12 @@ describe('Saturday Planner: goal-by-goal use of Current Form', () => {
   it('High Finish ranks by Current Form converted to each course through the placement engine', async () => {
     app = await buildTestApp();
     const plan = await get<PlannerResponse>('/api/planner?goal=place&maxTravel=90');
-    expect(plan.ability).toMatchObject({ usesCurrentForm: true, formReference: { formSeconds: 1218 } });
-    expect(plan.ability.note).toMatch(/^High Finish uses your Current Form ≈ 20:18/);
+    expect(plan.ability).toMatchObject({ usesCurrentForm: true, formReference: { formSeconds: 1202 } });
+    expect(plan.ability.note).toMatch(/^High Finish uses your Current Form ≈ 20:02/);
     expect(plan.method).toBe('ranked by how often your Current Form, converted to each course, historically reached the top 10');
     const first = plan.results[0]!;
     expect(first.rankedBy).toMatchObject({ key: 'historical_top10', unit: '%' });
-    expect(first.reasons[0]!.text).toMatch(/^Top 10 in \d+ of \d+ recent events with your Current Form ≈ 20:18 \(≈ \d{2}:\d{2} here\)$/);
+    expect(first.reasons[0]!.text).toMatch(/^Top 10 in \d+ of \d+ recent events with your Current Form ≈ 20:02 \(≈ \d{2}:\d{2} here\)$/);
     // The value is exactly the placement engine's conservative top-10 share for the converted form.
     const placement = await get<EventPlacement>(`/api/events/${first.event.id}/placement?basis=current_form&window=90`);
     const f = placement.stats!.frequencies.top10;

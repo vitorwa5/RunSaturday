@@ -21,7 +21,7 @@ describe('Current Form API (runner_form_v1)', () => {
   it('serves Current Form with its explanation, separate from the PBs and the recent best', async () => {
     app = await buildTestApp();
     const form = await get<RunnerForm>('/api/profile/current-form');
-    expect(form).toMatchObject({ version: 'runner_form_v1', distanceMeters: 5000, status: 'estimate', formSeconds: 1218, method: { horizonDays: 180, halfLifeDays: 45 } });
+    expect(form).toMatchObject({ version: 'runner_form_v1', distanceMeters: 5000, status: 'estimate', formSeconds: 1202, method: { horizonDays: 180, halfLifeDays: 45 } });
     expect(form.confidence.level).toBe('high');
     expect(form.trend.direction).toBe('stable');
     // The 18:58 Overall 5K PB from ~30 weeks ago is history, not current ability.
@@ -37,17 +37,17 @@ describe('Current Form API (runner_form_v1)', () => {
   it('Where Could I Place? with basis=current_form converts form × target factor (never ÷ a source factor)', async () => {
     app = await buildTestApp();
     const body = await get<PlacementResponse>('/api/placement?basis=current_form&maxTravel=90&window=all&time=15:00&source=demo-riverside-5k');
-    expect(body).toMatchObject({ mode: 'adjusted', source: null, timeSeconds: 1218, formReference: { formSeconds: 1218, confidence: 'high', version: 'runner_form_v1' } });
-    expect(body.notes[0]).toMatch(/Current Form is estimated from your recent performances after accounting for course differences/);
+    expect(body).toMatchObject({ mode: 'adjusted', source: null, timeSeconds: 1202, formReference: { formSeconds: 1202, confidence: 'high', version: 'runner_form_v1' } });
+    expect(body.notes[0]).toMatch(/^Current Form estimates your present 5K capability from your strongest supported recent performances, adjusted for course differences\./);
     const forest = body.results.find((r) => r.event.id === 'demo-forest-trail-5k')!;
-    expect(forest.adjustment).toMatchObject({ sourceKind: 'current_form', sourceEventId: null, sourceEventName: 'Current Form', sourceSeconds: 1218 });
-    expect(forest.analysedSeconds).toBe(Math.round(1218 * (await factorOf('demo-forest-trail-5k'))));
+    expect(forest.adjustment).toMatchObject({ sourceKind: 'current_form', sourceEventId: null, sourceEventName: 'Current Form', sourceSeconds: 1202 });
+    expect(forest.analysedSeconds).toBe(Math.round(1202 * (await factorOf('demo-forest-trail-5k'))));
     const riverside = body.results.find((r) => r.event.id === 'demo-riverside-5k')!;
-    expect(riverside.analysedSeconds).toBe(Math.round(1218 * (await factorOf('demo-riverside-5k'))));
+    expect(riverside.analysedSeconds).toBe(Math.round(1202 * (await factorOf('demo-riverside-5k'))));
     // Raw time keeps the exact Current Form time everywhere.
     const raw = await get<PlacementResponse>('/api/placement?basis=current_form&mode=raw&maxTravel=90');
     expect(raw.mode).toBe('raw');
-    expect(raw.results.every((r) => r.analysedSeconds === 1218 && r.adjustment == null)).toBe(true);
+    expect(raw.results.every((r) => r.analysedSeconds === 1202 && r.adjustment == null)).toBe(true);
   });
 
   it('keeps Overall 5K PB and parkrun PB independently selectable', async () => {
@@ -65,17 +65,17 @@ describe('Current Form API (runner_form_v1)', () => {
     app = await buildTestApp();
     const outlook = await get<EventPlacement>('/api/events/demo-moorland-edge-5k/placement?basis=current_form');
     expect(outlook.adjustment).toMatchObject({ available: true, sourceKind: 'current_form', sourceEventId: null });
-    expect(outlook.analysedSeconds).toBe(Math.round(1218 * (await factorOf('demo-moorland-edge-5k'))));
+    expect(outlook.analysedSeconds).toBe(Math.round(1202 * (await factorOf('demo-moorland-edge-5k'))));
     const compare = await get<CompareResponse>('/api/compare?ids=demo-riverside-5k,demo-forest-trail-5k&basis=current_form');
-    expect(compare).toMatchObject({ mode: 'adjusted', source: null, timeSeconds: 1218, formReference: { formSeconds: 1218 } });
+    expect(compare).toMatchObject({ mode: 'adjusted', source: null, timeSeconds: 1202, formReference: { formSeconds: 1202 } });
     expect(compare.events.every((r) => r.placement?.adjustment?.sourceKind === 'current_form')).toBe(true);
   });
 
   it('uses Current Form in the Planner only for goals that depend on ability', async () => {
     app = await buildTestApp();
     const place = await get<PlannerResponse>('/api/planner?goal=place');
-    expect(place.ability).toMatchObject({ usesCurrentForm: true, formReference: { formSeconds: 1218 } });
-    expect(place.ability.note).toMatch(/Current Form ≈ 20:18/);
+    expect(place.ability).toMatchObject({ usesCurrentForm: true, formReference: { formSeconds: 1202 } });
+    expect(place.ability.note).toMatch(/Current Form ≈ 20:02/);
     const pb = await get<PlannerResponse>('/api/planner');
     expect(pb.ability).toMatchObject({ usesCurrentForm: false, formReference: null });
   });

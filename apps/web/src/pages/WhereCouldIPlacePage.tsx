@@ -38,7 +38,7 @@ const MODE_HELP: Record<PlacementMode, string> = {
 const RELIABLE = new Set(['high', 'medium']);
 
 const FORM_HELP =
-  'Your Current Form is estimated from your recent performances after accounting for course differences. It is converted to an equivalent at each course using that course’s Speed Factor, then compared with past results. Equivalents are not predicted finish times.';
+  'Current Form estimates your present 5K capability from your strongest supported recent performances, adjusted for course differences. It is converted to an equivalent at each course using that course’s Speed Factor, then compared with past results. Equivalents are not predicted finish times.';
 
 const oneOf = <T extends string>(value: string | null, ids: readonly T[], fallback: T): T =>
   value != null && (ids as readonly string[]).includes(value) ? (value as T) : fallback;

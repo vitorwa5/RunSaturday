@@ -53,7 +53,7 @@ const ADJUSTED_NOTE =
  */
 const BasisParam = z.enum(['time', 'current_form']).default('time');
 const FORM_NOTE =
-  'Current Form is estimated from your recent performances after accounting for course differences. Each equivalent is your Current Form converted to that course: an equivalent performance from past results, not a predicted finish time.';
+  'Current Form estimates your present 5K capability from your strongest supported recent performances, adjusted for course differences. Each equivalent is your Current Form converted to that course: an equivalent performance from past results, not a predicted finish time.';
 
 /** auto: course adjusted when a source event with a reliable factor is given, otherwise raw time. */
 const ModeParam = z.enum(['auto', 'adjusted', 'raw']).default('auto');

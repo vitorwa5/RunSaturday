@@ -158,7 +158,7 @@ export function ComparePage() {
                 structural course rating.
                 {data.timeSeconds != null &&
                   (data.formReference
-                    ? ` Placement rows use your Current Form ≈ ${formatFinishTime(data.formReference.formSeconds)}, a course-adjusted estimate of present ability (not a run at any one event), converted to each course. They show where that equivalent would historically have placed in the last 90 days; equivalents are not predicted finish times.`
+                    ? ` Placement rows use your Current Form ≈ ${formatFinishTime(data.formReference.formSeconds)}, a course-adjusted estimate of your present 5K capability from your strongest supported recent runs (not a run at any one event), converted to each course. They show where that equivalent would historically have placed in the last 90 days; equivalents are not predicted finish times.`
                     : data.mode === 'adjusted' && data.source
                     ? ` Placement rows convert ${formatFinishTime(data.timeSeconds)} at ${data.source.name} to an equivalent at each course, then show where it would historically have placed in the last 90 days. Equivalents are not predicted finish times.`
                     : ` Placement rows show where ${formatFinishTime(data.timeSeconds)} would historically have placed in the last 90 days.`)}{' '}

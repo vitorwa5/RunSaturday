@@ -247,7 +247,7 @@ export function ProfilePage() {
             </div>
             <p className="text-xs text-muted">
               Overall 5K PB (any race) and parkrun PB are achievements you have recorded; Recent best is your best in the last {summary!.recentWindowDays} days.
-              Current Form is different: a modelled estimate of your present ability, estimated from your recent performances after accounting for course differences. It is not a recorded result.
+              Current Form is different: it estimates your present 5K capability from your strongest supported recent performances, adjusted for course differences. It is not a recorded result.
             </p>
           </section>
 
