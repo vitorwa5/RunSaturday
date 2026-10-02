@@ -5,11 +5,13 @@
  *   TEST_DATABASE_URL=postgresql://runsaturday:runsaturday@localhost:5432/runsaturday npm test -w @runsaturday/api
  */
 import { calendarDateIn } from '@runsaturday/shared';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { recalculateAnalytics } from '../analytics/recalculate';
 import { createPrismaClient } from '../db/prisma';
 import { MemoryDataStore } from '../repositories/memory/MemoryDataStore';
 import { PrismaDataStore } from '../repositories/prisma/PrismaDataStore';
+import { DuplicatePerformanceError } from '../repositories/DataStore';
+import { loadUser } from '../services/userPerformance';
 
 const url = process.env.TEST_DATABASE_URL;
 
@@ -178,13 +180,54 @@ describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
     });
   });
 
-  it('loads the demo user with visits', async () => {
+  it('loads the demo user settings and favourites identically', async () => {
     const user = await store!.getUser('demo-user');
-    expect(user?.events.filter((e) => e.favourite).map((e) => e.eventId).sort()).toEqual([
-      'demo-lakeside-5k',
-      'demo-riverside-5k',
-    ]);
-    expect(user?.recentPbEvent).toEqual({ id: 'demo-riverside-5k', name: 'Riverside 5K' });
-    expect(user?.lifetimePbEvent).toEqual(await memory.getUser('demo-user').then((u) => u?.lifetimePbEvent));
+    expect(user?.favouriteEventIds).toEqual(['demo-lakeside-5k', 'demo-riverside-5k']);
+    expect(user).toEqual(await memory.getUser('demo-user'));
+  });
+
+  it('stores the demo user\'s performances and derives the same values as the demo store', async () => {
+    expect(await store!.listUserPerformances('demo-user')).toEqual(await memory.listUserPerformances('demo-user'));
+    expect(await store!.listUserPerformances('demo-user', { eventId: 'demo-lakeside-5k' })).toEqual(
+      await memory.listUserPerformances('demo-user', { eventId: 'demo-lakeside-5k' }),
+    );
+    const [fromDb, fromMemory] = await Promise.all([loadUser(store!, 'demo-user', today), loadUser(memory, 'demo-user', today)]);
+    expect(fromDb).toEqual(fromMemory);
+    expect(fromDb?.lifetimePbSeconds).toBe(1138);
+    expect(fromDb?.recentPbEvent).toEqual({ id: 'demo-riverside-5k', name: 'Riverside 5K' });
+  });
+
+  describe('UserPerformance (personal data)', () => {
+    const owner = 'test-perf-owner';
+    const other = 'test-perf-other';
+    beforeAll(async () => {
+      await db!.user.deleteMany({ where: { id: { in: [owner, other] } } });
+      await db!.user.createMany({ data: [{ id: owner, displayName: 'Owner' }, { id: other, displayName: 'Other' }] });
+    });
+    afterAll(async () => db?.user.deleteMany({ where: { id: { in: [owner, other] } } }));
+
+    it('creates, edits and deletes a manual performance, scoped to its user', async () => {
+      const created = await store!.createUserPerformance(owner, { eventId: 'demo-lakeside-5k', date: '2026-08-01', finishTimeSeconds: 1300, source: 'manual' });
+      expect(created).toMatchObject({ userId: owner, eventName: 'Lakeside 5K', date: '2026-08-01', source: 'manual', verified: false });
+      // Another user can neither see nor change it.
+      expect(await store!.listUserPerformances(other)).toEqual([]);
+      expect(await store!.getUserPerformance(other, created.id)).toBeNull();
+      expect(await store!.updateUserPerformance(other, created.id, { eventId: 'demo-lakeside-5k', date: '2026-08-01', finishTimeSeconds: 1 })).toBeNull();
+      expect(await store!.deleteUserPerformance(other, created.id)).toBe(false);
+
+      const updated = await store!.updateUserPerformance(owner, created.id, { eventId: 'demo-riverside-5k', date: '2026-08-08', finishTimeSeconds: 1290 });
+      expect(updated).toMatchObject({ id: created.id, eventName: 'Riverside 5K', date: '2026-08-08', finishTimeSeconds: 1290 });
+      expect(await store!.deleteUserPerformance(owner, created.id)).toBe(true);
+      expect(await store!.listUserPerformances(owner)).toEqual([]);
+    });
+
+    it('rejects a duplicate (user, event, date) in SQL as in memory, but allows it for another user', async () => {
+      const input = { eventId: 'demo-heath-common-5k', date: '2026-07-04', finishTimeSeconds: 1400, source: 'manual' as const };
+      await store!.createUserPerformance(owner, input);
+      await expect(store!.createUserPerformance(owner, { ...input, finishTimeSeconds: 1500 })).rejects.toBeInstanceOf(DuplicatePerformanceError);
+      await expect(store!.createUserPerformance(other, input)).resolves.toMatchObject({ userId: other });
+      const second = await store!.createUserPerformance(owner, { ...input, date: '2026-07-11' });
+      await expect(store!.updateUserPerformance(owner, second.id, { ...input })).rejects.toBeInstanceOf(DuplicatePerformanceError);
+    });
   });
 });

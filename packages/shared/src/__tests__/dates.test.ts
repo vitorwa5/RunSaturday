@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, calendarDateIn, formatLongDate, formatShortDate, nextSaturday, upcomingSaturdays } from '../dates';
+import { addDays, calendarDateIn, formatDateWithYear, formatLongDate, formatShortDate, nextSaturday, upcomingSaturdays } from '../dates';
 
 describe('nextSaturday', () => {
   it.each([
@@ -26,6 +26,7 @@ describe('date helpers', () => {
   it('formats labels in en-GB', () => {
     expect(formatLongDate('2026-10-03')).toBe('Saturday, 3 October');
     expect(formatShortDate('2026-10-03')).toBe('3 Oct');
+    expect(formatDateWithYear('2026-03-07')).toBe('7 Mar 2026');
   });
 
   it('resolves the calendar date in a time zone', () => {

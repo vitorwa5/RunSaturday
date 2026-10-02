@@ -239,7 +239,7 @@ test.describe('Where Could I Place?', () => {
     await page.getByRole('region', { name: 'Saturday tools' }).getByRole('link', { name: 'Where Could I Place?' }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Where Could I Place?' })).toBeVisible();
     // Defaults to current form from the profile.
-    await expect(page.getByRole('radio', { name: 'Current form 19:40' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('radio', { name: 'Current form (estimate) 19:40' })).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByRole('article').first()).toBeVisible();
 
     await page.getByRole('radio', { name: 'Enter a time' }).click();
@@ -513,5 +513,156 @@ test.describe('Course Speed & PB Score V1 (Phase 3B)', () => {
     await expect(page).toHaveURL(/\/compare\?ids=.+&time=1260&from=demo-moorland-edge-5k/);
     await expect(page.getByRole('rowheader', { name: 'Equivalent here' })).toBeVisible();
     await expect(page.getByRole('rowheader', { name: 'Course Speed Factor' })).toBeVisible();
+  });
+});
+
+test.describe('Personal performance history (Phase 4A)', () => {
+  /**
+   * Tests that change data use old dates unique to each viewport and test, slow times and an
+   * event the demo user already runs, then clean up, so parallel tests never see their PBs,
+   * recent best, latest run or visited events move.
+   */
+  const YEAR: Record<string, number> = { 'mobile-360': 2019, 'mobile-390': 2020, 'mobile-430': 2021 };
+  const isoFor = (project: string, month: number) => `${YEAR[project] ?? 2018}-${String(month).padStart(2, '0')}-07`;
+  const longDate = (iso: string) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${iso}T00:00:00Z`));
+  const create = async (page: Page, date: string, time: string) => {
+    const res = await page.request.post('/api/profile/performances', { data: { eventId: 'demo-riverside-5k', date, time } });
+    expect(res.status()).toBe(201);
+    return (await res.json()) as { id: string };
+  };
+  const cleanUp = async (page: Page, date: string) => {
+    const list = (await (await page.request.get('/api/profile/performances?eventId=demo-riverside-5k')).json()) as { performances: { id: string; date: string }[] };
+    for (const p of list.performances.filter((x) => x.date === date)) await page.request.delete(`/api/profile/performances/${p.id}`);
+  };
+
+  test('Profile shows a performance summary, recent performances and the parkrun placeholder', async ({ page }) => {
+    await page.goto('/profile');
+    const summary = page.getByRole('region', { name: 'Performance summary' });
+    await expect(summary.getByRole('link', { name: /^Lifetime PB 18:58 at Riverside 5K/ })).toBeVisible();
+    await expect(summary.getByRole('link', { name: /^Recent best 19:32 at Riverside 5K/ })).toBeVisible();
+    await expect(summary.getByText('Last run')).toBeVisible();
+    await expect(summary.getByText('Different events')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Current form' }).getByText(/estimate of your fitness \(demo value\), not a recorded performance/)).toBeVisible();
+
+    const recent = page.getByRole('list', { name: 'Recent performances' });
+    await expect(recent.getByRole('listitem')).toHaveCount(8);
+    await expect(recent.getByRole('listitem').first()).toContainText(/^.+ 5K · \d{2}:\d{2}\d{1,2} \w{3,4} \d{4} · Manual/);
+
+    const parkrun = page.getByRole('region', { name: 'Connect your parkrun history' });
+    await expect(parkrun.getByText('Coming later')).toBeVisible();
+    await expect(parkrun.getByText('Automatic history import will require a supported data connection.')).toBeVisible();
+    await expect(parkrun.getByLabel('parkrun ID')).toBeDisabled();
+    await expect(parkrun.getByLabel('parkrun ID')).toHaveAttribute('placeholder', 'A1234567');
+    await expectNoHorizontalScroll(page);
+  });
+
+  test('Profile → Add performance → performance appears', async ({ page }, info) => {
+    const date = isoFor(info.project.name, 1);
+    await cleanUp(page, date);
+    await page.goto('/profile');
+    await page.getByRole('link', { name: 'Add performance' }).first().click();
+    await expect(page).toHaveURL(/\/profile\/performances\/new$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Add performance' })).toBeVisible();
+    const form = page.getByRole('form', { name: 'Add performance' });
+
+    // Client and server validation are both readable.
+    await form.getByRole('button', { name: 'Add performance' }).click();
+    await expect(form.getByText('Choose an event.')).toBeVisible();
+    await form.getByLabel('Event').selectOption('demo-riverside-5k');
+    await form.getByLabel('Date').fill(date);
+    await form.getByLabel('Finish time').fill('19:75');
+    await form.getByRole('button', { name: 'Add performance' }).click();
+    await expect(form.getByRole('alert')).toHaveText('Enter a finish time like 19:35 or 1:05:30.');
+    await expect(form.getByLabel('Finish time')).toHaveAttribute('aria-invalid', 'true');
+    await expectNoHorizontalScroll(page);
+
+    await form.getByLabel('Finish time').fill('24:31');
+    await form.getByRole('button', { name: 'Add performance' }).click();
+    await expect(page).toHaveURL(/\/profile$/);
+    await page.getByRole('link', { name: /^See all \d+ performances/ }).click();
+    const row = page.getByRole('list', { name: 'All performances' }).getByRole('listitem').filter({ hasText: longDate(date) });
+    await expect(row).toContainText('Riverside 5K · 24:31');
+    await expect(row).toContainText('Manual');
+
+    // The same event on the same date again is a duplicate.
+    await page.goto('/profile/performances/new?event=demo-riverside-5k');
+    await page.getByLabel('Date').fill(date);
+    await page.getByLabel('Finish time').fill('25:00');
+    await page.getByRole('button', { name: 'Add performance' }).click();
+    await expect(page.getByText(/You already have a performance at Riverside 5K on .+\. Edit that one instead\./)).toBeVisible();
+    await cleanUp(page, date);
+  });
+
+  test('Edit performance', async ({ page }, info) => {
+    const date = isoFor(info.project.name, 2);
+    const newDate = isoFor(info.project.name, 3);
+    await cleanUp(page, date);
+    await cleanUp(page, newDate);
+    await create(page, date, '24:40');
+    await page.goto('/profile/performances');
+    await page.getByRole('link', { name: `Edit Riverside 5K, ${longDate(date)}` }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Edit performance' })).toBeVisible();
+    const form = page.getByRole('form', { name: 'Edit performance' });
+    await expect(form.getByLabel('Event')).toHaveValue('demo-riverside-5k');
+    await expect(form.getByLabel('Date')).toHaveValue(date);
+    await expect(form.getByLabel('Finish time')).toHaveValue('24:40');
+    await expectNoHorizontalScroll(page);
+
+    await form.getByLabel('Date').fill(newDate);
+    await form.getByLabel('Finish time').fill('24:45');
+    await form.getByRole('button', { name: 'Save changes' }).click();
+    await expect(page).toHaveURL(/\/profile$/);
+    await page.goto('/profile/performances');
+    const list = page.getByRole('list', { name: 'All performances' });
+    await expect(list.getByRole('listitem').filter({ hasText: longDate(newDate) })).toContainText('Riverside 5K · 24:45');
+    await expect(list.getByRole('listitem').filter({ hasText: longDate(date) })).toHaveCount(0);
+    await cleanUp(page, newDate);
+  });
+
+  test('Delete performance (with confirmation)', async ({ page }, info) => {
+    const date = isoFor(info.project.name, 4);
+    await cleanUp(page, date);
+    const { id } = await create(page, date, '24:50');
+    await page.goto(`/profile/performances/${id}/edit`);
+    await page.getByRole('button', { name: 'Delete performance' }).click();
+    const confirm = page.getByRole('alertdialog', { name: 'Delete this performance?' });
+    await expect(confirm).toContainText(`Riverside 5K · 24:50 · ${longDate(date)}`);
+    await confirm.getByRole('button', { name: 'Cancel' }).click();
+    await expect(confirm).toHaveCount(0);
+    expect((await page.request.get(`/api/profile/performances/${id}`)).status()).toBe(200);
+
+    await page.getByRole('button', { name: 'Delete performance' }).click();
+    await page.getByRole('alertdialog', { name: 'Delete this performance?' }).getByRole('button', { name: 'Delete' }).click();
+    await expect(page).toHaveURL(/\/profile$/);
+    expect((await page.request.get(`/api/profile/performances/${id}`)).status()).toBe(404);
+    await page.goto('/profile/performances');
+    await expect(page.getByRole('list', { name: 'All performances' }).getByRole('listitem').filter({ hasText: longDate(date) })).toHaveCount(0);
+  });
+
+  test('Profile → performance → Event, with "Your history here"', async ({ page }) => {
+    await page.goto('/profile/performances');
+    await page.getByRole('list', { name: 'All performances' }).getByRole('link', { name: /^Lakeside 5K · / }).first().click();
+    await expect(page).toHaveURL(/\/event\/demo-lakeside-5k$/);
+    const history = page.getByRole('region', { name: 'Your history here' });
+    await expect(history).toContainText('2 runs');
+    await expect(history).toContainText('PB19:09');
+    await expect(history.getByRole('list', { name: 'Your recent runs here' }).getByRole('listitem')).toHaveCount(2);
+    await expect(history.getByRole('link', { name: 'Add a run' })).toHaveAttribute('href', '/profile/performances/new?event=demo-lakeside-5k');
+    await expectNoHorizontalScroll(page);
+
+    await page.goto('/event/demo-moorland-edge-5k');
+    await expect(page.getByRole('region', { name: 'Your history here' })).toContainText("You haven't recorded a run here yet.");
+  });
+
+  test('Profile → Lifetime PB → Where Could I Place?, course adjusted from its own event', async ({ page }) => {
+    await page.goto('/profile');
+    await page.getByRole('link', { name: /^Lifetime PB 18:58 at Riverside 5K/ }).click();
+    await expect(page).toHaveURL(/\/where-could-i-place\?src=pb$/);
+    await expect(page.getByRole('radio', { name: 'Lifetime PB 18:58' })).toHaveAttribute('aria-checked', 'true');
+    // The source event comes from the matching performance: no manual "Achieved at" needed.
+    await expect(page.getByLabel('Achieved at')).toHaveValue('demo-riverside-5k');
+    await expect(page.getByRole('radiogroup', { name: 'Compare as' }).getByRole('radio', { name: 'Course adjusted' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByText(/Historically, 18:58 at Riverside 5K, converted to each course/)).toBeVisible();
+    await expectNoHorizontalScroll(page);
   });
 });

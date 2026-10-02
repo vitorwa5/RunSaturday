@@ -7,6 +7,8 @@ import { HomePage } from '../pages/HomePage';
 import { MapPage } from '../pages/MapPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { PbFinderPage } from '../pages/PbFinderPage';
+import { PerformanceFormPage } from '../pages/PerformanceFormPage';
+import { PerformancesPage } from '../pages/PerformancesPage';
 import { ProfilePage } from '../pages/ProfilePage';
 import { SaturdayPage } from '../pages/SaturdayPage';
 import { WhereCouldIPlacePage } from '../pages/WhereCouldIPlacePage';
@@ -21,6 +23,9 @@ export const router = createBrowserRouter([
       { path: '/saturday', element: <SaturdayPage /> },
       { path: '/map', element: <MapPage /> },
       { path: '/profile', element: <ProfilePage /> },
+      { path: '/profile/performances', element: <PerformancesPage /> },
+      { path: '/profile/performances/new', element: <PerformanceFormPage /> },
+      { path: '/profile/performances/:id/edit', element: <PerformanceFormPage /> },
       { path: '/event/:id', element: <EventPage /> },
       { path: '/pb-finder', element: <PbFinderPage /> },
       { path: '/where-could-i-place', element: <WhereCouldIPlacePage /> },

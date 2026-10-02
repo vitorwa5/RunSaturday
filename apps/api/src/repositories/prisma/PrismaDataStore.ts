@@ -3,8 +3,18 @@ import { DEFAULT_SCORE_WINDOW_DAYS } from '../../config/analysis';
 import type { PlacementOccurrenceInput } from '../../domain/placementEngine';
 import type { Db } from '../../db/prisma';
 import { Prisma } from '../../generated/prisma/client';
-import type { DataStore, EventDetailRecord, EventRecord, UserRecord } from '../DataStore';
-import { breakdownOf, mapEvent, mapFacility, mapGoal, mapOccurrence, type EventSnapshots } from './mappers';
+import {
+  DuplicatePerformanceError,
+  type DataStore,
+  type EventDetailRecord,
+  type EventRecord,
+  type NewPerformance,
+  type PerformancePatch,
+  type PerformanceRecord,
+  type StoredUser,
+} from '../DataStore';
+import type { PerformanceSource } from '@runsaturday/shared';
+import { breakdownOf, isoDate, mapEvent, mapFacility, mapGoal, mapOccurrence, type EventSnapshots } from './mappers';
 import type { CompetitionBreakdown, DifficultyBreakdown, PbBreakdown } from '@runsaturday/shared';
 import { COURSE_SPEED_V1, type CourseFactorResult, type PerformanceInput } from '../../analytics/courseSpeed';
 import { toCourseSpeedBreakdown } from '../../analytics/dto';
@@ -14,6 +24,50 @@ import { COMPETITION_VERSION, COURSE_SPEED_VERSION, DEFAULT_ANALYTICS_WINDOW, DI
 import type { Event } from '../../generated/prisma/client';
 
 const RECENT_OCCURRENCES = 12;
+
+const PERFORMANCE_INCLUDE = { event: { select: { name: true } } } as const;
+type PerformanceSourceDb = 'MANUAL' | 'CSV' | 'PARKRUN_API' | 'GARMIN' | 'STRAVA';
+const PERFORMANCE_SOURCE_DB: Record<PerformanceSource, PerformanceSourceDb> = {
+  manual: 'MANUAL',
+  csv: 'CSV',
+  parkrun_api: 'PARKRUN_API',
+  garmin: 'GARMIN',
+  strava: 'STRAVA',
+};
+
+function mapPerformance(row: {
+  id: string;
+  userId: string;
+  eventId: string;
+  event: { name: string };
+  date: Date;
+  finishTimeSeconds: number;
+  source: PerformanceSourceDb;
+  externalResultId: string | null;
+  verified: boolean;
+}): PerformanceRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    eventId: row.eventId,
+    eventName: row.event.name,
+    date: isoDate(row.date),
+    finishTimeSeconds: row.finishTimeSeconds,
+    source: row.source.toLowerCase() as PerformanceSource,
+    externalResultId: row.externalResultId,
+    verified: row.verified,
+  };
+}
+
+/** Postgres unique violation (P2002) on (userId, eventId, date) → DuplicatePerformanceError. */
+async function uniqueOrDuplicate<T>(write: () => Promise<T>): Promise<T> {
+  try {
+    return await write();
+  } catch (error) {
+    if ((error as { code?: string }).code === 'P2002') throw new DuplicatePerformanceError();
+    throw error;
+  }
+}
 
 export class PrismaDataStore implements DataStore {
   readonly kind = 'database' as const;
@@ -204,11 +258,8 @@ export class PrismaDataStore implements DataStore {
     return queryCompetitionInputs(this.db, to);
   }
 
-  async getUser(userId: string): Promise<UserRecord | null> {
-    const user = await this.db.user.findUnique({
-      where: { id: userId },
-      include: { events: true, lifetimePbEvent: { select: { id: true, name: true } }, recentPbEvent: { select: { id: true, name: true } } },
-    });
+  async getUser(userId: string): Promise<StoredUser | null> {
+    const user = await this.db.user.findUnique({ where: { id: userId }, include: { events: { where: { favourite: true }, select: { eventId: true } } } });
     if (!user) return null;
     return {
       id: user.id,
@@ -217,21 +268,64 @@ export class PrismaDataStore implements DataStore {
       homeLon: user.homeLon,
       homeLabel: user.homeLabel,
       defaultTravelMinutes: user.defaultTravelMinutes,
-      lifetimePbSeconds: user.lifetimePbSeconds,
-      recentPbSeconds: user.recentPbSeconds,
       current5kEstimateSeconds: user.current5kEstimateSeconds,
       preferredGoal: mapGoal(user.preferredGoal),
       isDemo: user.isDemo,
-      lifetimePbEvent: user.lifetimePbEvent,
-      recentPbEvent: user.recentPbEvent,
-      events: user.events.map((ue) => ({
-        eventId: ue.eventId,
-        visited: ue.visited,
-        favourite: ue.favourite,
-        visitCount: ue.visitCount,
-        personalBestSeconds: ue.personalBestSeconds,
-      })),
+      favouriteEventIds: user.events.map((ue) => ue.eventId).sort(),
     };
+  }
+
+  // Personal performances: every query is filtered by userId.
+
+  async listUserPerformances(userId: string, filter: { eventId?: string } = {}): Promise<PerformanceRecord[]> {
+    const rows = await this.db.userPerformance.findMany({
+      where: { userId, ...(filter.eventId ? { eventId: filter.eventId } : {}) },
+      include: PERFORMANCE_INCLUDE,
+      orderBy: [{ date: 'desc' }, { id: 'asc' }],
+    });
+    return rows.map(mapPerformance);
+  }
+
+  async getUserPerformance(userId: string, id: string): Promise<PerformanceRecord | null> {
+    const row = await this.db.userPerformance.findFirst({ where: { id, userId }, include: PERFORMANCE_INCLUDE });
+    return row ? mapPerformance(row) : null;
+  }
+
+  async createUserPerformance(userId: string, input: NewPerformance): Promise<PerformanceRecord> {
+    return uniqueOrDuplicate(async () =>
+      mapPerformance(
+        await this.db.userPerformance.create({
+          data: {
+            userId,
+            eventId: input.eventId,
+            date: new Date(`${input.date}T00:00:00Z`),
+            finishTimeSeconds: input.finishTimeSeconds,
+            source: PERFORMANCE_SOURCE_DB[input.source],
+          },
+          include: PERFORMANCE_INCLUDE,
+        }),
+      ),
+    );
+  }
+
+  async updateUserPerformance(userId: string, id: string, patch: PerformancePatch): Promise<PerformanceRecord | null> {
+    // Scoped by userId: another user's id is simply "not found".
+    const existing = await this.db.userPerformance.findFirst({ where: { id, userId }, select: { id: true } });
+    if (!existing) return null;
+    return uniqueOrDuplicate(async () =>
+      mapPerformance(
+        await this.db.userPerformance.update({
+          where: { id: existing.id },
+          data: { eventId: patch.eventId, date: new Date(`${patch.date}T00:00:00Z`), finishTimeSeconds: patch.finishTimeSeconds },
+          include: PERFORMANCE_INCLUDE,
+        }),
+      ),
+    );
+  }
+
+  async deleteUserPerformance(userId: string, id: string): Promise<boolean> {
+    const { count } = await this.db.userPerformance.deleteMany({ where: { id, userId } });
+    return count > 0;
   }
 
   async ping(): Promise<boolean> {

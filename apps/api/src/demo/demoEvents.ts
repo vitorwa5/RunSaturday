@@ -224,19 +224,24 @@ export const DEMO_USER = {
   homeLon: -2.5970,
   homeLabel: 'Warrington (demo home)',
   defaultTravelMinutes: 45,
-  lifetimePbSeconds: 1138, // 18:58
-  /** Where the lifetime PB was run (fictional). */
-  lifetimePbEventId: 'demo-riverside-5k',
-  recentPbSeconds: 1172, // 19:32
-  /** Where the recent best was run (fictional). */
-  recentPbEventId: 'demo-riverside-5k',
+  /** An ESTIMATE of current fitness (not a performance) until the Runner Form Model (Phase 4B). */
   current5kEstimateSeconds: 1180, // 19:40
   preferredGoal: 'PB' as const,
-  /** Events the demo user has run, with visit counts and PBs. */
-  history: [
-    { slug: 'demo-riverside-5k', visitCount: 34, personalBestSeconds: 1138, favourite: true },
-    { slug: 'demo-victoria-park-5k', visitCount: 6, personalBestSeconds: 1176, favourite: false },
-    { slug: 'demo-lakeside-5k', visitCount: 2, personalBestSeconds: 1149, favourite: true },
-    { slug: 'demo-forest-trail-5k', visitCount: 1, personalBestSeconds: 1342, favourite: false },
-  ],
+  favouriteEventIds: ['demo-riverside-5k', 'demo-lakeside-5k'],
 };
+
+/**
+ * The demo user's history before Phase 4A, kept as single values on User/UserEvent. Phase 4A
+ * migrates it into dated UserPerformance rows (see demoUserPerformances.ts): each event keeps
+ * its visit count and PB, and the lifetime PB and recent best keep their time and event.
+ */
+export const DEMO_USER_LEGACY_HISTORY = {
+  lifetimePb: { eventId: 'demo-riverside-5k', seconds: 1138 }, // 18:58
+  recentBest: { eventId: 'demo-riverside-5k', seconds: 1172 }, // 19:32
+  events: [
+    { eventId: 'demo-riverside-5k', visitCount: 34, personalBestSeconds: 1138 },
+    { eventId: 'demo-victoria-park-5k', visitCount: 6, personalBestSeconds: 1176 },
+    { eventId: 'demo-lakeside-5k', visitCount: 2, personalBestSeconds: 1149 },
+    { eventId: 'demo-forest-trail-5k', visitCount: 1, personalBestSeconds: 1342 },
+  ],
+} as const;

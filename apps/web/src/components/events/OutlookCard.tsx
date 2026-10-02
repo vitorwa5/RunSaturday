@@ -89,7 +89,7 @@ export function OutlookCard({ profile, eventId }: { profile: UserProfile | undef
 
       <dl className="mt-3 divide-y divide-line text-sm">
         <div className="flex items-baseline justify-between gap-3 pb-2">
-          <dt className="text-muted">Your current 5K form</dt>
+          <dt className="text-muted">Current form (estimate)</dt>
           <dd className="text-lg font-bold tabular-nums">{form != null ? formatFinishTime(form) : 'Not set'}</dd>
         </div>
         <Row label="Equivalent 5K here">

@@ -49,3 +49,29 @@ describe('formatFinishTime', () => {
     expect(formatFinishTimeRange(1152, 1168)).toBe('19:12–19:28');
   });
 });
+
+describe('parsePerformanceTime', () => {
+  it.each([
+    ['19:35', 1175],
+    ['12:00', 720],
+    ['75:20', 4520],
+    ['1:05:30', 3930],
+    ['02:15:00', 8100],
+    ['9:59:59', 35999],
+    [' 19:35 ', 1175],
+  ])('parses %s', async (input, expected) => {
+    const { parsePerformanceTime } = await import('../time');
+    expect(parsePerformanceTime(input)).toBe(expected);
+  });
+
+  it.each(['', 'abc', '19', '19:60', '1:60:00', '11:59', '0:00', '-19:35', '10:00:00', '19.35', '1935'])('rejects %s', async (input) => {
+    const { parsePerformanceTime } = await import('../time');
+    expect(parsePerformanceTime(input)).toBeNull();
+  });
+
+  it('accepts unusual but possible times without elite or slow cut-offs', async () => {
+    const { parsePerformanceTime } = await import('../time');
+    expect(parsePerformanceTime('13:01')).toBe(781); // faster than most parkrun records
+    expect(parsePerformanceTime('3:30:00')).toBe(12600); // slower than the 3h placement-tool bound
+  });
+});

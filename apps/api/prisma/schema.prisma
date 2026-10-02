@@ -22,6 +22,16 @@ enum DataSource {
   IMPORTED
 }
 
+/// Where a user's performance came from. Only MANUAL is written in Phase 4A; the others are
+/// reserved for future connections (authorised parkrun API, CSV, Garmin, Strava).
+enum PerformanceSource {
+  MANUAL
+  CSV
+  PARKRUN_API
+  GARMIN
+  STRAVA
+}
+
 enum Surface {
   TARMAC
   TRAIL
@@ -108,13 +118,14 @@ model Event {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  occurrences     EventOccurrence[]
-  scores          EventScore[]
-  userEvents      UserEvent[]
-  courseFactors   CourseFactorSnapshot[]
+  occurrences      EventOccurrence[]
+  scores           EventScore[]
+  userEvents       UserEvent[]
+  courseFactors    CourseFactorSnapshot[]
+  userPerformances UserPerformance[]
   /// Users whose reference times were achieved here.
-  lifetimePbUsers User[]                 @relation("LifetimePbEvent")
-  recentPbUsers   User[]                 @relation("RecentPbEvent")
+  lifetimePbUsers  User[]                 @relation("LifetimePbEvent")
+  recentPbUsers    User[]                 @relation("RecentPbEvent")
 
   @@index([region])
   @@index([active])
@@ -183,14 +194,16 @@ model User {
   homeLabel String?
 
   defaultTravelMinutes     Int     @default(30)
+  /// TRANSITIONAL (Phase 4A): no longer read or written. Lifetime PB, recent best and their
+  /// events are derived from UserPerformance. Kept only so the change is non-destructive;
+  /// to be dropped in a later migration.
   lifetimePbSeconds        Int?
-  /// Where the lifetime PB was achieved, when known (needed for course-adjusted comparisons).
   lifetimePbEventId        String?
   lifetimePbEvent          Event?  @relation("LifetimePbEvent", fields: [lifetimePbEventId], references: [id], onDelete: SetNull)
   recentPbSeconds          Int?
-  /// Where the recent best was achieved, when known.
   recentPbEventId          String?
   recentPbEvent            Event?  @relation("RecentPbEvent", fields: [recentPbEventId], references: [id], onDelete: SetNull)
+  /// CANONICAL: an estimate of current fitness, not a performance (Runner Form Model in Phase 4B).
   current5kEstimateSeconds Int?
   preferredGoal            Goal    @default(PB)
 
@@ -199,9 +212,41 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  events UserEvent[]
+  events       UserEvent[]
+  performances UserPerformance[]
 }
 
+/// CANONICAL source of a user's actual 5K performances (Phase 4A). Lifetime PB, recent best,
+/// latest run, per-event PBs and visit counts are all derived from these rows.
+/// Personal data: every read and write is scoped by userId.
+model UserPerformance {
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Restrict: removing an event must never silently delete someone's history.
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Restrict)
+
+  date              DateTime          @db.Date
+  finishTimeSeconds Int
+  source            PerformanceSource @default(MANUAL)
+  /// Identifier from an external source (future imports), for de-duplication.
+  externalResultId  String?
+  /// True only when confirmed by an authoritative source; manual entries are unverified.
+  verified          Boolean           @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// One performance per user, event and date.
+  @@unique([userId, eventId, date])
+  @@unique([userId, source, externalResultId])
+  @@index([userId, date])
+  @@index([eventId])
+}
+
+/// Per-user event preferences. CANONICAL: favourite. TRANSITIONAL (Phase 4A, no longer read):
+/// visited, visitCount and personalBestSeconds, which are now derived from UserPerformance.
 model UserEvent {
   userId  String
   user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)

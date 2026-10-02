@@ -129,7 +129,13 @@ Web (optional, `apps/web/.env`): `VITE_API_BASE_URL` (default `/api`) and `VITE_
 | `GET /api/events/:idOrSlug/history?window=30\|60\|90\|365\|all` | occurrences in the window, median winner/3rd/5th/10th times, sample size and stored-history coverage |
 | `GET /api/recommendations/best-pick?goal=&maxTravel=` | best pick plus 3 alternatives, with highlights and reasons |
 | `GET /api/planner?date=&goal=&maxTravel=&surface=&elevation=&participants=&visited=&course=&confidence=` | Saturday Planner: ranked results, counts, and caveats |
-| `GET /api/profile` | current (demo) user profile |
+| `GET /api/profile` | current (demo) user profile; PBs, recent best, visit counts and `performance` summary are derived from UserPerformance |
+| `GET /api/profile/performance-summary` | derived values: lifetime PB, recent best (90 days), latest, totals, per-event count/PB/latest |
+| `GET /api/profile/performances?eventId=&limit=` | the user's performances, newest first |
+| `GET /api/profile/performances/:id` | one of the user's performances |
+| `POST /api/profile/performances` | add a manual performance: `{ eventId, date, time }` (`time` = `MM:SS` or `HH:MM:SS`) |
+| `PATCH /api/profile/performances/:id` | edit a manual performance (same body) |
+| `DELETE /api/profile/performances/:id` | delete a manual performance (204) |
 | `GET /api/placement?time=&window=&target=&maxTravel=` | Where Could I Place?: historical placement per event for a 5K time (`1170` or `19:30`) |
 | `GET /api/events/:idOrSlug/placement?time=&window=` | one event's historical placement (Event page outlook) |
 | `GET /api/pb-finder?maxTravel=&sort=&surface=&elevation=&confidence=&visited=` | events ranked or sorted using the stored (demo) PB Score |
@@ -146,8 +152,9 @@ Errors always use the shape `{ "error": { "code", "message" } }` with a human-re
 - **Event**: identity, location, course facts, and facilities (`YES / NO / UNKNOWN`, never guessed). `source` is `DEMO` or `IMPORTED`.
 - **EventOccurrence**: one per event per date (unique). `status`, `dataQuality`, plus a **derived summary cache**: participant count and winner/3rd/5th/10th times (see *Source of truth* below).
 - **Result**: the **canonical** record of each position and finish time (seconds), optional pseudonymous `athleteKey` (never a name), optional age grade.
-- **User**: home location, travel limit, lifetime PB / recent best / current estimate kept separately (with optional links to the events where the PB and recent best were run), preferred goal.
-- **UserEvent**: visited, favourite, visit count, PB per event.
+- **User**: home location, travel limit, preferred goal, and the current 5K **estimate** (not a performance).
+- **UserEvent**: favourite events.
+- **UserPerformance** (Phase 4A): the user's own 5K performances: event, date, finish time, `source` (`MANUAL` now; `CSV`, `PARKRUN_API`, `GARMIN`, `STRAVA` reserved), optional `externalResultId`, `verified`. One per user, event and date. Events are delete-restricted, so removing an event never silently deletes someone's history.
 - **EventScore**: immutable score **snapshots**: PB / difficulty / competition / gem scores, confidences, component values (JSON), sample size, `calculatedAt`.
   - Each snapshot is identified by **`(eventId, calculationVersion, windowDays, asOfDate)`** (unique).
   - So 30/60/90/365-day (and later all-time, `windowDays = 0`) scores coexist, and earlier snapshots stay available to reproduce past calculations and draw trend charts.
@@ -155,6 +162,31 @@ Errors always use the shape `{ "error": { "code", "message" } }` with a human-re
   - The API serves the latest snapshot of `ACTIVE_SCORE_VERSION` in the default 90-day window (`config/analysis.ts`).
 
 - **CourseFactorSnapshot**: Course Speed Factor V1 per event and run, keyed by `(eventId, version, windowDays, asOfDate)`. Stores the factor and log-factor, the runner-bootstrap replicate log-factors (`Float[]`, index-aligned across events of one run), matched-runner and comparison counts, median date gap, dispersion, confidence, and the breakdown JSON. It has its own table because it is not a 0–100 score and carries the bootstrap draws, so it doesn't fit `EventScore`.
+
+### Personal performances (Phase 4A)
+
+**Canonical vs derived.** `UserPerformance` rows are the only stored record of a user's actual runs. Everything below is **derived on the server** (`services/userPerformance.ts`) and never stored or edited on its own:
+
+| Value | Derivation |
+| --- | --- |
+| Lifetime PB (+ its event) | fastest performance; equal times → the earlier date |
+| Recent best (+ its event) | fastest performance dated within `RECENT_PERFORMANCE_WINDOW_DAYS` (90, `config/analysis.ts`) up to today |
+| Latest performance | most recent date |
+| Event history | per event: count, PB and latest |
+| Totals / visited | performance count; distinct events; "visited" = has a performance |
+
+- **Field status:**
+  - **Canonical:** `UserPerformance`; `User.current5kEstimateSeconds` (an estimate of current fitness, kept separate until the Runner Form Model in Phase 4B); `UserEvent.favourite`.
+  - **Transitional, no longer read or written:** `User.lifetimePbSeconds`, `recentPbSeconds`, `lifetimePbEventId` and `recentPbEventId`; `UserEvent.visited`, `visitCount` and `personalBestSeconds`. They were kept so the migration is non-destructive and will be dropped in a later migration.
+- **Migration:** the legacy single values have no dates, so SQL cannot turn them into performances. Instead the demo user's legacy history becomes a dated history (`demo/demoUserPerformances.ts`): each event keeps its visit count and PB (Riverside 34 runs/18:58, Victoria Park 6/19:36, Lakeside 2/19:09, Forest Trail 1/22:22). The lifetime PB (18:58 at Riverside) sits about 30 weeks ago and the recent best (19:32 at Riverside) 2 weeks ago. The other runs are deterministic and slower, so the derived values reproduce the old ones.
+- **Validation (server):**
+  - The event must exist.
+  - The date must be a real calendar date, not in the future, and not before 1950 (a typo guard only).
+  - The time is `MM:SS` (minutes may exceed 59) or `HH:MM:SS`, from 12:00 (below the 5K world record) to 9:59:59 (a typo guard). There are no elite or slow cut-offs.
+  - A second performance at the same event on the same date returns 409.
+  - Only `MANUAL` performances can be edited or deleted; imported ones return 403.
+- **Privacy:** every store method takes the owning `userId` and filters by it; another user's id is simply "not found". Until authentication exists, routes act as the demo user.
+- **Where Could I Place?, Compare and the outlook** use the derived lifetime PB and recent best, together with the event where each was run, so course-adjusted mode needs no manual "Achieved at" for them. Typed times still need one.
 
 ### Source of truth: Result vs EventOccurrence
 

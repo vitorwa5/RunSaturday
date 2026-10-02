@@ -18,9 +18,13 @@ import type {
   HistoryWindowId,
   PlannerResponse,
   UserProfile,
+  PerformanceInput,
+  PerformanceSummary,
+  UserPerformance,
+  UserPerformancesResponse,
 } from '@runsaturday/shared';
 import { plannerApiQuery, type PlannerSelection } from '../lib/plannerParams';
-import { apiGet } from './client';
+import { apiGet, apiSend } from './client';
 
 export interface PlacementQuery {
   timeSeconds: number;
@@ -43,6 +47,12 @@ export const api = {
   planner: (selection: PlannerSelection, signal?: AbortSignal) =>
     apiGet<PlannerResponse>('/planner', plannerApiQuery(selection), signal),
   profile: (signal?: AbortSignal) => apiGet<UserProfile>('/profile', {}, signal),
+  performances: (q: { eventId?: string; limit?: number }, signal?: AbortSignal) => apiGet<UserPerformancesResponse>('/profile/performances', q, signal),
+  performance: (id: string, signal?: AbortSignal) => apiGet<UserPerformance>(`/profile/performances/${encodeURIComponent(id)}`, {}, signal),
+  performanceSummary: (signal?: AbortSignal) => apiGet<PerformanceSummary>('/profile/performance-summary', {}, signal),
+  createPerformance: (input: PerformanceInput) => apiSend<UserPerformance>('POST', '/profile/performances', input),
+  updatePerformance: (id: string, input: PerformanceInput) => apiSend<UserPerformance>('PATCH', `/profile/performances/${encodeURIComponent(id)}`, input),
+  deletePerformance: (id: string) => apiSend<null>('DELETE', `/profile/performances/${encodeURIComponent(id)}`),
   eventAnalytics: (id: string, window: HistoryWindowId, signal?: AbortSignal) =>
     apiGet<EventAnalyticsResponse>(`/events/${encodeURIComponent(id)}/analytics`, { window }, signal),
   placement: (q: PlacementQuery, signal?: AbortSignal) =>

@@ -20,6 +20,25 @@ export class ApiError extends Error {
 
 type QueryValue = string | number | boolean | null | undefined;
 
+/** POST / PATCH / DELETE with a JSON body. Returns null for 204 No Content. */
+export async function apiSend<T>(method: 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      method,
+      headers: { Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new ApiError(0, 'network_error', 'We could not reach 5K Compass. Check your connection and try again.');
+  }
+  if (!response.ok) {
+    const errorBody = (await response.json().catch(() => null)) as ApiErrorBody | null;
+    throw new ApiError(response.status, errorBody?.error.code ?? 'unknown_error', errorBody?.error.message ?? 'Something went wrong. Please try again.');
+  }
+  return (response.status === 204 ? null : await response.json()) as T;
+}
+
 export async function apiGet<T>(path: string, query: Record<string, QueryValue> = {}, signal?: AbortSignal): Promise<T> {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {

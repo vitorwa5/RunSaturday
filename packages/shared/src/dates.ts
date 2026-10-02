@@ -61,3 +61,13 @@ export function formatShortDate(isoDate: string, locale = 'en-GB'): string {
     timeZone: 'UTC',
   }).format(new Date(`${isoDate}T00:00:00Z`));
 }
+
+/** "26 Sep 2026" style label for an ISO date. */
+export function formatDateWithYear(isoDate: string, locale = 'en-GB'): string {
+  return new Intl.DateTimeFormat(locale, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${isoDate}T00:00:00Z`));
+}

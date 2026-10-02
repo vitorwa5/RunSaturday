@@ -2,6 +2,7 @@ import { calendarDateIn, nextSaturday } from '@runsaturday/shared';
 import type { AppConfig } from '../config/env';
 import type { DataStore, UserRecord } from '../repositories/DataStore';
 import type { Coordinates } from '../services/travel';
+import { loadUser } from '../services/userPerformance';
 
 /**
  * PHASE 1 STAND-IN: there is no authentication yet, so every request acts as the demo
@@ -24,8 +25,9 @@ export function createTodayFn(config: AppConfig, now: () => Date) {
   return () => calendarDateIn(now(), config.APP_TIME_ZONE);
 }
 
+/** The current user with performance-derived values (lifetime PB, recent best, visits). */
 export async function currentUser(ctx: RequestContext): Promise<UserRecord | null> {
-  return ctx.store.getUser(CURRENT_USER_ID);
+  return loadUser(ctx.store, CURRENT_USER_ID, ctx.today());
 }
 
 /** Explicit lat/lon wins; otherwise fall back to the user's saved home location. */

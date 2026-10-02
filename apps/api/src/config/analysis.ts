@@ -5,3 +5,6 @@ export const SCORE_WINDOWS_DAYS = [30, 60, 90, 365] as const;
 
 /** Window served to clients by default. */
 export const DEFAULT_SCORE_WINDOW_DAYS = 90;
+
+/** Personal performances (Phase 4A): "recent best" = fastest performance dated within this many days up to today. */
+export const RECENT_PERFORMANCE_WINDOW_DAYS = 90;

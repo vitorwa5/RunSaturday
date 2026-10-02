@@ -39,7 +39,7 @@ export const COMPARE_MAX_EVENTS = 4;
 
 /** Where a runner time came from. */
 export const RUNNER_TIME_SOURCES = [
-  { id: 'current', label: 'Current form' },
+  { id: 'current', label: 'Current form (estimate)' },
   { id: 'recent', label: 'Recent best' },
   { id: 'pb', label: 'Lifetime PB' },
   { id: 'manual', label: 'Enter a time' },

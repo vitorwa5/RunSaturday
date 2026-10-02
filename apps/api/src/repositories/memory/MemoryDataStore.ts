@@ -18,7 +18,19 @@ import {
 } from '../../demo/buildDemoDataset';
 import { assembleScores } from '../scoreAssembly';
 import type { PlacementOccurrenceInput } from '../../domain/placementEngine';
-import type { DataStore, EventDetailRecord, EventRecord, UserRecord } from '../DataStore';
+import { randomUUID } from 'node:crypto';
+import { demoUserPerformances } from '../../demo/demoUserPerformances';
+import { byNewest } from '../../services/userPerformance';
+import {
+  DuplicatePerformanceError,
+  type DataStore,
+  type EventDetailRecord,
+  type EventRecord,
+  type NewPerformance,
+  type PerformancePatch,
+  type PerformanceRecord,
+  type StoredUser,
+} from '../DataStore';
 
 const lower = <T extends string>(v: string) => v.toLowerCase() as T;
 const RECENT_OCCURRENCES = 12;
@@ -96,10 +108,20 @@ export class MemoryDataStore implements DataStore {
   private readonly dataset: DemoDataset;
   private readonly analytics: CoreAnalytics;
   private readonly performances: PerformanceInput[];
+  /** The demo user's own history; mutable, and private to this store instance. */
+  private readonly userPerformances: PerformanceRecord[];
   private readonly generatedAt = new Date().toISOString();
 
   constructor(today: string) {
     ({ dataset: this.dataset, analytics: this.analytics, performances: this.performances } = demoState(today));
+    const names = new Map(this.dataset.events.map((e) => [e.id, e.def.name]));
+    this.userPerformances = demoUserPerformances(this.dataset.latestDate).map((p) => ({
+      ...p,
+      eventName: names.get(p.eventId) ?? p.eventId,
+      source: 'manual' as const,
+      externalResultId: null,
+      verified: false,
+    }));
   }
 
   private records(): EventRecord[] {
@@ -218,7 +240,7 @@ export class MemoryDataStore implements DataStore {
     return demoCompetitionInputs(this.dataset).filter((o) => o.date <= to);
   }
 
-  async getUser(userId: string): Promise<UserRecord | null> {
+  async getUser(userId: string): Promise<StoredUser | null> {
     const u = this.dataset.user;
     if (userId !== u.id) return null;
     return {
@@ -228,26 +250,64 @@ export class MemoryDataStore implements DataStore {
       homeLon: u.homeLon,
       homeLabel: u.homeLabel,
       defaultTravelMinutes: u.defaultTravelMinutes,
-      lifetimePbSeconds: u.lifetimePbSeconds,
-      recentPbSeconds: u.recentPbSeconds,
       current5kEstimateSeconds: u.current5kEstimateSeconds,
       preferredGoal: 'pb',
       isDemo: true,
-      lifetimePbEvent: this.eventRef(u.lifetimePbEventId),
-      recentPbEvent: this.eventRef(u.recentPbEventId),
-      events: u.history.map((h) => ({
-        eventId: h.slug,
-        visited: true,
-        favourite: h.favourite,
-        visitCount: h.visitCount,
-        personalBestSeconds: h.personalBestSeconds,
-      })),
+      favouriteEventIds: [...u.favouriteEventIds].sort(),
     };
   }
 
-  private eventRef(id: string | null) {
-    const b = this.dataset.events.find((e) => e.id === id);
-    return b ? { id: b.id, name: b.def.name } : null;
+  // Personal performances: an in-memory copy per store instance, always filtered by userId.
+
+  async listUserPerformances(userId: string, filter: { eventId?: string } = {}): Promise<PerformanceRecord[]> {
+    return this.userPerformances
+      .filter((p) => p.userId === userId && (filter.eventId == null || p.eventId === filter.eventId))
+      .map((p) => ({ ...p }))
+      .sort(byNewest);
+  }
+
+  async getUserPerformance(userId: string, id: string): Promise<PerformanceRecord | null> {
+    const p = this.userPerformances.find((x) => x.userId === userId && x.id === id);
+    return p ? { ...p } : null;
+  }
+
+  async createUserPerformance(userId: string, input: NewPerformance): Promise<PerformanceRecord> {
+    this.assertUnique(userId, input.eventId, input.date, null);
+    const record: PerformanceRecord = {
+      id: randomUUID(),
+      userId,
+      ...input,
+      eventName: this.eventName(input.eventId),
+      externalResultId: null,
+      verified: false,
+    };
+    this.userPerformances.push(record);
+    return { ...record };
+  }
+
+  async updateUserPerformance(userId: string, id: string, patch: PerformancePatch): Promise<PerformanceRecord | null> {
+    const p = this.userPerformances.find((x) => x.userId === userId && x.id === id);
+    if (!p) return null;
+    this.assertUnique(userId, patch.eventId, patch.date, id);
+    Object.assign(p, patch, { eventName: this.eventName(patch.eventId) });
+    return { ...p };
+  }
+
+  async deleteUserPerformance(userId: string, id: string): Promise<boolean> {
+    const index = this.userPerformances.findIndex((x) => x.userId === userId && x.id === id);
+    if (index < 0) return false;
+    this.userPerformances.splice(index, 1);
+    return true;
+  }
+
+  private assertUnique(userId: string, eventId: string, date: string, exceptId: string | null) {
+    if (this.userPerformances.some((x) => x.userId === userId && x.eventId === eventId && x.date === date && x.id !== exceptId)) {
+      throw new DuplicatePerformanceError();
+    }
+  }
+
+  private eventName(id: string) {
+    return this.dataset.events.find((e) => e.id === id)?.def.name ?? id;
   }
 
   async ping(): Promise<boolean> {

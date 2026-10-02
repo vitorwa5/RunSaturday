@@ -196,22 +196,86 @@ export interface EventHistoryResponse {
   coverage: { firstDate: string | null; lastDate: string | null; totalOccurrences: number };
 }
 
+// ---------------------------------------------------------------------------
+// Personal performance history (Phase 4A)
+// ---------------------------------------------------------------------------
+
+/** Where a performance came from. Only "manual" is used in Phase 4A; the rest are reserved. */
+export type PerformanceSource = 'manual' | 'csv' | 'parkrun_api' | 'garmin' | 'strava';
+
+/** One of the user's own 5K performances at an event. Personal data: always scoped to its user. */
+export interface UserPerformance {
+  id: string;
+  eventId: string;
+  eventName: string;
+  /** ISO date. */
+  date: string;
+  finishTimeSeconds: number;
+  source: PerformanceSource;
+  verified: boolean;
+  /** Whether the user may edit or delete it (manual entries only). */
+  editable: boolean;
+}
+
+export interface UserPerformancesResponse {
+  /** Newest first. */
+  performances: UserPerformance[];
+  total: number;
+}
+
+/** A user's history at one event, derived from their performances. */
+export interface EventPerformanceSummary {
+  eventId: string;
+  eventName: string;
+  count: number;
+  pb: UserPerformance;
+  latest: UserPerformance;
+}
+
+/** Values derived from UserPerformance on the server; never edited directly. */
+export interface PerformanceSummary {
+  asOfDate: string;
+  /** "Recent" = performances dated within this many days up to asOfDate. */
+  recentWindowDays: number;
+  lifetimePb: UserPerformance | null;
+  recentBest: UserPerformance | null;
+  latest: UserPerformance | null;
+  totalPerformances: number;
+  uniqueEvents: number;
+  /** Most recently run first. */
+  events: EventPerformanceSummary[];
+}
+
+/** Body for creating or editing a performance. `time` is "MM:SS" or "HH:MM:SS". */
+export interface PerformanceInput {
+  eventId: string;
+  date: string;
+  time: string;
+}
+
 export interface UserProfile {
   id: string;
   displayName: string;
   home: { latitude: number; longitude: number; label: string | null } | null;
   defaultTravelMinutes: number;
+  /** Derived from UserPerformance (fastest recorded performance). */
   lifetimePbSeconds: number | null;
+  /** Derived from UserPerformance (fastest in the recent window). */
   recentPbSeconds: number | null;
+  /** An ESTIMATE of current fitness (demo value until the Runner Form Model, Phase 4B); not a performance. */
   current5kEstimateSeconds: number | null;
   preferredGoal: Goal;
+  /** Derived from UserPerformance: number of recorded performances. */
   runsCompleted: number;
+  /** Derived from UserPerformance: distinct events with a recorded performance. */
   uniqueEventsVisited: number;
   savedEventIds: string[];
   isDemo: boolean;
-  /** Where the profile's reference times were achieved, when known. */
+  /** Where the profile's reference times were achieved (derived from the matching performance). */
   lifetimePbEvent: { id: string; name: string } | null;
   recentPbEvent: { id: string; name: string } | null;
+  /** Derived values from UserPerformance (lifetimePbSeconds etc. above mirror them for compatibility). */
+  performance: PerformanceSummary;
 }
 
 export interface HealthResponse {

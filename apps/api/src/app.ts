@@ -24,7 +24,7 @@ export async function buildApp({ config, store, now = () => new Date(), logger }
   const app = Fastify({ logger: logger ?? { level: config.LOG_LEVEL } });
   const ctx: RequestContext = { store, config, today: createTodayFn(config, now) };
 
-  await app.register(cors, { origin: config.CORS_ORIGINS, methods: ['GET', 'POST', 'DELETE'] });
+  await app.register(cors, { origin: config.CORS_ORIGINS, methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
   registerErrorHandling(app);
 
   await healthRoutes(app, ctx);

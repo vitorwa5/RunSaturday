@@ -14,6 +14,7 @@ import { EventHeroMetrics } from '../components/events/EventHeroMetrics';
 import { FacilityList } from '../components/events/FacilityList';
 import { CoverageNote, HistoricalTimes, OccurrenceTable, ParticipantsChart, SampleNote } from '../components/events/HistoryViews';
 import { OutlookCard } from '../components/events/OutlookCard';
+import { YourHistoryHere } from '../components/events/YourHistoryHere';
 import { ScoreExplainer } from '../components/events/ScoreExplainer';
 import { AlertBanner } from '../components/ui/AlertBanner';
 import { ButtonLink } from '../components/ui/Button';
@@ -265,6 +266,7 @@ export function EventPage() {
       <ScoreExplainer eventId={event.id} />
 
       <OutlookCard profile={profile} eventId={event.id} />
+      <YourHistoryHere eventId={event.id} />
 
       <Tabs tabs={TABS} value={tab} onChange={setTab} label="Event details">
         {tab === 'overview' && <OverviewTab event={event} />}

@@ -41,3 +41,35 @@ export function formatFinishTime(totalSeconds: number): string {
 export function formatFinishTimeRange(lowSeconds: number, highSeconds: number): string {
   return `${formatFinishTime(lowSeconds)}–${formatFinishTime(highSeconds)}`;
 }
+
+/**
+ * Bounds for a recorded performance (Phase 4A). Deliberately wide: anything a person could run,
+ * walk or wheel is accepted. The lower bound sits below the 5K world record (~12:35), so only
+ * physically impossible times are rejected; the upper bound only catches typos such as "1935".
+ */
+export const PERFORMANCE_MIN_SECONDS = 12 * 60;
+export const PERFORMANCE_MAX_SECONDS = 10 * 60 * 60 - 1;
+
+/**
+ * Parse a performance time: "MM:SS" (minutes may exceed 59, e.g. "75:20") or "HH:MM:SS".
+ * Returns null for malformed or impossible values.
+ */
+export function parsePerformanceTime(input: string): number | null {
+  const trimmed = input.trim();
+  let total: number;
+  if (/^\d{1,3}:\d{2}$/.test(trimmed)) {
+    const [m, s] = trimmed.split(':').map(Number) as [number, number];
+    if (s > 59) return null;
+    total = m * 60 + s;
+  } else if (/^\d{1,2}:\d{2}:\d{2}$/.test(trimmed)) {
+    const [h, m, s] = trimmed.split(':').map(Number) as [number, number, number];
+    if (m > 59 || s > 59) return null;
+    total = h * 3600 + m * 60 + s;
+  } else {
+    return null;
+  }
+  return isPerformanceSeconds(total) ? total : null;
+}
+
+export const isPerformanceSeconds = (seconds: number) =>
+  Number.isInteger(seconds) && seconds >= PERFORMANCE_MIN_SECONDS && seconds <= PERFORMANCE_MAX_SECONDS;

@@ -1,6 +1,6 @@
 /** TanStack Query hooks: the only way pages obtain server data. */
-import type { Goal, HiddenGemModeId, HistoryWindowId, PbFinderSortId, PlacementTargetId, PlannerFilters } from '@runsaturday/shared';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import type { PerformanceInput, Goal, HiddenGemModeId, HistoryWindowId, PbFinderSortId, PlacementTargetId, PlannerFilters } from '@runsaturday/shared';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type PlacementQuery } from '../api/endpoints';
 import { serializePlannerParams, type PlannerSelection } from '../lib/plannerParams';
 
@@ -92,3 +92,27 @@ export const useBestPick = (goal: Goal) =>
   });
 
 export const useProfile = () => useQuery({ queryKey: queryKeys.profile, queryFn: ({ signal }) => api.profile(signal) });
+
+// Personal performances (Phase 4A). Derived values (PBs, visits, presets) come from the server.
+
+export const usePerformances = (q: { eventId?: string; limit?: number } = {}) =>
+  useQuery({ queryKey: ['performances', q] as const, queryFn: ({ signal }) => api.performances(q, signal) });
+
+export const usePerformance = (id: string | undefined) =>
+  useQuery({ queryKey: ['performances', 'one', id] as const, queryFn: ({ signal }) => api.performance(id!, signal), enabled: id != null });
+
+export const usePerformanceSummary = () => useQuery({ queryKey: ['performance-summary'] as const, queryFn: ({ signal }) => api.performanceSummary(signal) });
+
+/**
+ * A performance change can move PBs, recent best, visits and every tool that uses them, so all
+ * cached server data is invalidated afterwards.
+ */
+function usePerformanceMutation<V>(fn: (variables: V) => Promise<unknown>) {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: fn, onSuccess: () => client.invalidateQueries() });
+}
+
+export const useSavePerformance = (id?: string) =>
+  usePerformanceMutation((input: PerformanceInput) => (id ? api.updatePerformance(id, input) : api.createPerformance(input)));
+
+export const useDeletePerformance = () => usePerformanceMutation((id: string) => api.deletePerformance(id));

@@ -16,7 +16,7 @@ import { RAW_FALLBACK_LABEL } from '../lib/display';
 import { parseIdList, profileSourceEvent, PROFILE_TIME_FIELD } from '../lib/runnerTime';
 
 const TIME_CHOICES = [
-  { id: 'current', label: 'Current form' },
+  { id: 'current', label: 'Current form (estimate)' },
   { id: 'recent', label: 'Recent best' },
   { id: 'pb', label: 'Lifetime PB' },
 ] as const;

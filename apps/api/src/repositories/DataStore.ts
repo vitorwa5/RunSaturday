@@ -12,6 +12,8 @@ import type {
   Goal,
   OccurrenceSummary,
   PbBreakdown,
+  PerformanceSource,
+  PerformanceSummary,
 } from '@runsaturday/shared';
 import type { CourseFactorResult, PerformanceInput } from '../analytics/courseSpeed';
 import type { CompetitionOccurrenceInput } from '../analytics/competition';
@@ -29,21 +31,63 @@ export interface UserEventRecord {
   personalBestSeconds: number | null;
 }
 
-export interface UserRecord {
+/** The user as stored: settings and preferences only. Performance-derived values are not stored here. */
+export interface StoredUser {
   id: string;
   displayName: string;
   homeLat: number | null;
   homeLon: number | null;
   homeLabel: string | null;
   defaultTravelMinutes: number;
-  lifetimePbSeconds: number | null;
-  recentPbSeconds: number | null;
+  /** An estimate of current fitness, not a performance (Runner Form Model in Phase 4B). */
   current5kEstimateSeconds: number | null;
   preferredGoal: Goal;
   isDemo: boolean;
+  favouriteEventIds: string[];
+}
+
+/**
+ * The user as the API sees it: stored settings plus values DERIVED from their performances
+ * (services/userPerformance.ts). Never read these from storage directly.
+ */
+export interface UserRecord extends StoredUser {
+  performance: PerformanceSummary;
+  lifetimePbSeconds: number | null;
+  recentPbSeconds: number | null;
   lifetimePbEvent: { id: string; name: string } | null;
   recentPbEvent: { id: string; name: string } | null;
+  /** Per-event visit state: visited/visitCount/PB derived from performances; favourite stored. */
   events: UserEventRecord[];
+}
+
+/** One of a user's performances as stored. Personal data: always read and written by userId. */
+export interface PerformanceRecord {
+  id: string;
+  userId: string;
+  eventId: string;
+  eventName: string;
+  date: string;
+  finishTimeSeconds: number;
+  source: PerformanceSource;
+  externalResultId: string | null;
+  verified: boolean;
+}
+
+export interface NewPerformance {
+  eventId: string;
+  date: string;
+  finishTimeSeconds: number;
+  source: PerformanceSource;
+}
+
+export type PerformancePatch = Pick<NewPerformance, 'eventId' | 'date' | 'finishTimeSeconds'>;
+
+/** Thrown by stores when (userId, eventId, date) already has a performance. */
+export class DuplicatePerformanceError extends Error {
+  constructor() {
+    super('Duplicate performance');
+    this.name = 'DuplicatePerformanceError';
+  }
 }
 
 export interface DataStore {
@@ -68,7 +112,21 @@ export interface DataStore {
    * for the given events. Individual results never leave the data layer.
    */
   listPlacementInputs(timeSeconds: number, eventIds: string[] | null, from: string | null, to: string): Promise<PlacementOccurrenceInput[]>;
-  getUser(userId: string): Promise<UserRecord | null>;
+  /** Stored settings only; use services/userPerformance.loadUser for derived values. */
+  getUser(userId: string): Promise<StoredUser | null>;
+  /**
+   * PERSONAL DATA. Every performance method takes the owning userId and only ever reads or
+   * changes that user's rows, so one user can never reach another's performances.
+   */
+  /** Newest first (date, then id). */
+  listUserPerformances(userId: string, filter?: { eventId?: string }): Promise<PerformanceRecord[]>;
+  getUserPerformance(userId: string, id: string): Promise<PerformanceRecord | null>;
+  /** Throws DuplicatePerformanceError when the user already has one at that event on that date. */
+  createUserPerformance(userId: string, input: NewPerformance): Promise<PerformanceRecord>;
+  /** Null when the user has no such performance. Throws DuplicatePerformanceError like create. */
+  updateUserPerformance(userId: string, id: string, patch: PerformancePatch): Promise<PerformanceRecord | null>;
+  /** False when the user has no such performance. */
+  deleteUserPerformance(userId: string, id: string): Promise<boolean>;
   /**
    * Latest stored analytics for an event: Competition V1 for the window (days; 0 = all history)
    * and Difficulty V1. Read from snapshots; never recalculated per request.

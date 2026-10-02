@@ -11,6 +11,7 @@ import { recalculateAnalytics } from '../src/analytics/recalculate';
 import { createPrismaClient } from '../src/db/prisma';
 import { summarizeResults } from '../src/domain/occurrenceSummary';
 import { buildDemoDataset, DEMO_WINDOW_DAYS } from '../src/demo/buildDemoDataset';
+import { demoUserPerformances } from '../src/demo/demoUserPerformances';
 
 const RESULT_BATCH_SIZE = 5000;
 const toDate = (iso: string) => new Date(`${iso}T00:00:00Z`);
@@ -24,8 +25,10 @@ async function main() {
   const dataset = buildDemoDataset(today);
 
   try {
-    const removed = await db.event.deleteMany({ where: { source: 'DEMO' } });
+    // The demo user first: its performances reference demo events (events are delete-restricted
+    // so that removing an event can never silently delete someone's history).
     await db.user.deleteMany({ where: { isDemo: true } });
+    const removed = await db.event.deleteMany({ where: { source: 'DEMO' } });
     console.log(`Removed ${removed.count} previous DEMO events.`);
 
     let resultCount = 0;
@@ -83,21 +86,19 @@ async function main() {
       }
     }
 
-    const { history, ...user } = dataset.user;
+    // Demo user: settings and favourites only. Lifetime PB, recent best and visits are derived
+    // from UserPerformance (the transitional User/UserEvent columns are left empty).
+    const { favouriteEventIds, ...user } = dataset.user;
     await db.user.create({
       data: {
         ...user,
         isDemo: true,
-        events: {
-          create: history.map((h) => ({
-            eventId: h.slug,
-            visited: true,
-            favourite: h.favourite,
-            visitCount: h.visitCount,
-            personalBestSeconds: h.personalBestSeconds,
-          })),
-        },
+        events: { create: favouriteEventIds.map((eventId) => ({ eventId, favourite: true })) },
       },
+    });
+    const performances = demoUserPerformances(dataset.latestDate);
+    await db.userPerformance.createMany({
+      data: performances.map((p) => ({ ...p, date: toDate(p.date), source: 'MANUAL' as const })),
     });
 
     // Derived analytics (Course Speed V1, Difficulty V1, Competition V1, PB Score V1) so a fresh database is complete.
@@ -110,7 +111,7 @@ async function main() {
     const occurrenceCount = dataset.events.reduce((n, e) => n + e.occurrences.length, 0);
     console.log(
       `Seeded DEMO data: ${dataset.events.length} events, ${occurrenceCount} occurrences, ` +
-        `${resultCount} results (latest ${dataset.latestDate}), 1 demo user.`,
+        `${resultCount} results (latest ${dataset.latestDate}), 1 demo user with ${performances.length} performances.`,
     );
   } finally {
     await db.$disconnect();
