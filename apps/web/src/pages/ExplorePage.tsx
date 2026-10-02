@@ -100,6 +100,12 @@ export function ExplorePage() {
             <p className="text-brand-800">
               Looking for: <strong>{opportunities.data?.item.itemLabel ?? item}</strong>
             </p>
+            <Link
+              to={`/saturday?intent=challenge&challenge=${encodeURIComponent(challenge!)}&item=${encodeURIComponent(item!)}`}
+              className="mt-1 inline-flex min-h-8 items-center text-xs font-semibold text-brand-700"
+            >
+              Plan a Saturday for {item}
+            </Link>
           </div>
           <button
             type="button"

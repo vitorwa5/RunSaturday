@@ -1,74 +1,69 @@
 import type { Recommendation } from '@runsaturday/shared';
 import { Car, Sparkles } from 'lucide-react';
 import { useId, useState } from 'react';
-import { formatScore, pbLabel } from '../../lib/display';
 import { AlertBanner } from '../ui/AlertBanner';
 import { ButtonLink } from '../ui/Button';
-import { ConfidenceBadge } from '../ui/ConfidenceBadge';
 import { DemoBadge } from '../ui/DemoBadge';
 import { RankedMetric } from './RankedMetric';
+import { DataConfidencePill, WhyThisOne } from './WhyThisOne';
 import { WhyThisButton, WhyThisPanel } from './WhyThis';
 
 interface BestPickCardProps {
   recommendation: Recommendation;
-  /** How the pick was ranked, e.g. "ranked using PB Score". */
+  /** How this intent ranks, e.g. "ranked using PB Score". */
   method: string;
 }
 
-/** The single most prominent recommendation on Home. Each fact appears once. */
+/**
+ * The best match for the selected intent and constraints: not "the best event". Leads with the
+ * reasons; the ranking metric and full explanation stay one tap away.
+ */
 export function BestPickCard({ recommendation, method }: BestPickCardProps) {
-  const { event, rankedBy, highlights, reasons } = recommendation;
+  const { event, rankedBy, highlights, reasons, why, dataConfidence } = recommendation;
   const [showWhy, setShowWhy] = useState(false);
   const whyId = useId();
-  const s = event.scores;
-  const limited = !s || s.pbConfidence === 'insufficient';
   const isDemo = event.source === 'demo';
+  const showMetric = rankedBy.key !== 'travel_minutes' && rankedBy.key !== 'interest_signals';
 
   return (
-    <section aria-label="Your best pick" className="rounded-3xl border border-line bg-surface p-5 shadow-[0_2px_12px_rgba(24,24,27,0.06)]">
+    <section aria-label="Best match for your goal" className="rounded-3xl border border-line bg-surface p-5 shadow-[0_2px_12px_rgba(24,24,27,0.06)]">
       <div className="flex items-center justify-between gap-2">
         <p className="flex items-center gap-1.5 text-xs font-bold tracking-wider text-brand-700 uppercase">
           <Sparkles className="size-3.5" aria-hidden />
-          Your best pick
+          Best match for your goal
         </p>
         {isDemo && <DemoBadge />}
       </div>
 
       <h2 className="mt-2 text-2xl leading-tight font-extrabold tracking-tight">{event.name}</h2>
-      {event.town && <p className="mt-0.5 text-sm text-muted">{event.town}</p>}
-      {highlights.length > 0 && <p className="mt-2 text-sm font-semibold text-ink">{highlights.join(' · ')}</p>}
-
-      <div className="mt-4">
-        <RankedMetric rankedBy={rankedBy} />
-      </div>
-
-      <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-4">
-        {rankedBy.key === 'travel_minutes' ? (
-          <div>
-            <dt className="text-xs font-semibold text-muted">{pbLabel()}</dt>
-            <dd className="mt-0.5 text-lg font-bold tabular-nums">{formatScore(s?.pbScore)} / 100</dd>
-          </div>
-        ) : (
-          <div>
-            <dt className="text-xs font-semibold text-muted">Estimated travel</dt>
-            <dd className="mt-0.5 flex items-center gap-1 text-lg font-bold tabular-nums">
-              <Car className="size-4 text-subtle" aria-hidden />
-              {event.travel ? `~${event.travel.minutes} min` : 'Unknown'}
-            </dd>
-          </div>
+      <p className="mt-0.5 flex flex-wrap items-center gap-x-3 text-sm text-muted">
+        {event.town && <span>{event.town}</span>}
+        {event.travel && (
+          <span className="inline-flex items-center gap-1">
+            <Car className="size-4" aria-hidden />~{event.travel.minutes} min<span className="sr-only"> estimated travel</span>
+          </span>
         )}
-        <div>
-          <dt className="text-xs font-semibold text-muted">Confidence</dt>
-          <dd className="mt-1">
-            <ConfidenceBadge level={s?.pbConfidence ?? 'insufficient'} sampleSize={s?.sampleSize} compact />
-          </dd>
-        </div>
-      </dl>
+        {highlights.length > 0 && <span className="font-semibold text-ink">{highlights.join(' · ')}</span>}
+      </p>
 
-      {limited && (
+      {why && why.length > 0 && (
+        <div className="mt-4">
+          <h3 className="mb-1.5 text-xs font-bold tracking-wide text-muted uppercase">Why this one</h3>
+          <WhyThisOne why={why} />
+        </div>
+      )}
+
+      {(showMetric || dataConfidence) && (
+        <div className="mt-4 flex flex-wrap items-end justify-between gap-3 border-t border-line pt-4">
+          {showMetric && <RankedMetric rankedBy={rankedBy} size="md" />}
+          {dataConfidence && <DataConfidencePill note={dataConfidence} />}
+        </div>
+      )}
+
+      {dataConfidence?.level === 'insufficient' && (
         <div className="mt-4">
           <AlertBanner tone="caution" title="Limited data">
-            Only a few recent events are available, so treat this pick as a rough guide.
+            The evidence behind this match is thin, so treat it as a rough guide.
           </AlertBanner>
         </div>
       )}

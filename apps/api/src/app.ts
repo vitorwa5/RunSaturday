@@ -7,11 +7,10 @@ import type { DataStore } from './repositories/DataStore';
 import { analyticsRoutes } from './routes/analytics';
 import { eventRoutes } from './routes/events';
 import { healthRoutes } from './routes/health';
-import { plannerRoutes } from './routes/planner';
 import { toolRoutes } from './routes/tools';
 import { profileRoutes } from './routes/profile';
 import { challengeRoutes } from './routes/challenges';
-import { recommendationRoutes } from './routes/recommendations';
+import { saturdayRoutes } from './routes/saturday';
 
 export interface BuildAppOptions {
   config: AppConfig;
@@ -30,8 +29,7 @@ export async function buildApp({ config, store, now = () => new Date(), logger }
 
   await healthRoutes(app, ctx);
   await eventRoutes(app, ctx);
-  await recommendationRoutes(app, ctx);
-  await plannerRoutes(app, ctx);
+  await saturdayRoutes(app, ctx);
   await toolRoutes(app, ctx);
   await analyticsRoutes(app, ctx);
   await profileRoutes(app, ctx);

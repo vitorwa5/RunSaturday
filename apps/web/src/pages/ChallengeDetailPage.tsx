@@ -78,6 +78,11 @@ export function ChallengeDetailPage() {
         </div>
         {c.completedOn && <p className="mt-2 text-sm font-semibold">Completed on {formatDateWithYear(c.completedOn)}</p>}
         <p className="mt-2 text-xs text-muted">{c.description}</p>
+        {c.status !== 'completed' && (
+          <Link to={`/saturday?intent=challenge&challenge=${encodeURIComponent(c.id)}`} className="mt-2 inline-flex min-h-9 items-center text-sm font-semibold text-brand-700">
+            Plan a Saturday for this challenge
+          </Link>
+        )}
       </section>
 
       <section aria-labelledby="challenge-items">

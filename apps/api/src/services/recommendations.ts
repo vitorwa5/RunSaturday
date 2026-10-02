@@ -1,11 +1,11 @@
 /**
- * PLACEHOLDER RANKING (Phase 1/2A).
+ * SINGLE-METRIC RANKINGS used by the Saturday orchestrator (saturday/orchestrator.ts) for the
+ * intents that rank by one stored metric: Run faster (PB Score), Finish higher (Current Form
+ * placement, else lowest Competition), Visit somewhere new (nearest unvisited) and the legacy
+ * Hidden Gem / Quiet strategies. Challenge and Surprise me are ranked by the orchestrator itself.
+ * There is deliberately no universal Saturday Score.
  *
- * Orders events by one stored metric per goal so Home and the Saturday Planner can be
- * built and tested. It deliberately does NOT compute a Saturday Score; that objective-
- * weighted model (PB Score, conditions, travel, reliability…) replaces this later.
- *
- * Rules that already apply and must survive the replacement:
+ * Rules every ranking keeps:
  * - every pick says which metric it was ranked by and why;
  * - low-data events never outrank events with sufficient data;
  * - wording stays historical, never a promise about this Saturday.
@@ -13,7 +13,6 @@
 import {
   formatFinishTime,
   goalDefinition,
-  type BestPickResponse,
   type EventSummary,
   type FormReference,
   type Goal,
@@ -22,7 +21,8 @@ import {
 } from '@runsaturday/shared';
 import type { PlaceInsight, RankingContext } from './rankingContext';
 
-type RankableGoal = Exclude<Goal, 'challenge'>;
+/** Goals ranked by one stored metric here; Challenge and Surprise me are ranked by the Saturday orchestrator. */
+type RankableGoal = Exclude<Goal, 'challenge' | 'surprise'>;
 
 interface GoalStrategy {
   /** Short description shown after "Demo recommendation ·". */
@@ -105,7 +105,9 @@ export function highlights(e: EventSummary, goal: Goal): string[] {
   if (e.visited === false) tags.add('New to you');
   if (e.travel && e.travel.minutes <= 15) tags.add('Close by');
 
-  const priority = goal === 'challenge' ? [] : STRATEGIES[goal].highlightPriority;
+  const priority = goal === 'challenge' || goal === 'surprise' ? ['New to you', 'Close by'] : STRATEGIES[goal].highlightPriority;
+  // Explore intents describe the event, not its competition.
+  if (goal === 'new_event' || goal === 'challenge' || goal === 'surprise' || goal === 'quiet') tags.delete('Lower competition');
   const ordered = [...priority.filter((t) => tags.has(t)), ...[...tags].filter((t) => !priority.includes(t))];
   return ordered.slice(0, 3);
 }
@@ -164,16 +166,16 @@ export interface Ranking {
   unavailableMessage?: string;
 }
 
-export const CHALLENGE_UNAVAILABLE =
-  'Challenge ranking in the Saturday Planner is not available yet. My Challenges shows your progress and the events that would complete each challenge.';
+/** rankEvents only ranks single-metric goals; these are orchestrated in saturday/orchestrator.ts. */
+export const ORCHESTRATED_ONLY = 'This intent is ranked by the Saturday orchestrator.';
 
 /**
  * Rank already-filtered events for a goal. Events outside `maxTravelMinutes` are excluded.
  * Deterministic: ties are broken alphabetically.
  */
 export function rankEvents(goal: Goal, events: EventSummary[], maxTravelMinutes: number | null, context?: RankingContext): Ranking {
-  if (!goalDefinition(goal).available || goal === 'challenge') {
-    return { goal, method: 'not available yet', results: [], unavailableMessage: CHALLENGE_UNAVAILABLE };
+  if (!goalDefinition(goal).available || goal === 'challenge' || goal === 'surprise') {
+    return { goal, method: 'not ranked here', results: [], unavailableMessage: ORCHESTRATED_ONLY };
   }
 
   // High Finish and Hidden Gem use the runner's Current Form when the context provides it;
@@ -224,28 +226,4 @@ function placeReasons(p: PlaceInsight, form: FormReference): RecommendationReaso
       tone: p.limited ? 'caution' : 'positive',
     },
   ];
-}
-
-export function bestPick(
-  goal: Goal,
-  events: EventSummary[],
-  options: { date: string; maxTravelMinutes: number | null; alternatives?: number; context?: RankingContext },
-): BestPickResponse {
-  const ranking = rankEvents(goal, events, options.maxTravelMinutes, options.context);
-  const [first, ...rest] = ranking.results;
-  const base = { goal, date: options.date, method: ranking.method };
-
-  if (ranking.unavailableMessage) return { ...base, pick: null, alternatives: [], message: ranking.unavailableMessage };
-  if (!first) {
-    return {
-      ...base,
-      pick: null,
-      alternatives: [],
-      message:
-        options.maxTravelMinutes != null
-          ? `No suitable events within ${options.maxTravelMinutes} minutes. Try a longer travel limit in the planner.`
-          : 'No suitable events found.',
-    };
-  }
-  return { ...base, pick: first, alternatives: rest.slice(0, options.alternatives ?? 3) };
 }

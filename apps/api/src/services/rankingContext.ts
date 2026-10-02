@@ -8,7 +8,7 @@
  * PB, New Event, Quiet and Challenge do not use runner ability, so nothing is computed for them.
  * An old Overall 5K PB is never used as current ability.
  */
-import { DEFAULT_HISTORY_WINDOW, formatFinishTime, type EventSummary, type FormReference, type Goal, type HistoricalFrequency } from '@runsaturday/shared';
+import { DEFAULT_HISTORY_WINDOW, formatFinishTime, type ConfidenceLevel, type EventSummary, type FormReference, type Goal, type HiddenGem, type HistoricalFrequency } from '@runsaturday/shared';
 import type { DataStore, UserRecord } from '../repositories/DataStore';
 import { rankHiddenGems } from './hiddenGemService';
 import { computeAdjustedPlacements } from './placementService';
@@ -23,6 +23,8 @@ export interface PlaceInsight {
   equivalentSeconds: number;
   /** Too little placement data to be trusted. */
   limited: boolean;
+  /** Confidence of the placement result (data and course adjustment). */
+  confidence: ConfidenceLevel;
 }
 
 export interface RankingContext {
@@ -32,10 +34,12 @@ export interface RankingContext {
   place: Map<string, PlaceInsight> | null;
   /** hidden_gem_v1 Gem Score per event. */
   gemScores: Map<string, number> | null;
+  /** The hidden_gem_v1 ranking itself (mode "all"), exactly as the Hidden Gems tool returns it. */
+  gems: HiddenGem[] | null;
 }
 
 /** Goals whose ranking depends on the runner's ability. */
-export const ABILITY_GOALS: ReadonlySet<Goal> = new Set(['place', 'hidden_gem']);
+export const ABILITY_GOALS: ReadonlySet<Goal> = new Set(['place', 'hidden_gem', 'surprise']);
 
 export async function rankingContext(
   store: DataStore,
@@ -44,7 +48,7 @@ export async function rankingContext(
   events: EventSummary[],
   options: { maxTravelMinutes: number; today: string },
 ): Promise<RankingContext> {
-  if (!ABILITY_GOALS.has(goal)) return { form: null, place: null, gemScores: null };
+  if (!ABILITY_GOALS.has(goal)) return { form: null, place: null, gemScores: null, gems: null };
   const form = user ? formReferenceOf(user.currentForm) : null;
   const inRange = events.filter((e) => e.travel && e.travel.minutes <= options.maxTravelMinutes);
 
@@ -63,13 +67,19 @@ export async function rankingContext(
     for (const p of placements) {
       if (!p.stats) continue;
       const limited = p.confidence === 'insufficient';
-      place.set(p.event.id, { frequency: p.stats.frequencies.top10, medianHigh: p.stats.medianPlacement.high, equivalentSeconds: p.analysedSeconds, limited });
+      place.set(p.event.id, { frequency: p.stats.frequencies.top10, medianHigh: p.stats.medianPlacement.high, equivalentSeconds: p.analysedSeconds, limited, confidence: p.confidence });
       top10ByEvent.set(p.event.id, limited ? null : p.stats.frequencies.top10);
     }
   }
 
   const gems = rankHiddenGems(inRange, { mode: 'all', maxTravelMinutes: options.maxTravelMinutes, timeSeconds: form?.formSeconds ?? null, top10ByEvent });
-  return { form, place: goal === 'place' ? place : null, gemScores: goal === 'hidden_gem' ? new Map(gems.map((g) => [g.event.id, g.gemScore])) : null };
+  const usesGems = goal === 'hidden_gem' || goal === 'surprise';
+  return {
+    form,
+    place: goal === 'place' ? place : null,
+    gemScores: usesGems ? new Map(gems.map((g) => [g.event.id, g.gemScore])) : null,
+    gems: usesGems ? gems : null,
+  };
 }
 
 /** Honest, goal-specific statement of what the ranking used. */
@@ -92,6 +102,10 @@ export function abilityNote(goal: Goal, user: UserRecord | null, context: Rankin
     case 'quiet':
       return 'Quiet ranks events by average field size. It does not depend on your ability.';
     case 'challenge':
-      return 'Challenge is not available yet; it does not use your ability.';
+      return 'Complete a challenge lists events that would complete a missing challenge item, nearest first. It does not depend on your ability.';
+    case 'surprise':
+      return formText
+        ? `Surprise me balances novelty, challenges, travel and Hidden Gem strength (which uses ${formText}). It is not a performance ranking.`
+        : 'Surprise me balances novelty, challenges, travel and Hidden Gem strength. It is not a performance ranking.';
   }
 }

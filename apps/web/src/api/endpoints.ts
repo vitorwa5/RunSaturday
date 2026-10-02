@@ -1,5 +1,4 @@
 import type {
-  BestPickResponse,
   ChallengeOpportunitiesResponse,
   ChallengeResult,
   ChallengesResponse,
@@ -19,9 +18,8 @@ import type {
   EventDetail,
   EventHistoryResponse,
   EventSummary,
-  Goal,
   HistoryWindowId,
-  PlannerResponse,
+  SaturdayRecommendationsResponse,
   UserProfile,
   RunnerForm,
   PerformanceInput,
@@ -29,7 +27,7 @@ import type {
   UserPerformance,
   UserPerformancesResponse,
 } from '@runsaturday/shared';
-import { plannerApiQuery, type PlannerSelection } from '../lib/plannerParams';
+import { saturdayApiQuery, type PlannerSelection } from '../lib/plannerParams';
 import { apiGet, apiSend } from './client';
 
 /** "current_form": the server uses the user's own Current Form (course-adjusted reference) instead of a time. */
@@ -53,9 +51,9 @@ export const api = {
   event: (id: string, signal?: AbortSignal) => apiGet<EventDetail>(`/events/${encodeURIComponent(id)}`, {}, signal),
   eventHistory: (id: string, window: HistoryWindowId, signal?: AbortSignal) =>
     apiGet<EventHistoryResponse>(`/events/${encodeURIComponent(id)}/history`, { window }, signal),
-  bestPick: (goal: Goal, signal?: AbortSignal) => apiGet<BestPickResponse>('/recommendations/best-pick', { goal }, signal),
-  planner: (selection: PlannerSelection, signal?: AbortSignal) =>
-    apiGet<PlannerResponse>('/planner', plannerApiQuery(selection), signal),
+  /** One orchestrated answer for an intent (Home and the Saturday Planner). */
+  saturday: (selection: PlannerSelection, signal?: AbortSignal) =>
+    apiGet<SaturdayRecommendationsResponse>('/saturday/recommendations', saturdayApiQuery(selection), signal),
   profile: (signal?: AbortSignal) => apiGet<UserProfile>('/profile', {}, signal),
   performances: (q: { eventId?: string; limit?: number }, signal?: AbortSignal) => apiGet<UserPerformancesResponse>('/profile/performances', q, signal),
   performance: (id: string, signal?: AbortSignal) => apiGet<UserPerformance>(`/profile/performances/${encodeURIComponent(id)}`, {}, signal),

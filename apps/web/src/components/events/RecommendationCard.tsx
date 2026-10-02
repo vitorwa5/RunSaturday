@@ -7,6 +7,7 @@ import { ConfidenceBadge } from '../ui/ConfidenceBadge';
 import { DemoBadge } from '../ui/DemoBadge';
 import { RankedMetric } from './RankedMetric';
 import { WhyThisButton, WhyThisPanel } from './WhyThis';
+import { DataConfidencePill, WhyThisOne } from './WhyThisOne';
 
 export type SecondaryMetric = 'pb_score' | 'course_speed' | 'difficulty' | 'competition_score' | 'average_participants' | 'elevation' | 'surface';
 
@@ -22,7 +23,7 @@ interface RecommendationCardProps {
 
 /** Ranked result card (Planner, PB Finder): the ranking metric leads, other metrics are secondary. */
 export function RecommendationCard({ recommendation, secondary: secondaryKeys = DEFAULT_SECONDARY, metricLabel }: RecommendationCardProps) {
-  const { rank, event, rankedBy, highlights, reasons } = recommendation;
+  const { rank, event, rankedBy, highlights, reasons, why, dataConfidence } = recommendation;
   const [showWhy, setShowWhy] = useState(false);
   const whyId = useId();
   const s = event.scores;
@@ -75,6 +76,12 @@ export function RecommendationCard({ recommendation, secondary: secondaryKeys = 
         )}
       </div>
 
+      {why && why.length > 0 && (
+        <div className="mt-3">
+          <WhyThisOne why={why.slice(0, 2)} label={`Why ${event.name}`} compact />
+        </div>
+      )}
+
       <dl className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-line pt-3 text-xs">
         {secondary.map((m) => (
           <div key={m.key} className="flex gap-1">
@@ -82,12 +89,13 @@ export function RecommendationCard({ recommendation, secondary: secondaryKeys = 
             <dd className="font-bold tabular-nums">{m.value}</dd>
           </div>
         ))}
-        <div>
-          <dt className="sr-only">Data confidence</dt>
-          <dd>
-            <ConfidenceBadge level={s?.pbConfidence ?? 'insufficient'} sampleSize={s?.sampleSize} compact />
-          </dd>
-        </div>
+        {/* The orchestrator states the evidence for this intent; null = it rests on the runner's own history. */}
+        {dataConfidence !== null && (
+          <div>
+            <dt className="sr-only">Data confidence</dt>
+            <dd>{dataConfidence ? <DataConfidencePill note={dataConfidence} /> : <ConfidenceBadge level={s?.pbConfidence ?? 'insufficient'} sampleSize={s?.sampleSize} compact />}</dd>
+          </div>
+        )}
       </dl>
 
       <div className="mt-3 grid grid-cols-2 gap-2">

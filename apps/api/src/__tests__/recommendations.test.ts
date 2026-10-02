@@ -1,16 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { bestPick, highlights, rankEvents } from '../services/recommendations';
+import type { EventSummary, Goal } from '@runsaturday/shared';
+import { highlights, rankEvents } from '../services/recommendations';
 import { makeEvent } from './helpers';
 
-const opts = { date: '2026-10-03', maxTravelMinutes: 45 };
+/** First result and the next three, as the Saturday orchestrator presents them. */
+function bestPick(goal: Goal, events: EventSummary[]) {
+  const r = rankEvents(goal, events, 45);
+  return { pick: r.results[0] ?? null, alternatives: r.results.slice(1, 4), method: r.method, unavailable: r.unavailableMessage };
+}
 
-describe('bestPick (Phase 1 placeholder ranking)', () => {
+describe('rankEvents: best match and alternatives (single-metric intents)', () => {
   it('ranks PB goal by PB Score, highest first, and explains the metric', () => {
     const events = [
       makeEvent({ id: 'a', scores: { ...makeEvent({ id: 'x' }).scores!, pbScore: 70 } }),
       makeEvent({ id: 'b', scores: { ...makeEvent({ id: 'x' }).scores!, pbScore: 91 } }),
     ];
-    const res = bestPick('pb', events, opts);
+    const res = bestPick('pb', events);
     expect(res.pick?.event.id).toBe('b');
     expect(res.pick?.rankedBy).toEqual({ key: 'pb_score', label: 'PB opportunity', value: 91, outOf: 100, direction: 'higher_is_better' });
     expect(res.pick?.rank).toBe(1);
@@ -25,7 +30,7 @@ describe('bestPick (Phase 1 placeholder ranking)', () => {
       makeEvent({ id: 'new', scores: { ...base, pbScore: 99, pbConfidence: 'insufficient', sampleSize: 3 } }),
       makeEvent({ id: 'established', scores: { ...base, pbScore: 80 } }),
     ];
-    const res = bestPick('pb', events, opts);
+    const res = bestPick('pb', events);
     expect(res.pick?.event.id).toBe('established');
     const limited = res.alternatives[0]!;
     expect(limited.event.id).toBe('new');
@@ -37,7 +42,6 @@ describe('bestPick (Phase 1 placeholder ranking)', () => {
     const res = bestPick(
       'place',
       [makeEvent({ id: 'hard', scores: { ...base, competitionScore: 80 } }), makeEvent({ id: 'easy', scores: { ...base, competitionScore: 40 } })],
-      opts,
     );
     expect(res.pick?.event.id).toBe('easy');
   });
@@ -50,31 +54,31 @@ describe('bestPick (Phase 1 placeholder ranking)', () => {
         makeEvent({ id: 'far', travel: { distanceKm: 20, minutes: 35, method: 'straight_line_estimate' } }),
         makeEvent({ id: 'near', travel: { distanceKm: 8, minutes: 15, method: 'straight_line_estimate' } }),
       ],
-      opts,
     );
     expect(res.pick?.event.id).toBe('near');
     expect(res.alternatives.map((a) => a.event.id)).toEqual(['far']);
   });
 
-  it('respects the travel limit and explains an empty result', () => {
-    const res = bestPick('pb', [makeEvent({ id: 'far', travel: { distanceKm: 90, minutes: 95, method: 'straight_line_estimate' } })], opts);
+  it('respects the travel limit', () => {
+    const res = bestPick('pb', [makeEvent({ id: 'far', travel: { distanceKm: 90, minutes: 95, method: 'straight_line_estimate' } })]);
     expect(res.pick).toBeNull();
-    expect(res.message).toMatch(/within 45 minutes/);
   });
 
-  it('reports Challenge as not yet available instead of guessing', () => {
-    const res = bestPick('challenge', [makeEvent({ id: 'a' })], opts);
-    expect(res.pick).toBeNull();
-    expect(res.message).toMatch(/^Challenge ranking in the Saturday Planner is not available yet\. My Challenges shows your progress/);
+  it('leaves Challenge and Surprise me to the Saturday orchestrator instead of guessing', () => {
+    for (const goal of ['challenge', 'surprise'] as const) {
+      const res = bestPick(goal, [makeEvent({ id: 'a' })]);
+      expect(res.pick).toBeNull();
+      expect(res.unavailable).toBe('This intent is ranked by the Saturday orchestrator.');
+    }
   });
 
   it('explains travel relative to the travel limit, labelled as an estimate', () => {
-    const res = bestPick('pb', [makeEvent({ id: 'a' })], opts);
+    const res = bestPick('pb', [makeEvent({ id: 'a' })]);
     expect(res.pick?.reasons.map((r) => r.text)).toContain('Within your travel limit (about 20 of 45 min, estimated)');
   });
 
   it('is deterministic for ties (alphabetical)', () => {
-    const res = bestPick('pb', [makeEvent({ id: 'zeta' }), makeEvent({ id: 'alpha' })], opts);
+    const res = bestPick('pb', [makeEvent({ id: 'zeta' }), makeEvent({ id: 'alpha' })]);
     expect(res.pick?.event.id).toBe('alpha');
   });
 });

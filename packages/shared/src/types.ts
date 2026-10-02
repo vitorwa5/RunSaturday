@@ -127,7 +127,7 @@ export interface Recommendation {
   /** The metric the pick was ranked by, so the UI never shows an unexplained number. */
   rankedBy: {
     /** Stable identifier of the metric, for display logic. */
-    key: 'pb_score' | 'competition_score' | 'gem_score' | 'travel_minutes' | 'average_participants' | 'historical_top10';
+    key: 'pb_score' | 'competition_score' | 'gem_score' | 'travel_minutes' | 'average_participants' | 'historical_top10' | 'typical_participants' | 'interest_signals';
     label: string;
     value: number | null;
     unit?: string;
@@ -139,6 +139,22 @@ export interface Recommendation {
   highlights: string[];
   /** Full "Why this?" explanation. */
   reasons: RecommendationReason[];
+  /** "Why this one": 2–4 concise reasons for the selected intent (Saturday orchestrator). */
+  why?: string[];
+  /**
+   * Confidence in the evidence behind THIS intent's ranking (e.g. course speed for Run faster,
+   * placement history for Finish higher, field-size history for Quiet). Null when the ranking
+   * rests only on the runner's own history and the event list (Somewhere new, Challenge).
+   */
+  dataConfidence?: DataConfidenceNote | null;
+}
+
+export interface DataConfidenceNote {
+  level: ConfidenceLevel;
+  /** "High data confidence", "Medium data confidence", "Low data confidence" or "Limited data". */
+  label: string;
+  /** What the confidence is about, e.g. "Course speed from matched runners". */
+  basis: string;
 }
 
 export interface BestPickResponse {
@@ -908,4 +924,42 @@ export interface ExploreSummary {
   challengesCompleted: number;
   challenges: { id: string; name: string; status: ChallengeStatus; progress: ChallengeResult['progress'] }[];
   visitedEvents: VisitedEvent[];
+}
+
+// ---------------------------------------------------------------------------
+// Saturday orchestration (Phase 5B)
+// ---------------------------------------------------------------------------
+
+/** The challenge context of a "Complete a challenge" request. */
+export interface SaturdayChallengeContext {
+  challengeId: string;
+  challengeName: string;
+  progress: ChallengeResult['progress'];
+  /** The chosen missing item, or null for "any missing item". */
+  itemKey: string | null;
+  /** Missing items with how many events in the current dataset would complete each. */
+  missingItems: { key: string; label: string; opportunities: number }[];
+  /** Challenges that can be chosen. */
+  challenges: { id: string; name: string; status: ChallengeStatus }[];
+}
+
+/**
+ * GET /api/saturday/recommendations: one orchestrated answer to "Where should I run this
+ * Saturday?" for one intent. Home shows the best match and a few alternatives; the Saturday
+ * Planner shows everything. It extends the planner response, which it replaces underneath.
+ */
+export interface SaturdayRecommendationsResponse extends PlannerResponse {
+  intent: Goal;
+  /** Best match for the intent and the active constraints (not "the best event"). */
+  bestPick: Recommendation | null;
+  alternatives: Recommendation[];
+  /** Constraints the intent applied by itself, e.g. "Only events you have not visited". */
+  defaultsApplied: string[];
+  challenge: SaturdayChallengeContext | null;
+  /** Honest caveats specific to this answer (fallbacks, limited evidence). */
+  limitations: string[];
+  /** Why some candidates are not shown, e.g. "2 matching events are beyond 30 min". */
+  exclusions: string[];
+  /** Surprise me only: which rotation of the shortlist is shown. */
+  surprise: { offset: number; shortlist: number } | null;
 }

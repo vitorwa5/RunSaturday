@@ -1,29 +1,27 @@
-import {
-  activeFilterCount,
-  DEFAULT_PLANNER_FILTERS,
-  formatShortDate,
-  goalDefinition,
-  PLANNER_FILTER_KEYS,
-  TRAVEL_LIMIT_OPTIONS,
-  type Goal,
-  type PlannerResponse,
-} from '@runsaturday/shared';
-import { Columns3, Flag, Home, Info, RotateCcw, SearchX } from 'lucide-react';
+import { activeFilterCount, DEFAULT_PLANNER_FILTERS, GOALS, type Goal, formatShortDate, PLANNER_FILTER_KEYS, TRAVEL_LIMIT_OPTIONS, type SaturdayRecommendationsResponse } from '@runsaturday/shared';
+import { Columns3, Home, Info, RefreshCw, RotateCcw, SearchX } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { RecommendationCard } from '../components/events/RecommendationCard';
+import { BestPickCard } from '../components/events/BestPickCard';
+import { RecommendationCard, type SecondaryMetric } from '../components/events/RecommendationCard';
+import { IntentSelector } from '../components/goals/IntentSelector';
 import { ToolLinks } from '../components/navigation/ToolLinks';
-import { FilterPanel } from '../components/ui/FilterPanel';
-import { GoalSelector } from '../components/goals/GoalSelector';
+import { ChallengePicker } from '../components/saturday/ChallengePicker';
+import { SaturdayNotes } from '../components/saturday/SaturdayNotes';
 import { Button, ButtonLink } from '../components/ui/Button';
 import { ChoiceChips } from '../components/ui/ChoiceChips';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ErrorState } from '../components/ui/ErrorState';
+import { FilterPanel } from '../components/ui/FilterPanel';
 import { LoadingState } from '../components/ui/LoadingState';
 import { PageHeader, SectionHeading } from '../components/ui/PageHeader';
-import { usePlanner } from '../hooks/queries';
-import { parsePlannerParams, serializePlannerParams, type PlannerSelection } from '../lib/plannerParams';
+import { useSaturday } from '../hooks/queries';
+import { parsePlannerParams, serializePlannerParams, withIntent, type PlannerSelection } from '../lib/plannerParams';
 import { plannerSaturdays } from '../lib/saturday';
+
+/** Explore intents lead with course character, not performance metrics (those stay on the event page). */
+const EXPLORE_INTENTS: ReadonlySet<Goal> = new Set(GOALS.filter((g) => g.pillar === 'explore').map((g) => g.id));
+const EXPLORE_SECONDARY: SecondaryMetric[] = ['surface', 'elevation', 'average_participants'];
 
 function Step({ number, title, children, aside }: { number: number; title: string; children: ReactNode; aside?: ReactNode }) {
   return (
@@ -45,69 +43,74 @@ function Step({ number, title, children, aside }: { number: number; title: strin
 function Results({
   data,
   isPlaceholderData,
-  goal,
   onResetFilters,
+  onAnother,
 }: {
-  data: PlannerResponse;
+  data: SaturdayRecommendationsResponse;
   isPlaceholderData: boolean;
-  goal: Goal;
   onResetFilters: () => void;
+  onAnother: () => void;
 }) {
-  const isDemo = data.results.some((r) => r.event.source === 'demo');
-
-  if (data.results.length === 0) {
-    const filtersBlocking = activeFilterCount(data.filters) > 0 && data.counts.withinTravel > 0 && data.counts.matchingFilters === 0;
-    const unavailable = !goalDefinition(goal).available;
+  if (!data.bestPick) {
+    const filtersBlocking = activeFilterCount(data.filters) > 0 && data.counts.withinTravel > 0 && (data.counts.matchingFilters === 0 || data.defaultsApplied.length > 0);
     return (
-      <EmptyState
-        icon={unavailable ? Flag : SearchX}
-        title={filtersBlocking ? 'No events match these filters.' : unavailable ? `${goalDefinition(goal).longLabel} isn't available yet` : 'No events to show'}
-        description={filtersBlocking ? 'Try removing a filter or increasing your travel limit.' : (data.message ?? 'Try changing your plan.')}
-        action={
-          filtersBlocking ? (
-            <Button onClick={onResetFilters}>
-              <RotateCcw className="size-4" aria-hidden />
-              Reset filters
-            </Button>
-          ) : undefined
-        }
-      />
+      <div className="space-y-3">
+        <EmptyState
+          icon={SearchX}
+          title={data.counts.matchingFilters === 0 && filtersBlocking ? 'No events match these filters.' : 'No events to show'}
+          description={data.message ?? 'Try changing your plan.'}
+          action={
+            filtersBlocking ? (
+              <Button onClick={onResetFilters}>
+                <RotateCcw className="size-4" aria-hidden />
+                Reset filters
+              </Button>
+            ) : undefined
+          }
+        />
+        <SaturdayNotes data={data} />
+      </div>
     );
   }
 
-  const rankedByLabel = data.results[0]!.rankedBy.label;
+  const others = data.results.slice(1);
   return (
-    <div className={isPlaceholderData ? 'opacity-60 transition-opacity' : 'transition-opacity'} aria-busy={isPlaceholderData}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm text-muted" aria-live="polite">
-            <strong className="font-bold text-ink">
-              {data.results.length} {data.results.length === 1 ? 'event' : 'events'}
-            </strong>{' '}
-            within {data.maxTravelMinutes} min · ranked by {rankedByLabel.toLowerCase().replace(/\bpb\b/g, 'PB')}
-          </p>
-          <p className="mt-0.5 text-xs text-subtle">
-            {isDemo ? 'Demo recommendation' : 'Recommendation'} · {data.method}
-          </p>
-        </div>
-        {data.results.length >= 2 && (
-          <ButtonLink
-            to={`/compare?ids=${data.results.slice(0, 3).map((r) => r.event.id).join(',')}`}
-            variant="ghost"
-            className="min-h-9 shrink-0 px-2"
+    <div className={isPlaceholderData ? 'space-y-4 opacity-60 transition-opacity' : 'space-y-4 transition-opacity'} aria-busy={isPlaceholderData}>
+      <p className="text-sm text-muted" aria-live="polite">
+        <strong className="font-bold text-ink">
+          {data.results.length} {data.results.length === 1 ? 'event' : 'events'}
+        </strong>{' '}
+        within {data.maxTravelMinutes} min
+      </p>
+      <BestPickCard recommendation={data.bestPick} method={data.method} />
+      {data.intent === 'surprise' && data.surprise && data.surprise.shortlist > 1 && (
+        <Button variant="secondary" className="w-full" onClick={onAnother}>
+          <RefreshCw className="size-4" aria-hidden />
+          Show me another
+        </Button>
+      )}
+      <SaturdayNotes data={data} />
+      {others.length > 0 && (
+        <section aria-labelledby="other-good-options">
+          <SectionHeading
+            action={
+              <ButtonLink to={`/compare?ids=${data.results.slice(0, 3).map((r) => r.event.id).join(',')}`} variant="ghost" className="min-h-9 shrink-0 px-2">
+                <Columns3 className="size-4" aria-hidden />
+                Compare top {Math.min(3, data.results.length)}
+              </ButtonLink>
+            }
           >
-            <Columns3 className="size-4" aria-hidden />
-            Compare top {Math.min(3, data.results.length)}
-          </ButtonLink>
-        )}
-      </div>
-      <ol className="mt-3 space-y-3">
-        {data.results.map((r) => (
-          <li key={r.event.id}>
-            <RecommendationCard recommendation={r} />
-          </li>
-        ))}
-      </ol>
+            <span id="other-good-options">Other good options</span>
+          </SectionHeading>
+          <ol className="space-y-3">
+            {others.map((r) => (
+              <li key={r.event.id}>
+                <RecommendationCard recommendation={r} secondary={EXPLORE_INTENTS.has(data.intent) ? EXPLORE_SECONDARY : undefined} />
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
     </div>
   );
 }
@@ -115,24 +118,38 @@ function Results({
 export function SaturdayPage() {
   const [params, setParams] = useSearchParams();
   const selection = parsePlannerParams(params);
-  const { data, isPending, isError, error, refetch, isPlaceholderData } = usePlanner(selection);
+  const { data, isPending, isError, error, refetch, isPlaceholderData } = useSaturday(selection);
 
-  const update = (patch: Partial<PlannerSelection>) =>
-    setParams(serializePlannerParams({ ...selection, ...patch }), { replace: true, preventScrollReset: true });
+  const set = (next: PlannerSelection) => setParams(serializePlannerParams(next), { replace: true, preventScrollReset: true });
+  const update = (patch: Partial<PlannerSelection>) => set({ ...selection, ...patch });
   const resetFilters = () => update({ filters: DEFAULT_PLANNER_FILTERS });
 
-  // Server-resolved defaults (profile travel limit, preferred goal) fill unset selections.
+  // Server-resolved defaults (profile travel limit, preferred intent) fill unset selections.
   const dates = data?.availableDates ?? plannerSaturdays();
   const date = selection.date ?? data?.date ?? dates[0];
-  const goal = selection.goal ?? data?.goal ?? 'pb';
+  const intent = selection.intent ?? data?.intent ?? 'pb';
   const maxTravel = selection.maxTravel ?? data?.maxTravelMinutes;
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Plan My Saturday" subtitle="Choose your goal and limits. We'll rank the events for you." />
+      <PageHeader title="Plan My Saturday" subtitle="Say what you're looking for. Your limits and filters stay as you switch." />
 
       <section aria-label="Your plan" className="divide-y divide-line rounded-3xl border border-line bg-surface p-4">
-        <Step number={1} title="Date">
+        <Step number={1} title="What are you looking for?">
+          <IntentSelector
+            value={intent}
+            // Switching keeps travel, date and filters; only intent-specific state is dropped.
+            onChange={(i) => set(withIntent({ ...selection, ...(maxTravel != null ? { maxTravel } : {}) }, i))}
+            label="What are you looking for?"
+          />
+          {intent === 'challenge' && data?.challenge && (
+            <div className="mt-3">
+              <ChallengePicker context={data.challenge} onChange={(c) => set({ ...selection, intent, challenge: c.challenge, item: c.item })} />
+            </div>
+          )}
+        </Step>
+
+        <Step number={2} title="Date">
           <ChoiceChips
             label="Date"
             scroll
@@ -142,7 +159,7 @@ export function SaturdayPage() {
           />
         </Step>
 
-        <Step number={2} title="Starting point">
+        <Step number={3} title="Starting point">
           <p className="mb-2.5 flex items-center gap-1.5 text-sm">
             <Home className="size-4 text-subtle" aria-hidden />
             <span className="text-muted">Starting from</span>
@@ -161,7 +178,7 @@ export function SaturdayPage() {
           />
         </Step>
 
-        <Step number={3} title="Travel limit" aside={<span className="text-xs text-subtle">Estimated travel</span>}>
+        <Step number={4} title="Travel limit" aside={<span className="text-xs text-subtle">Estimated travel</span>}>
           <ChoiceChips
             label="Maximum estimated travel"
             scroll
@@ -169,10 +186,6 @@ export function SaturdayPage() {
             value={maxTravel}
             onChange={(m) => update({ maxTravel: m })}
           />
-        </Step>
-
-        <Step number={4} title="Goal">
-          <GoalSelector value={goal} onChange={(g) => update({ goal: g })} labels="long" label="Goal" />
         </Step>
 
         <FilterPanel
@@ -200,7 +213,12 @@ export function SaturdayPage() {
         ) : isError ? (
           <ErrorState error={error} title="Your plan could not be calculated" onRetry={() => refetch()} />
         ) : (
-          <Results data={data} isPlaceholderData={isPlaceholderData} goal={goal} onResetFilters={resetFilters} />
+          <Results
+            data={data}
+            isPlaceholderData={isPlaceholderData}
+            onResetFilters={resetFilters}
+            onAnother={() => update({ intent, offset: (data.surprise?.offset ?? 0) + 1 })}
+          />
         )}
         {data && (
           <ul className="mt-4 space-y-1">

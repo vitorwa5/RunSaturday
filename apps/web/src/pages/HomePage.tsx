@@ -1,33 +1,61 @@
-import { formatLongDate, goalDefinition, type Goal } from '@runsaturday/shared';
-import { ArrowRight, Flag, SearchX } from 'lucide-react';
-import { useState } from 'react';
-import { Link } from 'react-router';
+import { DEFAULT_PLANNER_FILTERS, formatFinishTime, formatLongDate, type Goal, type SaturdayRecommendationsResponse } from '@runsaturday/shared';
+import { ArrowRight, RefreshCw, SearchX } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router';
 import { BestPickCard } from '../components/events/BestPickCard';
 import { EventCard } from '../components/events/EventCard';
-import { ChallengeProgressCard } from '../components/explore/ChallengeProgressCard';
-import { GoalSelector } from '../components/goals/GoalSelector';
+import { IntentSelector } from '../components/goals/IntentSelector';
 import { ToolLinks } from '../components/navigation/ToolLinks';
+import { ChallengePicker } from '../components/saturday/ChallengePicker';
+import { SaturdayNotes } from '../components/saturday/SaturdayNotes';
 import { AlertBanner } from '../components/ui/AlertBanner';
-import { ButtonLink } from '../components/ui/Button';
+import { Button, ButtonLink } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ErrorState } from '../components/ui/ErrorState';
 import { LoadingState } from '../components/ui/LoadingState';
 import { SectionHeading } from '../components/ui/PageHeader';
-import { useBestPick, useChallenges, useProfile } from '../hooks/queries';
+import { useProfile, useSaturday } from '../hooks/queries';
+import { parsePlannerParams, saturdayLink, withIntent, type PlannerSelection } from '../lib/plannerParams';
 import { upcomingSaturday } from '../lib/saturday';
 
-function plannerLink(goal: Goal) {
-  return `/saturday?goal=${goal}`;
+/** Intent-specific context shown above the best match (only what the intent needs). */
+function IntentContext({ data, selection, onChange }: { data: SaturdayRecommendationsResponse; selection: PlannerSelection; onChange: (s: PlannerSelection) => void }) {
+  const { data: profile } = useProfile();
+  switch (data.intent) {
+    case 'pb':
+    case 'place': {
+      const form = profile?.currentForm;
+      return form?.status === 'estimate' && form.formSeconds != null ? (
+        <p className="text-sm text-muted">
+          Your Current Form <strong className="text-ink tabular-nums">≈ {formatFinishTime(form.formSeconds)}</strong> ({form.confidence.level} confidence) ·{' '}
+          <Link to="/profile/current-form" className="font-semibold text-brand-700">
+            How it's calculated
+          </Link>
+        </p>
+      ) : (
+        <p className="text-sm text-muted">Current Form is unavailable, so no Current Form equivalents are shown.</p>
+      );
+    }
+    case 'new_event':
+      return (
+        <p className="text-sm text-muted">
+          <strong className="text-ink tabular-nums">{data.results.length}</strong> {data.results.length === 1 ? 'event' : 'events'} new to you within {data.maxTravelMinutes} min
+        </p>
+      );
+    case 'challenge':
+      return data.challenge ? <ChallengePicker context={data.challenge} onChange={(c) => onChange({ ...selection, challenge: c.challenge, item: c.item })} /> : null;
+    default:
+      return null;
+  }
 }
 
-/** Best pick for the chosen goal, plus a few alternatives, from one request. */
-function Recommendations({ goal }: { goal: Goal }) {
-  const { data, isPending, isError, error, refetch, isPlaceholderData } = useBestPick(goal);
+/** Best match for the selected intent and a few other good options, from the Saturday orchestrator. */
+function Recommendations({ selection, onChange }: { selection: PlannerSelection; onChange: (s: PlannerSelection) => void }) {
+  const { data, isPending, isError, error, refetch, isPlaceholderData } = useSaturday(selection);
 
   if (isPending) {
     return (
       <>
-        <LoadingState variant="card" label="Finding your best pick" />
+        <LoadingState variant="card" label="Finding your best match" />
         <div className="mt-6">
           <LoadingState rows={3} label="Loading other options" />
         </div>
@@ -36,90 +64,61 @@ function Recommendations({ goal }: { goal: Goal }) {
   }
   if (isError) return <ErrorState error={error} title="Recommendations could not be loaded" onRetry={() => refetch()} />;
 
-  const busy = isPlaceholderData ? 'opacity-60 transition-opacity' : 'transition-opacity';
-
-  if (!data.pick) {
-    const unavailable = !goalDefinition(goal).available;
-    return (
-      <EmptyState
-        icon={unavailable ? Flag : SearchX}
-        title={unavailable ? `${goalDefinition(goal).label} isn't available yet` : 'No pick for this goal yet'}
-        description={data.message ?? 'Try another goal.'}
-        action={
-          unavailable ? undefined : (
-            <ButtonLink to={plannerLink(goal)} variant="secondary">
-              Adjust in the planner
-            </ButtonLink>
-          )
-        }
-      />
-    );
-  }
+  const plan = saturdayLink({ ...selection, intent: data.intent });
+  const busy = isPlaceholderData ? 'space-y-4 opacity-60 transition-opacity' : 'space-y-4 transition-opacity';
 
   return (
     <div className={busy} aria-busy={isPlaceholderData}>
-      <BestPickCard recommendation={data.pick} method={data.method} />
+      <IntentContext data={data} selection={selection} onChange={onChange} />
+      {data.bestPick ? (
+        <>
+          <BestPickCard recommendation={data.bestPick} method={data.method} />
+          {data.intent === 'surprise' && data.surprise && data.surprise.shortlist > 1 && (
+            <Button variant="secondary" className="w-full" onClick={() => onChange({ ...selection, offset: data.surprise!.offset + 1 })}>
+              <RefreshCw className="size-4" aria-hidden />
+              Show me another
+            </Button>
+          )}
+          <SaturdayNotes data={data} compact />
+          {data.alternatives.length === 0 && (
+            <ButtonLink to={plan} variant="ghost" className="min-h-9 px-2">
+              Plan in detail <ArrowRight className="size-4" aria-hidden />
+            </ButtonLink>
+          )}
+        </>
+      ) : (
+        <EmptyState
+          icon={SearchX}
+          title="No match for this goal yet"
+          description={data.message ?? 'Try another goal.'}
+          action={
+            <ButtonLink to={plan} variant="secondary">
+              Adjust in the planner
+            </ButtonLink>
+          }
+        />
+      )}
       {data.alternatives.length > 0 && (
-        <section aria-labelledby="other-options" className="mt-8">
+        <section aria-labelledby="other-options" className="pt-4">
           <SectionHeading
             action={
-              <ButtonLink to={plannerLink(goal)} variant="ghost" className="min-h-8 px-2">
+              <ButtonLink to={plan} variant="ghost" className="min-h-8 px-2">
                 Plan in detail <ArrowRight className="size-4" aria-hidden />
               </ButtonLink>
             }
           >
-            <span id="other-options">Other options</span>
+            <span id="other-options">Other good options</span>
           </SectionHeading>
           <ul className="space-y-2">
             {data.alternatives.map((r) => (
               <li key={r.event.id}>
-                <EventCard event={r.event} />
+                <EventCard event={r.event} variant={r.dataConfidence === null ? 'explore' : 'performance'} />
               </li>
             ))}
           </ul>
         </section>
       )}
     </div>
-  );
-}
-
-/**
- * "Challenge" on Home: progress and the events in the dataset that would move it on. The planner
- * cannot rank by challenge yet, so this lists honestly instead of recommending one pick.
- */
-function ChallengeOptions() {
-  const { data, isPending, isError, error, refetch } = useChallenges();
-  if (isPending) return <LoadingState variant="card" label="Loading challenges" />;
-  if (isError) return <ErrorState error={error} title="Challenges could not be loaded" onRetry={() => refetch()} />;
-  return (
-    <section aria-labelledby="challenge-options" className="space-y-3">
-      <SectionHeading>
-        <span id="challenge-options">Your challenges</span>
-      </SectionHeading>
-      {data.challenges.map((c) => {
-        const next = c.items.filter((i) => !i.completed && i.opportunities.length > 0);
-        return (
-          <div key={c.id} className="space-y-2">
-            <ChallengeProgressCard challenge={c} compact />
-            {next.length > 0 && (
-              <ul aria-label={`Events that would add to the ${c.name}`} className="space-y-1 text-sm">
-                {next.slice(0, 3).map((i) => (
-                  <li key={i.key} className="flex items-baseline gap-2">
-                    <span className="w-4 font-extrabold">{i.label}</span>
-                    <Link to={`/event/${i.opportunities[0]!.eventId}`} className="font-semibold text-brand-700">
-                      {i.opportunities[0]!.eventName}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        );
-      })}
-      <ButtonLink to="/challenges" variant="secondary">
-        My Challenges <ArrowRight className="size-4" aria-hidden />
-      </ButtonLink>
-    </section>
   );
 }
 
@@ -142,8 +141,18 @@ function AlertsSection() {
 
 export function HomePage() {
   const { data: profile } = useProfile();
-  const [goal, setGoal] = useState<Goal | null>(null);
-  const activeGoal = goal ?? profile?.preferredGoal ?? 'pb';
+  const [params, setParams] = useSearchParams();
+  // The intent lives in the URL (?intent=…), so Back and shared links keep it. Not stored.
+  const parsed = parsePlannerParams(params);
+  const intent: Goal = parsed.intent ?? profile?.preferredGoal ?? 'pb';
+  const selection: PlannerSelection = { ...parsed, intent, filters: DEFAULT_PLANNER_FILTERS };
+  const update = (next: PlannerSelection) => {
+    const q = new URLSearchParams({ intent: next.intent! });
+    if (next.intent === 'challenge' && next.challenge) q.set('challenge', next.challenge);
+    if (next.intent === 'challenge' && next.item) q.set('item', next.item);
+    if (next.intent === 'surprise' && next.offset) q.set('offset', String(next.offset));
+    setParams(q, { replace: true, preventScrollReset: true });
+  };
 
   return (
     <div className="space-y-8">
@@ -156,14 +165,14 @@ export function HomePage() {
         <h1 className="mt-0.5 text-[2rem] leading-tight font-extrabold tracking-tight">Where are you running?</h1>
       </header>
 
-      <section aria-labelledby="goal-heading">
+      <section aria-labelledby="intent-heading">
         <SectionHeading>
-          <span id="goal-heading">What do you want this Saturday?</span>
+          <span id="intent-heading">What are you looking for this Saturday?</span>
         </SectionHeading>
-        <GoalSelector value={activeGoal} onChange={setGoal} isSoon={() => false} />
+        <IntentSelector value={intent} onChange={(i) => update(withIntent(selection, i))} />
       </section>
 
-      {activeGoal === 'challenge' ? <ChallengeOptions /> : <Recommendations goal={activeGoal} />}
+      <Recommendations selection={selection} onChange={update} />
 
       <section aria-labelledby="tools-heading">
         <SectionHeading>

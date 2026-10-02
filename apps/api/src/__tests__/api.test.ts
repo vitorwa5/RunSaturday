@@ -148,11 +148,12 @@ describe('API', () => {
       expect(body.results.every((r) => r.event.visited === false)).toBe(true);
     });
 
-    it('reports Challenge as unavailable instead of inventing results', async () => {
+    it('ranks Challenge by real challenge opportunities instead of inventing results', async () => {
       app = await buildTestApp();
-      const body = await plan('?goal=challenge');
-      expect(body.results).toEqual([]);
-      expect(body.message).toMatch(/^Challenge ranking in the Saturday Planner is not available yet\. My Challenges shows your progress/);
+      const body = await plan('?goal=challenge&maxTravel=90');
+      // Only events that complete a missing Alphabet letter (C, D, E, H, M, O in the demo dataset).
+      expect(body.results.map((r) => r.event.name[0]).sort()).toEqual(['C', 'D', 'E', 'H', 'M', 'O']);
+      expect(body.results.every((r) => r.event.visited === false)).toBe(true);
     });
 
     it('rejects dates outside the planning horizon and unknown filter values', async () => {

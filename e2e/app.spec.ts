@@ -5,10 +5,11 @@ async function expectNoHorizontalScroll(page: Page) {
   expect(overflow).toBeLessThanOrEqual(0);
 }
 
-const bestPick = (page: Page) => page.getByRole('region', { name: 'Your best pick' });
+const bestPick = (page: Page) => page.getByRole('region', { name: 'Best match for your goal' });
+const resultCount = async (page: Page) => Number((await page.getByText(/^\d+ events? within \d+ min$/).textContent())!.match(/^\d+/)![0]);
 
 test.describe('Home', () => {
-  test('answers "Where are you running?" with an explained best pick', async ({ page }) => {
+  test('answers "Where are you running?" with an explained best match', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveTitle('5K Compass · Your guide to Saturday 5Ks');
     await expect(page.getByText('5K Compass', { exact: true })).toBeVisible();
@@ -16,10 +17,18 @@ test.describe('Home', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Where are you running?' })).toBeVisible();
     await expect(page.getByText(/^Saturday, \d{1,2} \w+$/)).toBeVisible();
     await expect(page.getByText('DEMO DATA')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'What are you looking for this Saturday?' })).toBeVisible();
+    await expect(page.getByRole('radiogroup', { name: 'What are you looking for this Saturday?' }).getByRole('radio', { name: 'Run faster' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByText('Find a course that suits a quick 5K.')).toBeVisible();
 
     const pick = bestPick(page);
     await expect(pick.getByRole('heading', { name: 'Dockside Promenade 5K' })).toBeVisible();
     await expect(pick.getByText('PB opportunity')).toBeVisible();
+    const whyOne = pick.getByRole('list', { name: 'Why this one' });
+    await expect(whyOne.getByRole('listitem')).toHaveCount(4);
+    await expect(whyOne.getByText('Historically one of the faster courses in the analysed cohort')).toBeVisible();
+    await expect(whyOne.getByText(/^Your Current Form ≈ 20:02 equates to ≈ \d{2}:\d{2} here$/)).toBeVisible();
+    await expect(pick.getByText(/^High data confidence/)).toBeVisible();
     await expect(pick.getByText('Fast · Flat · Tarmac')).toBeVisible();
     await expect(pick.getByText('Demo recommendation · ranked using PB Score')).toBeVisible();
     // No fake Saturday Score.
@@ -35,28 +44,29 @@ test.describe('Home', () => {
     await expectNoHorizontalScroll(page);
   });
 
-  test('changing the goal recalculates the pick and options', async ({ page }) => {
+  test('changing the intent recalculates the best match and options', async ({ page }) => {
     await page.goto('/');
     const pick = bestPick(page);
     await expect(pick.getByRole('heading', { name: 'Dockside Promenade 5K' })).toBeVisible();
 
-    await page.getByRole('radio', { name: /Quiet/ }).click();
-    await expect(page.getByRole('radio', { name: /Quiet/ })).toHaveAttribute('aria-checked', 'true');
-    await expect(pick.getByText('Average runners', { exact: true })).toBeVisible();
+    await page.getByRole('radio', { name: 'Quiet' }).click();
+    await expect(page.getByRole('radio', { name: 'Quiet' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page).toHaveURL(/\?intent=quiet$/);
+    await expect(pick.getByText('Typical runners', { exact: true })).toBeVisible();
+    await expect(pick.getByRole('list', { name: 'Why this one' }).getByText(/^Typically around \d+ runners \(median of \d+ events, last 90 days\)$/)).toBeVisible();
     await expect(pick.getByRole('heading', { name: 'Dockside Promenade 5K' })).toBeHidden();
 
-    // Challenge: real progress and matching events, not a ranked pick.
-    await page.getByRole('radio', { name: /Challenge/ }).click();
-    await expect(bestPick(page)).toHaveCount(0);
-    const challenges = page.getByRole('region', { name: 'Your challenges' });
-    await expect(challenges.getByRole('link', { name: /^Alphabet Challenge: 4 of 25 completed, 16%/ })).toBeVisible();
-    await expect(challenges.getByRole('list', { name: 'Events that would add to the Alphabet Challenge' }).getByRole('listitem')).toHaveCount(3);
+    // Challenge: real progress, a choice of missing item, and events that complete it.
+    await page.getByRole('radio', { name: 'Challenge' }).click();
+    const choice = page.getByRole('region', { name: 'Challenge choice' });
+    await expect(choice.getByText('4 / 25')).toBeVisible();
+    await expect(bestPick(page).getByRole('list', { name: 'Why this one' }).getByText(/^Completes Alphabet — [CDEHMO]$/)).toBeVisible();
     await expect(page.getByText(/Soon/)).toHaveCount(0);
   });
 
   test('shows other options that open the event page', async ({ page }) => {
     await page.goto('/');
-    const options = page.getByRole('region', { name: 'Other options' });
+    const options = page.getByRole('region', { name: 'Other good options' });
     await expect(options.getByRole('listitem')).toHaveCount(3);
     await options.getByRole('listitem').first().getByRole('link').click();
     await expect(page).toHaveURL(/\/event\/demo-/);
@@ -73,30 +83,32 @@ test.describe('Saturday Planner', () => {
     await expect(page.getByRole('radiogroup', { name: 'Maximum estimated travel' }).getByRole('radio', { name: '45 min' })).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByRole('radio', { name: 'Current location · Later' })).toBeDisabled();
 
-    const first = page.getByRole('article').first();
-    await expect(first).toHaveAccessibleName('Rank 1: Dockside Promenade 5K');
-    await first.getByRole('button', { name: 'Why this?' }).click();
-    await expect(first.getByText('Within your travel limit (about 45 of 45 min, estimated)')).toBeVisible();
+    const best = bestPick(page);
+    await expect(best.getByRole('heading', { name: 'Dockside Promenade 5K' })).toBeVisible();
+    await best.getByRole('button', { name: 'Why this?' }).click();
+    await expect(best.getByText('Within your travel limit (about 45 of 45 min, estimated)')).toBeVisible();
+    // The rest of the ranking follows as "Other good options", from rank 2.
+    await expect(page.getByRole('region', { name: 'Other good options' }).getByRole('article').first()).toHaveAccessibleName(/^Rank 2: /);
     await expect(page.getByText(/not driving directions/)).toBeVisible();
     await expectNoHorizontalScroll(page);
   });
 
   test('travel limit and goal update results and are kept in the URL', async ({ page }) => {
     await page.goto('/saturday');
-    const results = page.getByRole('article');
-    await expect(results.first()).toBeVisible();
-    const before = await results.count();
+    await expect(bestPick(page)).toBeVisible();
+    const before = await resultCount(page);
 
     await page.getByRole('radiogroup', { name: 'Maximum estimated travel' }).getByRole('radio', { name: '15 min' }).click();
     await expect(page).toHaveURL(/travel=15/);
-    await expect.poll(() => results.count()).toBeLessThan(before);
+    await expect.poll(() => resultCount(page)).toBeLessThan(before);
 
-    await page.getByRole('radiogroup', { name: 'Goal' }).getByRole('radio', { name: /High Finish/ }).click();
-    await expect(page).toHaveURL(/goal=place/);
-    await expect(results.first().getByText('Competition', { exact: true }).first()).toBeVisible();
+    await page.getByRole('radiogroup', { name: 'What are you looking for?' }).getByRole('radio', { name: 'Finish higher' }).click();
+    await expect(page).toHaveURL(/intent=place/);
+    await expect(page).toHaveURL(/travel=15/); // the travel limit survives the intent switch
+    await expect(bestPick(page).getByText('Top 10 historically', { exact: true })).toBeVisible();
 
     // Selections survive opening an event and coming back.
-    await results.first().getByRole('link', { name: 'View event' }).click();
+    await bestPick(page).getByRole('link', { name: 'View event' }).click();
     await expect(page).toHaveURL(/\/event\//);
     await page.goBack();
     await expect(page.getByRole('radiogroup', { name: 'Maximum estimated travel' }).getByRole('radio', { name: '15 min' })).toHaveAttribute('aria-checked', 'true');
@@ -104,15 +116,16 @@ test.describe('Saturday Planner', () => {
 
   test('filters narrow results, and an empty result offers a reset', async ({ page }) => {
     await page.goto('/saturday?travel=90');
-    await expect(page.getByRole('article').first()).toBeVisible();
+    await expect(bestPick(page)).toBeVisible();
     await page.getByRole('button', { name: /Advanced filters/ }).click();
     await page.getByRole('radiogroup', { name: 'Surface' }).getByRole('radio', { name: 'Trail' }).click();
-    await expect(page.getByRole('article')).toHaveCount(2);
+    await expect(page.getByText('2 events within 90 min')).toBeVisible();
+    await expect(page.getByRole('article')).toHaveCount(1); // best match + one other good option
 
     await page.getByRole('radiogroup', { name: 'Maximum estimated travel' }).getByRole('radio', { name: '15 min' }).click();
     await expect(page.getByRole('heading', { name: 'No events match these filters.' })).toBeVisible();
     await page.getByRole('button', { name: 'Reset filters' }).last().click();
-    await expect(page.getByRole('article').first()).toBeVisible();
+    await expect(bestPick(page)).toBeVisible();
     await expect(page).not.toHaveURL(/surface=/);
   });
 
@@ -122,7 +135,7 @@ test.describe('Saturday Planner', () => {
     await expect(dates).toHaveCount(4);
     await dates.nth(1).click();
     await expect(page).toHaveURL(/date=\d{4}-\d{2}-\d{2}/);
-    await expect(page.getByRole('article').first()).toBeVisible();
+    await expect(bestPick(page)).toBeVisible();
   });
 });
 
@@ -423,10 +436,11 @@ test.describe('Core analytics (Phase 3A)', () => {
 test.describe('Course Speed & PB Score V1 (Phase 3B)', () => {
   test('PB Score V1 replaces the demo PB label across tools', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('region', { name: 'Your best pick' }).getByText('PB opportunity', { exact: true })).toBeVisible();
+    await expect(bestPick(page).getByText('PB opportunity', { exact: true })).toBeVisible();
     await expect(page.getByText(/Demo PB/)).toHaveCount(0);
     await page.goto('/saturday');
-    await expect(page.getByRole('article').first().getByText('PB opportunity', { exact: true })).toBeVisible();
+    await expect(bestPick(page).getByText('PB opportunity', { exact: true })).toBeVisible();
+    await expect(page.getByRole('article').first().getByText('PB Score', { exact: true })).toHaveCount(0); // ranked-by metric is not repeated
     await page.goto('/compare?ids=demo-riverside-5k,demo-lakeside-5k');
     await expect(page.getByRole('rowheader', { name: 'PB Score' })).toBeVisible();
     await expect(page.getByText(/Demo PB|PB Scores are demo/)).toHaveCount(0);
@@ -833,8 +847,9 @@ test.describe('Runner Form V1 (Phase 4B)', () => {
   test('Saturday Planner High Finish ranks by Current Form; PB says it does not use ability', async ({ page }) => {
     await page.goto('/saturday?goal=place&travel=90');
     await expect(page.getByRole('note', { name: 'Your ability reference' })).toContainText('High Finish uses your Current Form ≈ 20:02 (high confidence), converted to each course');
-    const first = page.getByRole('article').first();
+    const first = bestPick(page);
     await expect(first.getByText('Top 10 historically')).toBeVisible();
+    await expect(first.getByRole('list', { name: 'Why this one' }).getByText(/^Historically, your Current Form would have placed in the top 10 at \d+ of the last \d+ analysed events$/)).toBeVisible();
     await first.getByRole('button', { name: 'Why this?' }).click();
     await expect(first.getByText(/^Top 10 in \d+ of \d+ recent events with your Current Form ≈ 20:02/)).toBeVisible();
     await expectNoHorizontalScroll(page);
@@ -957,5 +972,126 @@ test.describe('Explore & Challenges (Phase 5A)', () => {
     await expect(visits.getByText('Helps with:')).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'Your history here' })).toBeVisible();
     await expectNoHorizontalScroll(page);
+  });
+});
+
+test.describe('Saturday intent & orchestration (Phase 5B)', () => {
+  const intents = (page: Page, name = 'What are you looking for this Saturday?') => page.getByRole('radiogroup', { name });
+
+  test('Home → Run faster → Saturday keeps the intent and shows the same best match', async ({ page }) => {
+    await page.goto('/');
+    await intents(page).getByRole('radio', { name: 'Run faster' }).click();
+    await expect(page.getByRole('link', { name: "How it's calculated" })).toBeVisible();
+    const homePick = await bestPick(page).getByRole('heading', { level: 2 }).textContent();
+    await page.getByRole('link', { name: /Plan in detail/ }).click();
+    await expect(page).toHaveURL(/\/saturday\?intent=pb$/);
+    await expect(intents(page, 'What are you looking for?').getByRole('radio', { name: 'Run faster' })).toHaveAttribute('aria-checked', 'true');
+    await expect(bestPick(page).getByRole('heading', { level: 2 })).toHaveText(homePick!); // one engine for Home and Saturday
+    await expectNoHorizontalScroll(page);
+  });
+
+  test('Home → Visit somewhere new → Saturday: only unvisited events, explore-style options', async ({ page }) => {
+    await page.goto('/');
+    await intents(page).getByRole('radio', { name: 'Somewhere new' }).click();
+    await expect(page.getByText(/^\d+ events? new to you within 45 min$/)).toBeVisible();
+    await expect(bestPick(page).getByRole('list', { name: 'Why this one' }).getByText('New to you')).toBeVisible();
+    const others = page.getByRole('region', { name: 'Other good options' });
+    await expect(others.getByText('Visited', { exact: true })).toHaveCount(0);
+    await expect(others.getByText(/^PB \d+/)).toHaveCount(0); // Explore cards, not performance badges
+    await page.getByRole('link', { name: /Plan in detail/ }).click();
+    await expect(page).toHaveURL(/intent=new_event/);
+    await expect(page.getByRole('list', { name: 'About these results' }).getByText('Only events you have not visited')).toBeVisible();
+    for (const card of await page.getByRole('article').all()) await expect(card.getByText('PB Score', { exact: true })).toHaveCount(0);
+    await expectNoHorizontalScroll(page);
+  });
+
+  test('Home → Complete a challenge → choose a missing letter → Saturday keeps the challenge', async ({ page }) => {
+    await page.goto('/');
+    await intents(page).getByRole('radio', { name: 'Challenge' }).click();
+    const missing = page.getByRole('region', { name: 'Challenge choice' }).getByRole('radiogroup', { name: 'Missing item' });
+    await expect(missing.getByRole('radio')).toHaveCount(7); // Any + C, D, E, H, M, O
+    await missing.getByRole('radio', { name: 'C', exact: true }).click();
+    await expect(page).toHaveURL(/intent=challenge&challenge=alphabet&item=C/);
+    await expect(bestPick(page).getByRole('heading', { name: 'Canal Towpath 5K' })).toBeVisible();
+    await expect(bestPick(page).getByRole('list', { name: 'Why this one' }).getByText('Completes Alphabet — C')).toBeVisible();
+    await page.getByRole('link', { name: /Plan in detail/ }).click();
+    await expect(page).toHaveURL(/\/saturday\?intent=challenge&challenge=alphabet&item=C$/);
+    await expect(page.getByRole('region', { name: 'Challenge choice' }).getByRole('radio', { name: 'C', exact: true })).toHaveAttribute('aria-checked', 'true');
+    // H is ~58 min away: beyond the default 45 min, explained rather than hidden; a longer limit finds it.
+    await page.goto('/saturday?intent=challenge&challenge=alphabet&item=H');
+    await expect(page.getByText('1 matching event is beyond 45 min or outside your filters.')).toBeVisible();
+    await page.getByRole('radiogroup', { name: 'Maximum estimated travel' }).getByRole('radio', { name: '60 min' }).click();
+    await expect(page.getByRole('region', { name: 'Challenge choice' }).getByRole('radio', { name: 'H', exact: true })).toHaveAttribute('aria-checked', 'true');
+    await expect(bestPick(page).getByRole('heading', { name: 'Heath Common 5K' })).toBeVisible();
+    await expect(page).toHaveURL(/item=H/); // the challenge item survives the travel change
+    await expectNoHorizontalScroll(page);
+  });
+
+  test('Saturday: travel limit survives switching intent, and the results recompute', async ({ page }) => {
+    await page.goto('/saturday');
+    await page.getByRole('radiogroup', { name: 'Maximum estimated travel' }).getByRole('radio', { name: '30 min' }).click();
+    await expect(page).toHaveURL(/travel=30/);
+    for (const name of ['Challenge', 'Quiet', 'Hidden gem', 'Run faster']) {
+      await intents(page, 'What are you looking for?').getByRole('radio', { name }).click();
+      await expect(page).toHaveURL(/travel=30/);
+      await expect(page.getByRole('radiogroup', { name: 'Maximum estimated travel' }).getByRole('radio', { name: '30 min' })).toHaveAttribute('aria-checked', 'true');
+      await expect(bestPick(page).or(page.getByRole('heading', { name: 'No events to show' }))).toBeVisible();
+    }
+    await expect(page.getByText(/within 30 min$/)).toBeVisible();
+  });
+
+  test('Saturday → Surprise me is stable and "Show me another" rotates it', async ({ page }) => {
+    await page.goto('/saturday?intent=surprise&travel=90');
+    const name = bestPick(page).getByRole('heading', { level: 2 });
+    const first = await name.textContent();
+    await page.reload();
+    await expect(name).toHaveText(first!); // deterministic, not random
+    await page.getByRole('button', { name: 'Show me another' }).click();
+    await expect(page).toHaveURL(/offset=1/);
+    await expect(name).not.toHaveText(first!);
+    await expect(bestPick(page).getByRole('list', { name: 'Why this one' }).getByRole('listitem')).toHaveCount(4);
+    await expectNoHorizontalScroll(page);
+  });
+
+  test('Saturday no-candidates states are explained, never filled with a made-up event', async ({ page }) => {
+    await page.goto('/saturday?intent=challenge&challenge=alphabet&item=B');
+    await expect(page.getByRole('heading', { name: 'No events to show' })).toBeVisible();
+    await expect(page.getByText('No event in the current 5K Compass dataset completes B. More events may be added later.')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Challenge choice' }).getByRole('radio', { name: 'B', exact: true })).toHaveAttribute('aria-checked', 'true');
+    await expect(bestPick(page)).toHaveCount(0);
+    // A filter that contradicts the intent is reported, with a way out.
+    await page.goto('/saturday?intent=new_event&visited=visited');
+    await expect(page.getByText(/only shows events you have not visited, but the Visited filter keeps only events you have/)).toBeVisible();
+    await page.getByRole('button', { name: 'Reset filters' }).last().click();
+    await expect(bestPick(page)).toBeVisible();
+  });
+
+  test('Best match → Event page; cards stay compact; intent controls and navigation fit the screen', async ({ page }) => {
+    await page.goto('/saturday?intent=quiet&travel=90');
+    const width = page.viewportSize()!.width;
+    for (const radio of await intents(page, 'What are you looking for?').getByRole('radio').all()) {
+      const box = (await radio.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+    for (const card of await page.getByRole('article').all()) expect((await card.boundingBox())!.height).toBeLessThan(420);
+    expect((await bestPick(page).boundingBox())!.height).toBeLessThan(720);
+    await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
+    const target = await bestPick(page).getByRole('heading', { level: 2 }).textContent();
+    await bestPick(page).getByRole('link', { name: 'View event' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: target! })).toBeVisible();
+    await expectNoHorizontalScroll(page);
+  });
+
+  test('Challenge → Saturday and Explore → Saturday hand over the challenge context', async ({ page }) => {
+    await page.goto('/challenges/alphabet');
+    await page.getByRole('link', { name: 'Plan a Saturday for this challenge' }).click();
+    await expect(page).toHaveURL(/\/saturday\?intent=challenge&challenge=alphabet$/);
+    await expect(intents(page, 'What are you looking for?').getByRole('radio', { name: 'Challenge' })).toHaveAttribute('aria-checked', 'true');
+    await page.goto('/explore?challenge=alphabet&item=C');
+    await page.getByRole('link', { name: 'Plan a Saturday for C' }).click();
+    await expect(page).toHaveURL(/\/saturday\?intent=challenge&challenge=alphabet&item=C$/);
+    await expect(bestPick(page).getByRole('list', { name: 'Why this one' }).getByText('Completes Alphabet — C')).toBeVisible();
   });
 });

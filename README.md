@@ -128,8 +128,9 @@ Web (optional, `apps/web/.env`): `VITE_API_BASE_URL` (default `/api`) and `VITE_
 | `GET /api/events/nearby?limit=&maxTravel=&lat=&lon=` | nearest events by estimated travel |
 | `GET /api/events/:idOrSlug` | event detail: facilities, recent occurrences, 90-day sample size |
 | `GET /api/events/:idOrSlug/history?window=30\|60\|90\|365\|all` | occurrences in the window, median winner/3rd/5th/10th times, sample size and stored-history coverage |
-| `GET /api/recommendations/best-pick?goal=&maxTravel=` | best pick plus 3 alternatives, with highlights and reasons |
-| `GET /api/planner?date=&goal=&maxTravel=&surface=&elevation=&participants=&visited=&course=&confidence=` | Saturday Planner: ranked results, counts, and caveats |
+| `GET /api/saturday/recommendations?intent=&date=&maxTravel=&surface=&elevation=&participants=&visited=&course=&confidence=&challenge=&item=&offset=` | **Saturday orchestrator** (Phase 5B): best match, alternatives, the full ranking, reasons, data confidence, defaults applied, limitations and exclusions for one intent |
+| `GET /api/planner?…` | same orchestrated response (kept for existing clients; accepts `goal=` as `intent=`) |
+| `GET /api/recommendations/best-pick?goal=&maxTravel=` | the orchestrator's best match plus 3 alternatives, in the original compact shape |
 | `GET /api/profile` | current (demo) user profile; PBs, recent best, visit counts and `performance` summary are derived from UserPerformance |
 | `GET /api/profile/current-form` | Current Form (`runner_form_v1`) with its full breakdown: inputs, weights, exclusions, confidence, trend |
 | `GET /api/profile/performance-summary` | derived values: lifetime PB, recent best (90 days), latest, totals, per-event count/PB/latest |
@@ -315,18 +316,7 @@ The app never assumes that a particular slow result was an easy run.
 **Using Current Form.** It is already on the course-reference scale, so converting it to an event is `equivalent = form × f_target`. It is never divided by a source factor, and no source event is invented.
 - **Where Could I Place?, Compare and the Event outlook:** these default to Current Form (`basis=current_form`, read on the server from the user's own snapshot). Overall 5K PB, parkrun PB, recent best and typed times stay selectable, and Raw time mode is kept.
 - **Hidden Gems:** uses Current Form converted per course.
-- **Saturday Planner and Home best pick (goal by goal):**
-
-  | Goal | Ranking inputs |
-  | --- | --- |
-  | PB | PB Score, a course characteristic; no runner ability |
-  | High Finish | **Current Form** converted to each course, then the unchanged placement engine (share of the last 90 days' events where it reached the top 10, conservative ties; then median placing). Without Current Form: lowest Competition Score, labelled as a fallback |
-  | Hidden Gem | `hidden_gem_v1` Gem Score, the same as the Hidden Gems tool; its placement opportunity uses **Current Form** converted to each course (else inverse Competition) |
-  | New Event | visit state and estimated travel; no runner ability |
-  | Quiet | average field size; no runner ability |
-  | Challenge | not ranked by the planner yet; Home's Challenge goal shows challenge progress and matching events instead (Phase 5A) |
-
-  The response's `ability` says whether the goal used Current Form (`usesCurrentForm`) and what it used. Goals that do not depend on ability never load it.
+- **Saturday Planner and Home:** ranked per intent by the Saturday orchestrator (see *Saturday intent & recommendation orchestration*). The response's `ability` says whether the intent's ranking used Current Form (`usesCurrentForm`) and what it used. Intents that do not depend on ability never load it.
 - **When Current Form is unavailable:** every tool says so and falls back transparently. An old PB is never used as current ability.
 - **Profile:** shows the descriptive *gap* between Current Form and the Overall 5K PB. There are no readiness or improvement predictions.
 
@@ -394,21 +384,92 @@ UserPerformance ─▶ deriveVisits ─▶ ChallengeContext { visited events, ac
   Planned kinds include: visit N different events; repeat one event N times; events in different regions; events with given attributes (surface, course type); custom collections; milestones. No generic rules language is planned.
 - **Later phases** can combine challenge progress with travel, Saturday scheduling and preferences.
 
-**Favourites vs "want to visit".** Favourites already mean "events I want to keep an eye on", and Explore can show them, so Phase 5A adds no second bookmark system. A separate *Want to visit* list would only earn its place if users need to distinguish "watch this event" (alerts, a regular) from "plan to go once" (tourism). That is a Phase 5B decision.
+**Favourites vs "want to visit".** Favourites already mean "events I want to keep an eye on", and Explore can show them, so Phase 5A adds no second bookmark system. A separate *Want to visit* list would only earn its place if users need to distinguish "watch this event" (alerts, a regular) from "plan to go once" (tourism). That decision is still open; Phase 5B did not need it.
 
-**Saturday intent (preparation only).** `SATURDAY_INTENTS` in `packages/shared/src/goals.ts` maps a per-Saturday intent onto today's goals. It is never a permanent runner type:
-
-| Intent | Goal |
-| --- | --- |
-| RUN_FASTER | PB |
-| VISIT_NEW_EVENT | New Event |
-| COMPLETE_CHALLENGE | Challenge |
-| QUIET_EVENT | Quiet |
-| SOCIAL, SURPRISE_ME | none yet (Phase 5B) |
-
-Home's existing "What do you want this Saturday?" selector is that choice. No onboarding flow has been built.
+**Saturday intent.** Phase 5B replaced the 5A preparation; see the next section.
 
 **Data sources.** Only the internal or demo event dataset and the user's own recorded performances are used. There is no parkrun scraping, live parkrun API or unofficial results source, and the parkrun connection on the Profile remains a placeholder.
+
+### Saturday intent & recommendation orchestration (Phase 5B)
+
+**The question.** Everything here answers "Where should I run this Saturday?" for **one intent**. An intent is what the runner wants *this* Saturday. It is never a permanent "casual" or "performance" label, and nothing about it is stored.
+
+**Saturday Intent model** (`packages/shared/src/goals.ts`). There is one concept. The existing goal ids, already stored as `User.preferredGoal`, are the intent ids, so nothing is duplicated and no migration was needed. `surprise` is app-only and never stored. Each intent has an id, a constant (`RUN_FASTER`…), label, long label, one-line explanation, data dependencies, a strategy description and a pillar (explore or perform).
+
+| Intent | id | Ranking inputs (reused engines) | Data confidence shown |
+| --- | --- | --- | --- |
+| Run faster (`RUN_FASTER`) | `pb` | PB Score V1 (Course Speed Factor + structure); limited data last. Reasons add "one of the faster courses in the analysed cohort" (fastest third by Course Speed Factor) and, when Current Form exists, the course equivalent (form × factor). Competition is never used as a speed proxy | course speed (matched runners) |
+| Finish higher (`HIGH_FINISH`) | `place` | Current Form → target-course conversion → the unchanged placement engine: top-10 share of the last 90 days' events (conservative ties), then median placing. Without Current Form: lowest Competition Score, labelled | placement result confidence, or Competition confidence in the fallback |
+| Visit somewhere new (`VISIT_NEW_EVENT`) | `new_event` | Unvisited only, from canonical visits (UserPerformance); a visited favourite never appears. Reliable data first, then nearest. Reasons add challenge items it would complete and Favourite | none (rests on the runner's own history) |
+| Complete a challenge (`COMPLETE_CHALLENGE`) | `challenge` | Challenge Engine opportunities for the chosen (or any) missing item, nearest first. With one challenge there is no choice to make | none |
+| Quiet event (`QUIET_EVENT`) | `quiet` | **Median** field size over the last 90 days of stored occurrences, so one odd week does not decide it. Events with at least 6 recorded events rank before less certain ones. Never a promise about Saturday's attendance | by number of events: ≥ 8 High, ≥ 6 Medium, ≥ 3 Low |
+| Hidden gem (`HIDDEN_GEM`) | `hidden_gem` | Hidden Gem V1, exactly as the Hidden Gems tool (same components, weights and order) | event data reliability |
+| Surprise me (`SURPRISE_ME`) | `surprise` | Deterministic interest-signal shortlist (below) | event data reliability |
+
+**The orchestrator** (`apps/api/src/saturday/orchestrator.ts`) runs on the server for Home and the Saturday Planner alike:
+
+```
+events + visit context ─▶ travel limit ─▶ filters (+ intent defaults) ─▶ intent strategy
+                                                                       ─▶ "why this one" (2–4) + data confidence
+                                                                       ─▶ best match + 2–4 alternatives + full ranking
+```
+
+- **One engine.**
+  - `GET /api/saturday/recommendations` is the single entry point.
+  - `/api/planner` and `/api/recommendations/best-pick` are thin adapters over it.
+  - An API test checks Home ≡ Saturday for every intent.
+- **Reasons.** Every result carries "why this one": 2–4 concise, intent-specific reasons such as "Completes Alphabet — H", "Typically around 121 runners…" or "Historically, your Current Form would have placed in the top 10 at 7 of the last 10 analysed events". The full "Why this?" explanation is still available.
+- **Best match.** It means the best match *for the selected intent and constraints*, not "the best event".
+- **Data confidence.**
+  - Each result shows confidence in the evidence behind *that intent's* ranking.
+  - Unrelated confidence scores are never merged into one number.
+  - Intents that rest only on the runner's own history show none.
+- **Defaults, limitations, exclusions.** The response states:
+  - the constraints the intent applied by itself (e.g. "Only events you have not visited");
+  - honest limitations (fallbacks, unavailable Current Form);
+  - exclusions (e.g. "1 matching event is beyond 45 min or outside your filters").
+
+**Fallbacks and empty states.** Nothing is ever fabricated.
+- **No Current Form.** Run faster keeps its course ranking without equivalents. Finish higher uses lowest Competition, labelled. An old PB is never used as current ability.
+- **No usable data.** An event with no PB Score cannot be ranked for Run faster, and limited-data events rank last. Quiet leaves out events with no field sizes and says how many.
+- **Challenge gaps.** A challenge item with no event in the dataset says so. A completed or unknown item is explained.
+- **Conflicting filters.** Visit somewhere new with the Visited filter is reported as a conflict, with a reset.
+- **Travel and filters.** When nothing matches, the response says whether the travel limit or the filters caused it.
+
+**Surprise me (deterministic, no `Math.random`).**
+- **Signals.** Reliable events (not limited data) score one point per interest signal:
+  - new to you;
+  - completes a challenge item;
+  - shorter travel (≤ half the limit);
+  - hidden-gem strength (Gem Score ≥ 60);
+  - distinctive course (trail, grass or mixed surface; 3+ laps; ≥ 60 m of climbing; or PB Score ≥ 85).
+- **Shortlist.** Every event within one point of the best.
+- **Rotation.** The pick rotates through the shortlist by a stable FNV-1a hash of (user, Saturday) plus `offset`.
+- **Result.** The same inputs always give the same answer. A different Saturday starts elsewhere in the shortlist. "Show me another" (`offset`) steps through it. Nothing unsuitable is chosen for novelty.
+
+**Why there is no universal Saturday Score.** Each intent ranks by what it cares about:
+- a PB attempt by course speed;
+- a challenge by the missing item;
+- a quiet run by typical field size.
+
+Forcing them onto one score would hide those trade-offs behind an unexplainable number. A shared score can be reconsidered later if real evidence supports one.
+
+**Changing intent and shareable state.**
+- **In the URL.** The selection lives in the URL: `/saturday?intent=challenge&challenge=alphabet&item=H&travel=45`, and `?intent=` on Home. Back, sharing and handover all work: Home → Saturday, My Challenges → Saturday and Explore's challenge filter → Saturday.
+- **Switching intent** keeps every compatible constraint (date, travel limit, filters) and drops only intent-specific state (the challenge item, the Surprise rotation).
+- **Old links.** `goal=` is still read.
+
+**Profile preference.** Nothing new is stored. The intent lives in the URL and UI state. A future `lastSaturdayIntent` or `preferredDefaultIntent` can reuse the existing `preferredGoal` column, but never a runner-type category.
+
+**Home and Saturday.**
+- **Home** leads with "What are you looking for this Saturday?". There are six compact intents plus a lighter "Surprise me". Only intent-relevant context is shown:
+  - Current Form for Run faster and Finish higher;
+  - the new-event count for Visit somewhere new;
+  - the challenge progress and missing-letter picker for Complete a challenge.
+
+  Below that come the best match and other good options.
+- **Saturday** adds the full filters, the complete ranking and "Show me another".
+- **Explore intents** show course character on their cards, not performance metrics. Performance metrics remain on the Event page.
 
 ### Source of truth: Result vs EventOccurrence
 
@@ -437,9 +498,9 @@ The rules:
 
 The UI labels this data as DEMO everywhere it appears.
 
-### Placeholder ranking (until the Saturday Score exists)
+### Ranking rules shared by every Saturday intent
 
-Home and the Saturday Planner rank events by **one stored metric per goal**: PB Score, lowest Competition, Gem Score, nearest unvisited, or fewest runners. The UI always says which metric was used ("Demo recommendation · ranked using PB Score"), and no Saturday Score is shown.
+Every recommendation names the metric it was ranked by ("Demo recommendation · ranked using PB Score"), and there is no Saturday Score (see *Saturday intent & recommendation orchestration*).
 
 - **Planner filters** use only stored properties. When a filter is active and an event's value is unknown, the event is left out rather than guessed.
 - **Dates:** planning covers the next 4 Saturdays. Rankings don't yet change with the date.

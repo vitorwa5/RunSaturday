@@ -1,5 +1,5 @@
 /** TanStack Query hooks: the only way pages obtain server data. */
-import type { PerformanceInput, Goal, HiddenGemModeId, HistoryWindowId, PbFinderSortId, PlacementTargetId, PlannerFilters } from '@runsaturday/shared';
+import type { PerformanceInput, HiddenGemModeId, HistoryWindowId, PbFinderSortId, PlacementTargetId, PlannerFilters } from '@runsaturday/shared';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type PlacementBasis, type PlacementQuery } from '../api/endpoints';
 import { serializePlannerParams, type PlannerSelection } from '../lib/plannerParams';
@@ -10,8 +10,7 @@ export const queryKeys = {
   nearby: (limit: number) => ['events', 'nearby', limit] as const,
   event: (id: string) => ['event', id] as const,
   eventHistory: (id: string, window: HistoryWindowId) => ['event', id, 'history', window] as const,
-  planner: (selection: PlannerSelection) => ['planner', serializePlannerParams(selection).toString()] as const,
-  bestPick: (goal: Goal) => ['best-pick', goal] as const,
+  saturday: (selection: PlannerSelection) => ['saturday', serializePlannerParams(selection).toString()] as const,
   profile: ['profile'] as const,
 };
 
@@ -39,10 +38,14 @@ export const useEventHistory = (id: string, window: HistoryWindowId) =>
     placeholderData: (previous) => (previous?.eventId === id ? previous : undefined),
   });
 
-export const usePlanner = (selection: PlannerSelection) =>
+/**
+ * The orchestrated Saturday answer for an intent. Home and the Saturday Planner both use this
+ * one hook (and one server endpoint), so they can never rank differently.
+ */
+export const useSaturday = (selection: PlannerSelection) =>
   useQuery({
-    queryKey: queryKeys.planner(selection),
-    queryFn: ({ signal }) => api.planner(selection, signal),
+    queryKey: queryKeys.saturday(selection),
+    queryFn: ({ signal }) => api.saturday(selection, signal),
     placeholderData: keepPreviousData,
   });
 
@@ -86,13 +89,6 @@ export const useCompare = (q: { ids: string[]; timeSeconds?: number; source?: st
     queryKey: ['compare', q] as const,
     queryFn: ({ signal }) => api.compare(q, signal),
     enabled: q.ids.length >= 2,
-    placeholderData: keepPreviousData,
-  });
-
-export const useBestPick = (goal: Goal) =>
-  useQuery({
-    queryKey: queryKeys.bestPick(goal),
-    queryFn: ({ signal }) => api.bestPick(goal, signal),
     placeholderData: keepPreviousData,
   });
 
