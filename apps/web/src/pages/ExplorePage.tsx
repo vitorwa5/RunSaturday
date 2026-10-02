@@ -80,7 +80,8 @@ export function ExplorePage() {
       {summary && !filter && (
         <section aria-label="Your exploring" className="space-y-2">
           <p className="text-sm text-muted">
-            Events visited: <strong className="text-ink tabular-nums">{summary.eventsVisited}</strong> of {summary.eventsInDataset}
+            <strong className="text-ink tabular-nums">{summary.eventsVisited}</strong> {summary.eventsVisited === 1 ? 'event' : 'events'} visited
+            <span className="text-subtle"> · {summary.eventsInDataset} {summary.eventsInDataset === 1 ? 'event' : 'events'} available</span>
           </p>
           {summary.challenges.slice(0, 1).map((c) => (
             <ChallengeProgressCard key={c.id} challenge={c} compact />

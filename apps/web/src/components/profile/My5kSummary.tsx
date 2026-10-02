@@ -28,7 +28,7 @@ export function My5kSummary() {
             <div className="rounded-2xl border border-line bg-surface px-3 py-2">
               <dt className="text-xs text-muted">Events visited</dt>
               <dd className="text-lg font-bold tabular-nums">
-                {s.eventsVisited} <span className="text-xs font-normal text-muted">of {s.eventsInDataset}</span>
+                {s.eventsVisited}
               </dd>
             </div>
             <div className="rounded-2xl border border-line bg-surface px-3 py-2">
@@ -48,7 +48,7 @@ export function My5kSummary() {
             <ChallengeProgressCard key={c.id} challenge={c} compact />
           ))}
           <p className="text-xs text-muted">
-            An event counts as visited once you have recorded a run there. Runs at races 5K Compass does not model count as runs, not as visits.
+            An event counts as visited once you have recorded a run there. Runs at unmodelled races still count towards your recorded runs, but not towards events visited.
           </p>
         </>
       )}

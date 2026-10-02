@@ -160,7 +160,7 @@ test.describe('Navigation', () => {
 test.describe('Explore', () => {
   test('searches events by town', async ({ page }) => {
     await page.goto('/explore');
-    await expect(page.getByText('10 events')).toBeVisible();
+    await expect(page.getByText('10 events', { exact: true })).toBeVisible();
     await page.getByRole('searchbox', { name: 'Search events' }).fill('chester');
     await expect(page.getByText('1 event matching “chester”')).toBeVisible();
     await expect(page.getByRole('link').filter({ hasText: 'Lakeside 5K' })).toBeVisible();
@@ -860,19 +860,20 @@ test.describe('No "neutral course" claims (Phase 4B.1)', () => {
 test.describe('Explore & Challenges (Phase 5A)', () => {
   test('Explore → Not visited / Visited / Favourites, derived from recorded runs', async ({ page }) => {
     await page.goto('/explore');
-    await expect(page.getByText('10 events')).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Your exploring' }).getByText('Events visited: 4 of 10')).toBeVisible();
+    await expect(page.getByText('10 events', { exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Your exploring' }).getByText(/^4 events visited · 10 events available$/)).toBeVisible();
+    await expect(page.getByText(/of 10/)).toHaveCount(0);
     const show = page.getByRole('radiogroup', { name: 'Show' });
     await show.getByRole('radio', { name: 'Not visited', exact: true }).click();
     await expect(page).toHaveURL(/show=not_visited/);
-    await expect(page.getByText('6 events')).toBeVisible();
+    await expect(page.getByText('6 events', { exact: true })).toBeVisible();
     await expect(page.getByText('New to you')).toHaveCount(6);
     await expect(page.getByRole('link').filter({ hasText: 'Riverside 5K' })).toHaveCount(0);
     await show.getByRole('radio', { name: 'Visited', exact: true }).click();
-    await expect(page.getByText('4 events')).toBeVisible();
+    await expect(page.getByText('4 events', { exact: true })).toBeVisible();
     await expect(page.getByRole('link').getByText('Visited', { exact: true })).toHaveCount(4);
     await show.getByRole('radio', { name: 'Favourites', exact: true }).click();
-    await expect(page.getByText('2 events')).toBeVisible();
+    await expect(page.getByText('2 events', { exact: true })).toBeVisible();
     // Explore leads with discovery, not performance scores.
     await expect(page.getByText('PB Score')).toHaveCount(0);
     await expect(page.getByText(/^Comp/)).toHaveCount(0);
@@ -882,7 +883,9 @@ test.describe('Explore & Challenges (Phase 5A)', () => {
   test('Profile → My Challenges → Alphabet → missing letter → Explore → Event page', async ({ page }) => {
     await page.goto('/profile');
     const my5k = page.getByRole('region', { name: 'My 5K' });
-    await expect(my5k.getByText('Events visited')).toBeVisible();
+    await expect(my5k.getByText('Events visited', { exact: true })).toBeVisible();
+    await expect(my5k.getByText(/of 10/)).toHaveCount(0);
+    await expect(my5k.getByText('Runs at unmodelled races still count towards your recorded runs, but not towards events visited.', { exact: false })).toBeVisible();
     await expect(my5k.getByText('Riverside 5K — 34')).toBeVisible();
     await expect(my5k.getByText('Total recorded runs')).toBeVisible();
     await expect(my5k.getByText('43', { exact: true })).toBeVisible();
@@ -941,7 +944,7 @@ test.describe('Explore & Challenges (Phase 5A)', () => {
     await expect(page.getByRole('heading', { name: 'No B events in 5K Compass yet' })).toBeVisible();
     await page.getByRole('button', { name: 'Clear challenge filter' }).click();
     await expect(page).toHaveURL(/\/explore$/);
-    await expect(page.getByText('10 events')).toBeVisible();
+    await expect(page.getByText('10 events', { exact: true })).toBeVisible();
   });
 
   test('Event page shows the visit history for a visited event', async ({ page }) => {
