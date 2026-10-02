@@ -41,7 +41,7 @@ function outlookBasis(profile: UserProfile | undefined): OutlookBasis | null {
       : null;
   return (
     from(profile?.performance.recentBest, 'recent best') ??
-    from(profile?.performance.lifetimePb, 'lifetime PB') ??
+    from(profile?.performance.lifetimePb, 'overall 5K PB') ??
     (profile?.current5kEstimateSeconds != null ? { seconds: profile.current5kEstimateSeconds, label: 'current form' } : null)
   );
 }
@@ -166,7 +166,7 @@ export function OutlookCard({ profile, eventId }: { profile: UserProfile | undef
       <nav aria-label="Related tools" className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
         {[
           {
-            to: basis?.label === 'recent best' ? '/where-could-i-place?src=recent' : basis?.label === 'lifetime PB' ? '/where-could-i-place?src=pb' : '/where-could-i-place?src=current',
+            to: basis?.label === 'recent best' ? '/where-could-i-place?src=recent' : basis?.label === 'overall 5K PB' ? '/where-could-i-place?src=pb' : '/where-could-i-place?src=current',
             label: 'Where else could I place?',
             icon: Medal,
           },

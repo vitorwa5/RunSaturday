@@ -53,7 +53,7 @@ describe('profile source events', () => {
   const withPerformances = (recentBest: UserPerformance, lifetimePb: UserPerformance) =>
     ({ ...profile, performance: { recentBest, lifetimePb } }) as unknown as UserProfile;
 
-  it('carries where recent best and lifetime PB were run; current form has none', async () => {
+  it('carries where recent best and Overall 5K PB were run; current form has none', async () => {
     const { profileSourceEvent, profileExternalCourse } = await import('../lib/runnerTime');
     const p = withPerformances(perf('r', 'R', 1172), perf('l', 'L', 1138));
     expect(profileSourceEvent('recent', p)).toEqual({ id: 'r', name: 'R' });

@@ -18,7 +18,7 @@ import { parseIdList, profileSourceEvent, PROFILE_TIME_FIELD } from '../lib/runn
 const TIME_CHOICES = [
   { id: 'current', label: 'Current form (estimate)' },
   { id: 'recent', label: 'Recent best' },
-  { id: 'pb', label: 'Lifetime PB' },
+  { id: 'pb', label: 'Overall 5K PB' },
 ] as const;
 
 /** Option value "seconds" or "seconds@eventId" (where the time was achieved, for course adjustment). */
@@ -141,7 +141,7 @@ export function ComparePage() {
               {data.timeSeconds != null && data.mode === 'raw' && (
                 <p className="rounded-2xl bg-caution-bg px-3 py-2 text-xs text-caution" role="note">
                   <strong>{RAW_FALLBACK_LABEL}.</strong> {formatFinishTime(data.timeSeconds)} has no known source event at a course 5K Compass models, so placement rows compare it unchanged.
-                  Choose Recent best or Lifetime PB (run at a known course) for course-adjusted equivalents.
+                  Choose Recent best or Overall 5K PB (run at a known course) for course-adjusted equivalents.
                 </p>
               )}
               <CompareTable data={data} />

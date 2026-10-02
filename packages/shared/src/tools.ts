@@ -41,7 +41,7 @@ export const COMPARE_MAX_EVENTS = 4;
 export const RUNNER_TIME_SOURCES = [
   { id: 'current', label: 'Current form (estimate)' },
   { id: 'recent', label: 'Recent best' },
-  { id: 'pb', label: 'Lifetime PB' },
+  { id: 'pb', label: 'Overall 5K PB' },
   { id: 'manual', label: 'Enter a time' },
 ] as const;
 

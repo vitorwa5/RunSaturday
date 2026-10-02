@@ -3,6 +3,7 @@ import { ChevronRight, Heart, Link2, MapPin, Plus, ShieldCheck, Timer } from 'lu
 import { useId } from 'react';
 import { Link } from 'react-router';
 import { PerformanceList } from '../components/profile/PerformanceList';
+import { PERFORMANCE_TYPE_LABEL } from '../lib/display';
 import { ButtonLink } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { DefinitionList } from '../components/ui/DefinitionList';
@@ -15,8 +16,20 @@ import { usePerformances, useProfile } from '../hooks/queries';
 
 const RECENT_SHOWN = 8;
 
-/** A derived best (lifetime PB / recent best): opens Where Could I Place? with that preset. */
-function BestCard({ label, performance, preset, emptyText }: { label: string; performance: UserPerformance | null; preset: 'pb' | 'recent'; emptyText: string }) {
+/** A derived best (Overall 5K PB / recent best): opens Where Could I Place? with that preset. */
+function BestCard({
+  label,
+  performance,
+  preset,
+  emptyText,
+  hint,
+}: {
+  label: string;
+  performance: UserPerformance | null;
+  preset: 'pb' | 'recent';
+  emptyText: string;
+  hint?: string;
+}) {
   if (!performance) {
     return (
       <div className="rounded-2xl border border-line bg-surface p-3">
@@ -34,7 +47,8 @@ function BestCard({ label, performance, preset, emptyText }: { label: string; pe
       <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">{label}</p>
       <p className="mt-1 text-2xl font-bold tabular-nums">{formatFinishTime(performance.finishTimeSeconds)}</p>
       <p className="truncate text-xs text-muted">{performance.eventName}</p>
-      <p className="text-xs text-subtle">{formatDateWithYear(performance.date)}</p>
+      {performance.performanceType !== 'parkrun' && <p className="text-xs text-muted">{PERFORMANCE_TYPE_LABEL[performance.performanceType]}</p>}
+      <p className="text-xs text-subtle">{hint ?? formatDateWithYear(performance.date)}</p>
       {!performance.courseModelled && <p className="text-[11px] text-subtle">Course not modelled</p>}
       <p className="mt-1.5 inline-flex items-center gap-0.5 text-xs font-semibold text-brand-700">
         Where could I place? <ChevronRight className="size-3.5" aria-hidden />
@@ -155,8 +169,14 @@ export function ProfilePage() {
               <span id="performance-summary">Performance summary</span>
             </SectionHeading>
             <div className="grid grid-cols-2 gap-2">
-              <BestCard label="Lifetime PB" performance={summary!.lifetimePb} preset="pb" emptyText="No performances yet" />
-              <BestCard label="Recent best" performance={summary!.recentBest} preset="recent" emptyText={`Nothing in the last ${summary!.recentWindowDays} days`} />
+              <BestCard label="Overall 5K PB" performance={summary!.lifetimePb} preset="pb" emptyText="No performances yet" />
+              <BestCard
+                label="Recent best"
+                performance={summary!.recentBest}
+                preset="recent"
+                emptyText={`Nothing in the last ${summary!.recentWindowDays} days`}
+                hint={`Last ${summary!.recentWindowDays} days`}
+              />
             </div>
             {summary!.parkrunPb && summary!.lifetimePb && summary!.parkrunPb.id !== summary!.lifetimePb.id && (
               <p className="rounded-2xl border border-line bg-surface px-3 py-2 text-sm">
@@ -174,7 +194,7 @@ export function ProfilePage() {
               <Stat label="Different events" value={summary!.uniqueEvents} />
             </div>
             <p className="text-xs text-muted">
-              Lifetime PB is your fastest 5K at any race; recent best covers the last {summary!.recentWindowDays} days. Both, and your visits, are
+              Overall 5K PB is your fastest 5K at any race, parkrun or otherwise; recent best covers the last {summary!.recentWindowDays} days. Both, and your visits, are
               worked out from your recorded performances.
             </p>
           </section>

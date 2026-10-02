@@ -202,7 +202,7 @@ export function WhereCouldIPlacePage() {
                       onClick={() => update({ src: p.id, from: null, time: null, mode: 'adjusted' })}
                       className="inline-flex min-h-10 items-center rounded-full border border-line bg-surface px-3 text-xs font-semibold hover:bg-zinc-50"
                     >
-                      Use {p.id === 'recent' ? 'Recent best' : 'Lifetime PB'} {formatFinishTime(p.seconds!)} ({p.event!.name})
+                      Use {p.id === 'recent' ? 'Recent best' : 'Overall 5K PB'} {formatFinishTime(p.seconds!)} ({p.event!.name})
                     </button>
                   ))}
                 </div>
@@ -238,7 +238,7 @@ export function WhereCouldIPlacePage() {
             <EmptyState
               icon={Medal}
               title="Choose where this time was achieved"
-              description="Course-adjusted placements need the event where the time was run. Pick it under “Achieved at”, use Recent best or Lifetime PB, or switch to Raw time."
+              description="Course-adjusted placements need the event where the time was run. Pick it under “Achieved at”, use Recent best or Overall 5K PB, or switch to Raw time."
             />
           )
         ) : awaitingTime ? (

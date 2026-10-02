@@ -174,7 +174,7 @@ Errors always use the shape `{ "error": { "code", "message" } }` with a human-re
 
 | Value | Derivation |
 | --- | --- |
-| Overall 5K PB ("Lifetime PB") | fastest 5000 m performance of any type, parkrun or another race; equal times → the earlier date |
+| Overall 5K PB (API field `lifetimePb`) | fastest 5000 m performance of any type, parkrun or another race; equal times → the earlier date |
 | parkrun PB | fastest 5000 m performance of type `PARKRUN` (may be the same performance; never invented) |
 | Recent best | fastest 5000 m performance dated within `RECENT_PERFORMANCE_WINDOW_DAYS` (90, `config/analysis.ts`) up to today |
 | Latest performance | most recent date |

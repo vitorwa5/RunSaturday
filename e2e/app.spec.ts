@@ -538,7 +538,7 @@ test.describe('Personal performance history (Phase 4A)', () => {
   test('Profile shows a performance summary, recent performances and the parkrun placeholder', async ({ page }) => {
     await page.goto('/profile');
     const summary = page.getByRole('region', { name: 'Performance summary' });
-    await expect(summary.getByRole('link', { name: /^Lifetime PB 18:58 at Riverside 5K/ })).toBeVisible();
+    await expect(summary.getByRole('link', { name: /^Overall 5K PB 18:58 at Riverside 5K/ })).toBeVisible();
     await expect(summary.getByRole('link', { name: /^Recent best 19:32 at Riverside 5K/ })).toBeVisible();
     await expect(summary.getByText('Last run')).toBeVisible();
     await expect(summary.getByText('Different events')).toBeVisible();
@@ -654,11 +654,11 @@ test.describe('Personal performance history (Phase 4A)', () => {
     await expect(page.getByRole('region', { name: 'Your history here' })).toContainText("You haven't recorded a run here yet.");
   });
 
-  test('Profile → Lifetime PB → Where Could I Place?, course adjusted from its own event', async ({ page }) => {
+  test('Profile → Overall 5K PB → Where Could I Place?, course adjusted from its own event', async ({ page }) => {
     await page.goto('/profile');
-    await page.getByRole('link', { name: /^Lifetime PB 18:58 at Riverside 5K/ }).click();
+    await page.getByRole('link', { name: /^Overall 5K PB 18:58 at Riverside 5K/ }).click();
     await expect(page).toHaveURL(/\/where-could-i-place\?src=pb$/);
-    await expect(page.getByRole('radio', { name: 'Lifetime PB 18:58' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('radio', { name: 'Overall 5K PB 18:58' })).toHaveAttribute('aria-checked', 'true');
     // The source event comes from the matching performance: no manual "Achieved at" needed.
     await expect(page.getByLabel('Achieved at')).toHaveValue('demo-riverside-5k');
     await expect(page.getByRole('radiogroup', { name: 'Compare as' }).getByRole('radio', { name: 'Course adjusted' })).toHaveAttribute('aria-checked', 'true');
@@ -696,7 +696,7 @@ test.describe('Personal performance history (Phase 4A)', () => {
     await cleanUpExternal();
   });
 
-  test('An external-race Lifetime PB works in Raw time and never silently becomes course adjusted', async ({ page }) => {
+  test('An external-race Overall 5K PB works in Raw time and never silently becomes course adjusted', async ({ page }) => {
     // Pretend the fastest 5K was an external road race (mocked profile; shared data untouched).
     await page.route('**/api/profile', async (route) => {
       const res = await route.fetch();
@@ -708,7 +708,7 @@ test.describe('Personal performance history (Phase 4A)', () => {
       await route.fulfill({ response: res, json: body });
     });
     await page.goto('/where-could-i-place?src=pb&travel=90');
-    await expect(page.getByRole('radio', { name: 'Lifetime PB 18:40' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('radio', { name: 'Overall 5K PB 18:40' })).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByLabel('Achieved at')).toBeDisabled();
     await expect(page.getByLabel('Achieved at')).toContainText('Warrington 5K (not modelled by 5K Compass)');
     const modes = page.getByRole('radiogroup', { name: 'Compare as' });
