@@ -218,7 +218,9 @@ export function ScoreExplainer({ eventId }: { eventId: string }) {
               <h3 className="text-sm font-bold">Course Speed Factor</h3>
               <p className="mt-0.5 text-xs text-muted">
                 How fast this course has been for the same runners, compared with the other analysed events (runs at both within 90 days, last 12 months).
-                1.000 is the average; below 1 is faster.
+                Factors are centred so the geometric mean of the eligible analysed cohort is 1.000. That is a cohort reference, not a neutral 5K course:
+                below 1 means historically faster relative to the analysed course cohort. Converting a time between two courses uses the ratio of their
+                factors, so it does not depend on where the reference sits.
               </p>
               <div className="mt-3">{data.courseSpeed ? <CourseSpeedPanel b={data.courseSpeed} /> : <p className="text-sm text-muted">Not calculated yet.</p>}</div>
             </div>

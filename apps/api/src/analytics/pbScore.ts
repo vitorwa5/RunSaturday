@@ -45,10 +45,10 @@ export interface PbResult {
   limitedReason: string | null;
 }
 
+/** Relative to the analysed cohort only: 1.000 is the cohort's geometric mean, not a neutral course. */
 export const describeFactor = (factor: number) => {
-  const pct = Math.abs(factor - 1) * 100;
-  if (pct < 0.05) return `${factor.toFixed(3)} (neutral)`;
-  return `${factor.toFixed(3)} (about ${pct.toFixed(1)}% ${factor < 1 ? 'faster' : 'slower'} than the cohort centre)`;
+  if (Math.abs(factor - 1) < 0.0025) return `${factor.toFixed(3)} (close to the analysed course cohort reference)`;
+  return `${factor.toFixed(3)} (historically ${factor < 1 ? 'faster' : 'slower'} relative to the analysed course cohort)`;
 };
 
 export function computePbScores(

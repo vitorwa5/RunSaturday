@@ -27,7 +27,7 @@ export async function analyticsRoutes(app: FastifyInstance, ctx: RequestContext)
       notes: [
         'Competition Score is relative to the events analysed by 5K Compass for the same period. It is not an official or universal parkrun rating, and it does not measure how fast a course is.',
         'Course Difficulty V1 uses known course characteristics only (elevation, surface, course structure), not finishing times.',
-        'Course Speed Factor compares the same runners at different events within 90 days of each other, over the last year. 1.000 is the centre of the events analysed; above 1 means runners have typically been slower here. It describes past results, not future ones.',
+        'Course Speed Factor compares the same runners at different events within 90 days of each other, over the last year. Factors are centred so the geometric mean of the eligible analysed cohort is 1.000: a cohort reference, not a neutral 5K course. Above 1 means runners have typically been slower here relative to that cohort. It describes past results, not future ones.',
         'PB Score V1 is 75% observed course speed and 25% structural ease (inverse Course Difficulty). Competition is never part of it.',
         'Confidence describes the data behind a score, not the chance of any result.',
       ],

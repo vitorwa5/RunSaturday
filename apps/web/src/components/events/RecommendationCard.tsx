@@ -1,7 +1,7 @@
 import type { Recommendation } from '@runsaturday/shared';
 import { Car } from 'lucide-react';
 import { useId, useState } from 'react';
-import { factorPhrase, formatCount, formatDifficulty, formatFactor, formatMeters, formatScore, LIMITED_MATCHED, pbLabel, SURFACE_LABEL } from '../../lib/display';
+import { factorPhraseShort, formatCount, formatDifficulty, formatFactor, formatMeters, formatScore, LIMITED_MATCHED, pbLabel, SURFACE_LABEL } from '../../lib/display';
 import { ButtonLink } from '../ui/Button';
 import { ConfidenceBadge } from '../ui/ConfidenceBadge';
 import { DemoBadge } from '../ui/DemoBadge';
@@ -31,7 +31,7 @@ export function RecommendationCard({ recommendation, secondary: secondaryKeys = 
     pb_score: { label: pbLabel(), value: s?.pbScore == null ? 'Unavailable' : `${formatScore(s.pbScore)}/100` },
     course_speed: {
       label: 'Course speed',
-      value: s?.courseSpeedFactor == null ? LIMITED_MATCHED : `${formatFactor(s.courseSpeedFactor)} (${factorPhrase(s.courseSpeedFactor)})`,
+      value: s?.courseSpeedFactor == null ? LIMITED_MATCHED : `${formatFactor(s.courseSpeedFactor)} (${factorPhraseShort(s.courseSpeedFactor)})`,
     },
     difficulty: { label: 'Difficulty', value: `${formatDifficulty(s?.difficultyScore)}/10` },
     competition_score: { label: 'Competition', value: s?.competitionScore == null ? 'Limited data' : `${formatScore(s.competitionScore)}/100` },

@@ -289,10 +289,29 @@ describe('API', () => {
       app = await buildTestApp();
       const noSource = (await app.inject('/api/placement?time=19:35')).json<PlacementResponse>();
       expect(noSource).toMatchObject({ mode: 'raw', source: null, unavailable: [] });
+      // An event-less time (current form) is labelled as a raw comparison, never presented as adjusted.
+      expect(noSource.modeNote).toMatch(/^Raw time comparison — course adjustment unavailable: no source event/);
+      const explicitRaw = (await app.inject('/api/placement?time=19:35&mode=raw&source=demo-riverside-5k')).json<PlacementResponse>();
+      expect(explicitRaw).toMatchObject({ mode: 'raw', modeNote: null });
       const required = await app.inject('/api/placement?time=19:35&mode=adjusted');
       expect(required.statusCode).toBe(400);
       expect(required.json().error.message).toMatch(/where the time was achieved/);
       expect((await app.inject('/api/placement?time=19:35&source=nope')).statusCode).toBe(404);
+    });
+
+    it('labels an auto fallback for an unreliable source, and refuses silently placing raw times in adjusted mode', async () => {
+      const memory = new MemoryDataStore('2026-10-01');
+      const weakRiverside = Object.create(memory) as MemoryDataStore;
+      weakRiverside.listCourseFactors = async () =>
+        (await memory.listCourseFactors()).map((f) => (f.eventId === 'demo-riverside-5k' ? { ...f, confidence: { ...f.confidence, level: 'low' as const } } : f));
+      app = await buildTestApp(weakRiverside);
+      const auto = (await app.inject('/api/placement?time=19:35&source=demo-riverside-5k')).json<PlacementResponse>();
+      expect(auto.mode).toBe('raw');
+      expect(auto.modeNote).toBe('Raw time comparison — course adjustment unavailable: limited matched-runner data at Riverside 5K.');
+      expect(auto.results.every((r) => r.adjustment == null)).toBe(true);
+      const adjusted = (await app.inject('/api/placement?time=19:35&source=demo-riverside-5k&mode=adjusted')).json<PlacementResponse>();
+      expect(adjusted).toMatchObject({ mode: 'adjusted', results: [] });
+      expect(adjusted.modeNote).toMatch(/Course adjustment unavailable/);
     });
 
     it('serves an equivalent time for the event page outlook', async () => {

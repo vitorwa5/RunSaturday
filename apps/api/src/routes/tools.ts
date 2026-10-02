@@ -40,6 +40,8 @@ const FALLBACK_TRAVEL_MINUTES = 45;
 const TRAVEL_NOTE = 'Travel times are estimates from straight-line distance, not driving directions.';
 const HISTORY_NOTE = 'Placements show where this time would have finished at past events. They are not predictions of who will run next time.';
 const DATA_NOTE = 'Only completed events with complete, validated results are used. Cancelled dates are excluded.';
+/** Every auto-mode fallback to raw time is labelled with this, so it is never mistaken for an adjusted result. */
+const RAW_FALLBACK = 'Raw time comparison — course adjustment unavailable';
 const ADJUSTED_NOTE =
   'Course adjusted: your time is converted to an equivalent at each course using Course Speed Factors from matched runners, then compared with past results. Equivalent times are historical conversions, not predicted finish times.';
 
@@ -118,8 +120,9 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
     };
     if (q.mode === 'raw') return raw(null);
     if (q.source == null) {
-      if (q.mode === 'adjusted') throw new AppError(400, 'source_required', 'Choose where the time was achieved to adjust it for each course.');
-      return raw(null);
+      if (q.mode === 'adjusted') throw new AppError(400, 'source_required', 'Course adjustment requires a source event: choose where the time was achieved.');
+      // An event-less time (e.g. an estimated current form) is never treated as if run at a reference course.
+      return raw(`${RAW_FALLBACK}: no source event is known for this time.`);
     }
     const sourceEvent = all.find((e) => e.id === q.source || e.slug === q.source);
     if (!sourceEvent) throw notFound('The event where the time was achieved');
@@ -134,7 +137,7 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
     };
     if (!isReliableFactor(sourceFactor)) {
       const note = `${ADJUSTMENT_UNAVAILABLE} at ${sourceEvent.name}.`;
-      if (q.mode === 'auto') return raw(`${note} Showing raw-time placements instead.`, source);
+      if (q.mode === 'auto') return raw(`${RAW_FALLBACK}: limited matched-runner data at ${sourceEvent.name}.`, source);
       return { mode: 'adjusted', modeNote: `${note} Switch to Raw time to compare the time unchanged.`, source, placements: [], unavailable: [], from: windowFrom(q.window, ctx.today()) };
     }
     const result = await computeAdjustedPlacements(ctx.store, selected, {

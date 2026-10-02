@@ -110,13 +110,25 @@ export const LIMITED_MATCHED = 'Limited matched-runner data';
 /** Course Speed Factor, three decimals ("0.969"). */
 export const formatFactor = (f: number | null | undefined) => (f == null ? '—' : f.toFixed(3));
 
-/** "3.1% faster than average" / "5.5% slower than average" / "about average". */
+/**
+ * Course Speed Factors are centred on the geometric mean of the analysed cohort, so 1.000 is a
+ * cohort reference, not a physically neutral 5K. Wording is therefore relative to that cohort
+ * and never "x% faster than a neutral course".
+ */
 export function factorPhrase(f: number | null | undefined): string {
   if (f == null) return LIMITED_MATCHED;
-  const pct = Math.abs(f - 1) * 100;
-  if (pct < 0.25) return 'about average';
-  return `${pct.toFixed(1)}% ${f < 1 ? 'faster' : 'slower'} than average`;
+  if (Math.abs(f - 1) < 0.0025) return 'Close to the analysed course cohort reference';
+  return `Historically ${f < 1 ? 'faster' : 'slower'} relative to the analysed course cohort`;
 }
+
+/** Compact form for dense cards and tables. */
+export function factorPhraseShort(f: number | null | undefined): string {
+  if (f == null) return LIMITED_MATCHED;
+  if (Math.abs(f - 1) < 0.0025) return 'near cohort reference';
+  return `historically ${f < 1 ? 'faster' : 'slower'} vs analysed cohort`;
+}
+
+export const RAW_FALLBACK_LABEL = 'Raw time comparison — course adjustment unavailable';
 
 /** Signed seconds as "+1:12" / "−0:20" / "±0:00". */
 export function formatDeltaSeconds(delta: number): string {

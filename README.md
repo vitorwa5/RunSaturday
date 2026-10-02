@@ -261,7 +261,7 @@ Course Speed Factors are stored in `CourseFactorSnapshot` (Phase 3B). The recalc
 
 ### Course Speed Factor V1 (`course_speed_v1`, Phase 3B)
 
-`analytics/courseSpeed.ts`. How fast a course has historically been for **the same runners**, relative to the analysed events. 1.000 is the geometric centre of the cohort; 0.969 means about 3.1% faster, 1.055 about 5.5% slower. Winner times, Competition, records and elevation are not inputs.
+`analytics/courseSpeed.ts`. How fast a course has historically been for **the same runners**, relative to the analysed events. Factors are centred so the **geometric mean of the eligible analytics cohort is 1.000**. So 1.000 is a cohort reference, **not a universal, physically neutral 5K course**: 0.963 means "historically faster relative to the analysed course cohort", never "3.7% faster than a neutral course". Winner times, Competition, records and elevation are not inputs.
 
 - **Matching, without pseudo-replication.** Only results with a pseudonymous `athleteKey` from usable occurrences in the last 365 days are used. For each athlete and each event pair, candidate run pairs within 90 days are sorted by (date gap, date A, date B) and matched **one-to-one, without replacement**, so no run is used twice in a pair.
   - Each match gives y = ln(t_B ÷ t_A), a ratio that means the same for fast and slow runners.
@@ -282,7 +282,7 @@ Course Speed Factors are stored in `CourseFactorSnapshot` (Phase 3B). The recalc
 
   A bootstrap half-width above 2% caps the level at Low.
 
-**Course adjustment** (`services/courseAdjustment.ts`): neutral = source ÷ f_source; **equivalent = neutral × f_target**, rounded to a whole second.
+**Course adjustment** (`services/courseAdjustment.ts`): **equivalent = source × (f_target ÷ f_source)**, rounded to a whole second. It depends only on the factor *ratio*, so moving the cohort reference (multiplying every factor by the same constant) never changes an equivalent; a test checks this. The same event gives back the source time.
 
 - **Requirements:** both factors must be at least **Medium** confidence. The same event means no adjustment.
 - **Display:** the UI shows a labelled point estimate ("Equivalent here ≈ 20:43"), the adjustment in seconds, and the lower of the two factor confidences. The bootstrap conversion range is kept in the API as course-comparison uncertainty only.

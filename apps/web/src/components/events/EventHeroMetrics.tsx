@@ -69,8 +69,8 @@ export function EventHeroMetrics({ event }: { event: EventDetail }) {
           <dd>
             {s?.courseSpeedFactor != null ? (
               <>
-                <strong className="font-bold tabular-nums">{formatFactor(s.courseSpeedFactor)}</strong>{' '}
-                <span className="text-muted">course speed · {factorPhrase(s.courseSpeedFactor)}</span>
+                <span className="text-muted">Course Speed Factor</span> <strong className="font-bold tabular-nums">{formatFactor(s.courseSpeedFactor)}</strong>
+                <span className="block text-muted">{factorPhrase(s.courseSpeedFactor)}</span>
               </>
             ) : (
               <span className="text-muted">Course speed: {LIMITED_MATCHED.toLowerCase()}</span>

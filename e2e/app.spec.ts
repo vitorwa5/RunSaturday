@@ -169,7 +169,8 @@ test.describe('Event page', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Heath Common 5K' })).toBeVisible();
     const metrics = page.getByRole('region', { name: 'Key metrics' });
     for (const label of ['PB Score', 'Difficulty', 'Competition']) await expect(metrics.getByText(label, { exact: true })).toBeVisible();
-    await expect(metrics.getByText(/course speed · \d\.\d% slower than average/)).toBeVisible();
+    await expect(metrics.getByText('Historically slower relative to the analysed course cohort')).toBeVisible();
+    await expect(page.getByText(/% (faster|slower) than/)).toHaveCount(0);
     await expect(page.getByRole('button', { name: /Save/ })).toBeDisabled();
 
     const outlook = page.getByRole('region', { name: 'Your outlook' });
@@ -211,7 +212,8 @@ test.describe('Event page', () => {
     await page.getByRole('tab', { name: 'Course' }).click();
     // Course speed is now measured (no estimate from elevation); map and profile are still to come.
     await expect(page.getByText('Course speed', { exact: true })).toBeVisible();
-    await expect(page.getByText(/slower than average, from runners who also ran other events/)).toBeVisible();
+    await expect(page.getByText(/Historically slower relative to the analysed course cohort, from runners who also ran other events/)).toBeVisible();
+    await expect(page.getByText(/not a neutral course/)).toBeVisible();
     await expect(page.getByText('Coming in a later phase')).toHaveCount(2);
 
     await page.getByRole('tab', { name: 'Info' }).click();
@@ -294,7 +296,7 @@ test.describe('PB Finder', () => {
     const first = page.getByRole('article').first();
     await expect(first).toHaveAccessibleName('Rank 1: Dockside Promenade 5K');
     await expect(first.getByText('PB Score', { exact: true })).toBeVisible();
-    await expect(first.getByText(/^0\.9\d{2} \(\d\.\d% faster than average\)$/)).toBeVisible();
+    await expect(first.getByText(/^0\.9\d{2} \(historically faster vs analysed cohort\)$/)).toBeVisible();
     await first.getByRole('button', { name: 'Why this?' }).click();
     await expect(first.getByText('High PB Score (100/100)')).toBeVisible();
     await expectNoHorizontalScroll(page);
@@ -436,6 +438,8 @@ test.describe('Course Speed & PB Score V1 (Phase 3B)', () => {
       await expect(explainer.getByText(label, { exact: true })).toBeVisible();
     }
     await expect(explainer.getByText(/not\s+any runner's finish time/)).toBeVisible();
+    await expect(explainer.getByText(/geometric mean of the eligible analysed cohort is 1\.000/).first()).toBeVisible();
+    await expect(explainer.getByText(/a cohort reference, not a neutral 5K course/).first()).toBeVisible();
     await expect(explainer.getByRole('heading', { name: 'PB Score' })).toBeVisible();
     await expect(explainer.getByText('Observed course speed · 75%')).toBeVisible();
     await expect(explainer.getByText('Structural suitability · 25%')).toBeVisible();
@@ -471,22 +475,43 @@ test.describe('Course Speed & PB Score V1 (Phase 3B)', () => {
     await expectNoHorizontalScroll(page);
   });
 
+  test('Course adjusted with event-less current form asks for a source event instead of showing raw results', async ({ page }) => {
+    await page.goto('/where-could-i-place?src=current');
+    const modes = page.getByRole('radiogroup', { name: 'Compare as' });
+    await expect(page.getByText('Raw time comparison — course adjustment unavailable', { exact: true })).toBeVisible();
+    await modes.getByRole('radio', { name: 'Course adjusted' }).click();
+    await expect(page).toHaveURL(/mode=adjusted/);
+    await expect(modes.getByRole('radio', { name: 'Course adjusted' })).toHaveAttribute('aria-checked', 'true');
+    const prompt = page.getByRole('note', { name: 'Course adjustment needs a source event' });
+    await expect(prompt.getByText(/Current form is an estimate of your fitness/)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Choose where this time was achieved' })).toBeVisible();
+    // No raw-time results while the UI is in Course adjusted mode.
+    await expect(page.getByRole('article')).toHaveCount(0);
+
+    await prompt.getByRole('button', { name: 'Use Recent best 19:32 (Riverside 5K)' }).click();
+    await expect(page.getByRole('radio', { name: 'Recent best 19:32' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByText(/at Riverside 5K, converted to each course/)).toBeVisible();
+    await expect(page.getByRole('article').first().getByText('Equivalent here')).toBeVisible();
+  });
+
   test('Where Could I Place? lets the runner say where a typed time was achieved', async ({ page }) => {
     await page.goto('/where-could-i-place?src=manual&time=1260');
     const modes = page.getByRole('radiogroup', { name: 'Compare as' });
+    // Auto mode with no source event: raw time, explicitly labelled as a fallback.
     await expect(modes.getByRole('radio', { name: 'Raw time' })).toHaveAttribute('aria-checked', 'true');
-    await expect(modes.getByRole('radio', { name: 'Course adjusted' })).toBeDisabled();
-    await expect(page.getByText('Choose where the time was achieved to adjust it for each course.')).toBeVisible();
+    await expect(page.getByText('Raw time comparison — course adjustment unavailable', { exact: true })).toBeVisible();
+    await expect(page.getByText('Course adjustment requires a source event: choose where this time was achieved.').first()).toBeVisible();
 
     await page.getByLabel('Achieved at').selectOption('demo-moorland-edge-5k');
     await expect(page).toHaveURL(/from=demo-moorland-edge-5k/);
     await expect(modes.getByRole('radio', { name: 'Course adjusted' })).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByText(/Historically, 21:00 at Moorland Edge 5K, converted to each course/)).toBeVisible();
+    await expect(page.getByText('Raw time comparison — course adjustment unavailable', { exact: true })).toHaveCount(0);
     await expect(page.getByText(/^Course adjustment −\d:\d{2}$/).first()).toBeVisible();
 
     await page.getByRole('link', { name: 'Compare events' }).click();
     await expect(page).toHaveURL(/\/compare\?ids=.+&time=1260&from=demo-moorland-edge-5k/);
     await expect(page.getByRole('rowheader', { name: 'Equivalent here' })).toBeVisible();
-    await expect(page.getByRole('rowheader', { name: 'Course speed' })).toBeVisible();
+    await expect(page.getByRole('rowheader', { name: 'Course Speed Factor' })).toBeVisible();
   });
 });

@@ -3,7 +3,7 @@ import { Columns3, Medal, Target, Timer } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useEventPlacement } from '../../hooks/queries';
-import { formatDeltaSeconds, formatFrequency, formatPlacementRange } from '../../lib/display';
+import { formatDeltaSeconds, formatFrequency, formatPlacementRange, RAW_FALLBACK_LABEL } from '../../lib/display';
 import { ConfidenceBadge } from '../ui/ConfidenceBadge';
 import { DemoBadge } from '../ui/DemoBadge';
 import { Skeleton } from '../ui/LoadingState';
@@ -109,9 +109,16 @@ export function OutlookCard({ profile, eventId }: { profile: UserProfile | undef
           ) : adjustment ? (
             <span className="block max-w-48 text-xs font-semibold text-subtle">{adjustment.reason}</span>
           ) : (
-            <span className="block max-w-48 text-xs text-subtle">Not course-adjusted: add where your best was run to your profile</span>
+            <span className="block max-w-48 text-xs text-subtle">
+              Course adjustment requires a source event. Your current form is an estimate, not a run at a known course.
+            </span>
           )}
         </Row>
+        {basis != null && !isPending && !adjusted && (
+          <p className="py-2 text-xs font-bold text-caution" role="note">
+            {RAW_FALLBACK_LABEL}
+          </p>
+        )}
         {placementRows}
       </dl>
 
@@ -129,7 +136,9 @@ export function OutlookCard({ profile, eventId }: { profile: UserProfile | undef
       <p className="mt-2 text-xs text-subtle">
         {enough && placement
           ? `Historically, ${adjusted ? '≈ ' : ''}${formatFinishTime(placement.analysedSeconds)} would have placed like this here. ${
-              adjusted ? 'An equivalent performance from past results, not a predicted finish time.' : 'Past fields only, not a prediction of who turns up.'
+              adjusted
+                ? 'An equivalent performance from past results, not a predicted finish time.'
+                : 'Raw time, not course-adjusted. Past fields only, not a prediction of who turns up.'
             }`
           : 'Based on past results only, never a prediction of who turns up.'}
       </p>

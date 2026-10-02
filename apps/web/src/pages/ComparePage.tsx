@@ -12,6 +12,7 @@ import { ErrorState } from '../components/ui/ErrorState';
 import { LoadingState } from '../components/ui/LoadingState';
 import { PageHeader } from '../components/ui/PageHeader';
 import { useCompare, useEvents, useProfile } from '../hooks/queries';
+import { RAW_FALLBACK_LABEL } from '../lib/display';
 import { parseIdList, profileSourceEvent, PROFILE_TIME_FIELD } from '../lib/runnerTime';
 
 const TIME_CHOICES = [
@@ -137,10 +138,17 @@ export function ComparePage() {
           )}
           {data.events.length >= COMPARE_MIN_EVENTS ? (
             <>
+              {data.timeSeconds != null && data.mode === 'raw' && (
+                <p className="rounded-2xl bg-caution-bg px-3 py-2 text-xs text-caution" role="note">
+                  <strong>{RAW_FALLBACK_LABEL}.</strong> {formatFinishTime(data.timeSeconds)} has no known source event, so placement rows compare it unchanged.
+                  Choose Recent best or Lifetime PB (run at a known course) for course-adjusted equivalents.
+                </p>
+              )}
               <CompareTable data={data} />
               <p className="text-xs text-subtle">
                 “Best” marks the most favourable value where one is clearly better. Competition and field size are not marked: what suits you depends on your goal.
-                Course speed (course_speed_v1) compares the same runners across events; 1.000 is the average and lower is faster. PB Score (pb_v1) is 75% course
+                Course Speed Factor (course_speed_v1) compares the same runners across events; 1.000 is the geometric mean of the analysed course cohort (a
+                cohort reference, not a neutral course) and lower is historically faster. PB Score (pb_v1) is 75% course
                 speed and 25% structural ease. Competition (competition_v1) is relative to the events analysed over 90 days; Difficulty (difficulty_v1) is a
                 structural course rating.
                 {data.timeSeconds != null &&

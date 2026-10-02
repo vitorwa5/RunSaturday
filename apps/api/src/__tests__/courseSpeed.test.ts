@@ -133,7 +133,7 @@ describe('Course adjustment', () => {
   it('converts source → neutral → target and rounds to a whole second', () => {
     const adj = adjustPerformance({ eventId: 'A', name: 'A', seconds: 1175 }, f.get('A'), { eventId: 'B' }, f.get('B'));
     expect(adj.available).toBe(true);
-    expect(adj.equivalentSeconds).toBe(Math.round((1175 / f.get('A')!.factor!) * f.get('B')!.factor!));
+    expect(adj.equivalentSeconds).toBe(Math.round(1175 * (f.get('B')!.factor! / f.get('A')!.factor!)));
     expect(adj.deltaSeconds).toBe(adj.equivalentSeconds! - 1175);
     expect(adj.conversionRange!.lowSeconds).toBeLessThanOrEqual(adj.equivalentSeconds!);
     expect(adj.conversionRange!.highSeconds).toBeGreaterThanOrEqual(adj.equivalentSeconds!);
@@ -151,6 +151,44 @@ describe('Course adjustment', () => {
     const adj = adjustPerformance({ eventId: 'A', name: 'A', seconds: 1175 }, f.get('A'), { eventId: 'A' }, f.get('A'));
     expect(adj.equivalentSeconds).toBe(1175);
     expect(adj.deltaSeconds).toBe(0);
+  });
+
+  it('does not depend on the cohort reference: rescaling every factor by a constant changes no equivalent', () => {
+    // 1.000 is only the cohort's geometric mean; moving it multiplies every factor by the same c.
+    const rescale = (c: number) =>
+      new Map(
+        [...f].map(([id, x]) => [
+          id,
+          { ...x, factor: x.factor! * c, logFactor: x.logFactor! + Math.log(c), bootstrap: x.bootstrap.map((v) => v + Math.log(c)) } satisfies CourseFactorResult,
+        ]),
+      );
+    const ids = ['A', 'B', 'C'];
+    const convert = (m: Map<string, CourseFactorResult>, from: string, to: string, seconds: number) =>
+      adjustPerformance({ eventId: from, name: from, seconds }, m.get(from), { eventId: to }, m.get(to));
+    for (const c of [0.8, 0.97, 1.17, 2.5]) {
+      const scaled = rescale(c);
+      for (const from of ids) {
+        for (const to of ids) {
+          for (const seconds of [960, 1175, 1500, 2400, 3300]) {
+            const base = convert(f, from, to, seconds);
+            const moved = convert(scaled, from, to, seconds);
+            expect(moved.equivalentSeconds).toBe(base.equivalentSeconds);
+            expect(moved.deltaSeconds).toBe(base.deltaSeconds);
+            expect(moved.ratio).toBeCloseTo(base.ratio!, 12);
+            expect(moved.conversionRange).toEqual(base.conversionRange);
+          }
+        }
+      }
+    }
+  });
+
+  it('returns the source time unchanged when source and target are the same event (any factor scale)', () => {
+    for (const id of ['A', 'B', 'C']) {
+      for (const seconds of [960, 1175, 2400]) {
+        const adj = adjustPerformance({ eventId: id, name: id, seconds }, f.get(id), { eventId: id }, f.get(id));
+        expect(adj).toMatchObject({ available: true, equivalentSeconds: seconds, deltaSeconds: 0, ratio: 1 });
+      }
+    }
   });
 
   it('refuses to adjust with an unreliable factor', () => {

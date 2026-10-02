@@ -25,7 +25,7 @@ import { ErrorState } from '../components/ui/ErrorState';
 import { LoadingState } from '../components/ui/LoadingState';
 import { PageHeader } from '../components/ui/PageHeader';
 import { useEvents, usePlacement, useProfile } from '../hooks/queries';
-import { LIMITED_MATCHED } from '../lib/display';
+import { LIMITED_MATCHED, RAW_FALLBACK_LABEL } from '../lib/display';
 import { profileSourceEvent, resolveRunnerTime } from '../lib/runnerTime';
 
 const MODE_HELP: Record<PlacementMode, string> = {
@@ -69,20 +69,29 @@ export function WhereCouldIPlacePage() {
   const achievedEvent = events?.find((e) => e.id === achievedAt) ?? null;
   const adjustable = achievedEvent != null && achievedEvent.scores?.courseSpeedFactor != null && RELIABLE.has(achievedEvent.scores.courseSpeedConfidence);
   const modeParam = params.get('mode');
-  // Course adjusted by default whenever a reliable source event is known.
-  const mode: PlacementMode = modeParam === 'raw' || achievedAt == null ? 'raw' : modeParam === 'adjusted' || adjustable ? 'adjusted' : 'raw';
+  // An explicit choice wins. Otherwise (auto): course adjusted whenever a reliable source event is
+  // known, else raw time, clearly labelled as a fallback. An event-less time (e.g. an estimated
+  // current form) is never treated as if it had been run at a reference course.
+  const mode: PlacementMode = modeParam === 'raw' ? 'raw' : modeParam === 'adjusted' || adjustable ? 'adjusted' : 'raw';
   const adjustedUnavailable =
     achievedAt == null
-      ? 'Choose where the time was achieved to adjust it for each course.'
+      ? 'Course adjustment requires a source event: choose where this time was achieved.'
       : events && !adjustable
         ? `Course adjustment unavailable at ${achievedEvent?.name ?? 'this event'} — ${LIMITED_MATCHED.toLowerCase()}.`
         : null;
+  /** Auto mode fell back to raw time: always labelled as such. */
+  const autoFallback = modeParam == null && mode === 'raw' && adjustedUnavailable != null;
+  /** Course adjusted chosen, but the time has no known source event: ask instead of showing raw results. */
+  const needsSource = mode === 'adjusted' && achievedAt == null;
+  const sourcePresets = (['recent', 'pb'] as const)
+    .map((id) => ({ id, event: profileSourceEvent(id, profile), seconds: resolveRunnerTime(id, profile, null) }))
+    .filter((p) => p.event != null && p.seconds != null && !(p.id === source && fromParam == null));
   const achievedId = useId();
 
   // Wait for the event list before choosing the default mode, so results do not flip from raw to adjusted.
   const modeKnown = achievedAt == null || events != null || modeParam != null;
   const { data, isPending, isError, error, refetch, isPlaceholderData, fetchStatus } = usePlacement({
-    timeSeconds: modeKnown ? timeSeconds : null,
+    timeSeconds: modeKnown && !needsSource ? timeSeconds : null,
     window,
     target,
     maxTravel,
@@ -140,7 +149,7 @@ export function WhereCouldIPlacePage() {
           <ChoiceChips
             label="Compare as"
             options={[
-              { value: 'adjusted' as const, label: 'Course adjusted', disabled: adjustedUnavailable != null && mode !== 'adjusted' },
+              { value: 'adjusted' as const, label: 'Course adjusted' },
               { value: 'raw' as const, label: 'Raw time' },
             ]}
             value={mode}
@@ -148,6 +157,31 @@ export function WhereCouldIPlacePage() {
           />
           <p className="mt-2 text-xs text-muted">{MODE_HELP[mode]}</p>
           {mode === 'raw' && adjustedUnavailable && <p className="mt-1 text-xs text-subtle">{adjustedUnavailable}</p>}
+          {needsSource && (
+            <div className="mt-3 rounded-2xl border border-caution bg-caution-bg p-3 text-sm" role="note" aria-label="Course adjustment needs a source event">
+              <p className="font-bold">Course adjustment requires a source event</p>
+              <p className="mt-1 text-xs text-muted">
+                {source === 'current'
+                  ? 'Current form is an estimate of your fitness, not a run at a known course, so it cannot be course-adjusted on its own.'
+                  : 'This time has no known course.'}{' '}
+                Choose where it was achieved above{sourcePresets.length > 0 ? ', or use a time with a known course:' : ', or switch to Raw time.'}
+              </p>
+              {sourcePresets.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {sourcePresets.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => update({ src: p.id, from: null, time: null, mode: 'adjusted' })}
+                      className="inline-flex min-h-10 items-center rounded-full border border-line bg-surface px-3 text-xs font-semibold hover:bg-zinc-50"
+                    >
+                      Use {p.id === 'recent' ? 'Recent best' : 'Lifetime PB'} {formatFinishTime(p.seconds!)} ({p.event!.name})
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </Field>
         <Field label="Target">
           <ChoiceChips label="Target" scroll options={PLACEMENT_TARGETS.map((t) => ({ value: t.id, label: t.label }))} value={target} onChange={(t) => update({ target: t })} />
@@ -170,7 +204,13 @@ export function WhereCouldIPlacePage() {
         <h2 id="placement-results" className="sr-only">
           Historical placements
         </h2>
-        {awaitingTime ? (
+        {needsSource && timeSeconds != null ? (
+          <EmptyState
+            icon={Medal}
+            title="Choose where this time was achieved"
+            description="Course-adjusted placements need the event where the time was run. Pick it under “Achieved at”, use Recent best or Lifetime PB, or switch to Raw time."
+          />
+        ) : awaitingTime ? (
           <EmptyState
             icon={Medal}
             title="Enter a time to begin"
@@ -192,9 +232,9 @@ export function WhereCouldIPlacePage() {
           )
         ) : (
           <div className={isPlaceholderData ? 'space-y-3 opacity-60 transition-opacity' : 'space-y-3 transition-opacity'} aria-busy={isPlaceholderData}>
-            {data.modeNote && (
-              <AlertBanner tone="caution" title="Raw time">
-                {data.modeNote}
+            {data.mode === 'raw' && (autoFallback || data.modeNote) && (
+              <AlertBanner tone="caution" title={RAW_FALLBACK_LABEL}>
+                {autoFallback ? adjustedUnavailable : data.modeNote} These placements compare the time unchanged at every course.
               </AlertBanner>
             )}
             <div className="flex items-start justify-between gap-3">

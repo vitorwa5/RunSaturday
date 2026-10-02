@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import {
   CONFIDENCE_SHORT,
-  factorPhrase,
+  factorPhraseShort,
   formatCount,
   formatDeltaSeconds,
   formatDifficulty,
@@ -28,7 +28,7 @@ interface MetricRow {
 const BASE_ROWS: MetricRow[] = [
   { label: 'PB Score', best: 'pb_score', render: (r) => (r.event.scores?.pbScore == null ? 'Unavailable' : `${formatScore(r.event.scores.pbScore)}/100`) },
   {
-    label: 'Course speed',
+    label: 'Course Speed Factor',
     best: 'course_speed',
     render: (r) =>
       r.event.scores?.courseSpeedFactor == null ? (
@@ -36,7 +36,7 @@ const BASE_ROWS: MetricRow[] = [
       ) : (
         <>
           {formatFactor(r.event.scores.courseSpeedFactor)}
-          <span className="block text-xs font-normal text-subtle">{factorPhrase(r.event.scores.courseSpeedFactor)}</span>
+          <span className="block text-xs font-normal text-subtle">{factorPhraseShort(r.event.scores.courseSpeedFactor)}</span>
         </>
       ),
   },

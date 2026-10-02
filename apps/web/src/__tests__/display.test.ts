@@ -48,13 +48,18 @@ describe('course speed and PB display', () => {
     expect(pbLabel(true)).toBe('PB');
   });
 
-  it('describes Course Speed Factors relative to the average', async () => {
-    const { factorPhrase, formatFactor } = await import('../lib/display');
-    expect(formatFactor(0.96904)).toBe('0.969');
-    expect(factorPhrase(0.969)).toBe('3.1% faster than average');
-    expect(factorPhrase(1.055)).toBe('5.5% slower than average');
-    expect(factorPhrase(1.001)).toBe('about average');
+  it('describes Course Speed Factors relative to the analysed cohort, never a neutral course', async () => {
+    const { factorPhrase, factorPhraseShort, formatFactor } = await import('../lib/display');
+    expect(formatFactor(0.96304)).toBe('0.963');
+    expect(factorPhrase(0.963)).toBe('Historically faster relative to the analysed course cohort');
+    expect(factorPhrase(1.055)).toBe('Historically slower relative to the analysed course cohort');
+    expect(factorPhrase(1.001)).toBe('Close to the analysed course cohort reference');
     expect(factorPhrase(null)).toBe('Limited matched-runner data');
+    expect(factorPhraseShort(0.963)).toBe('historically faster vs analysed cohort');
+    for (const f of [0.9, 0.963, 1, 1.055]) {
+      expect(factorPhrase(f)).not.toMatch(/%|neutral|average/);
+      expect(factorPhraseShort(f)).not.toMatch(/%|neutral|average/);
+    }
   });
 
   it('formats signed adjustment seconds', async () => {

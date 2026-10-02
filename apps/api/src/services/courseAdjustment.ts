@@ -1,8 +1,12 @@
 /**
  * Course-adjusted performance (Course Speed Factor V1). Pure.
  *
- *   neutral    = source time ÷ f_source
- *   equivalent = neutral × f_target          (rounded to a whole second)
+ *   reference  = source time ÷ f_source      (time at the cohort reference, 1.000)
+ *   equivalent = reference × f_target        (rounded to a whole second)
+ *
+ * The cohort reference is the geometric mean of the analysed events, not a neutral course. The
+ * conversion only depends on f_target ÷ f_source, so rescaling every factor by the same constant
+ * (moving the reference) never changes an equivalent.
  *
  * The equivalent is a historical course conversion: what the same performance has typically
  * corresponded to at the target course. It is a point estimate, never a predicted finish time.
@@ -67,8 +71,9 @@ export function adjustPerformance(
       confidence: 'insufficient',
     };
   }
+  // Only the ratio matters: the cohort reference (where 1.000 sits) cancels out.
   const ratio = targetFactor.factor / sourceFactor.factor;
-  const equivalentSeconds = Math.round((source.seconds / sourceFactor.factor) * targetFactor.factor);
+  const equivalentSeconds = Math.round(source.seconds * ratio);
   // Runner-cluster bootstrap of the same fit: course-comparison uncertainty only.
   const interval = ratioInterval(sourceFactor, targetFactor);
   return {

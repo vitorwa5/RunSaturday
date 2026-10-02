@@ -3,7 +3,8 @@
  *
  * Observed course speed from MATCHED RUNNERS: the same pseudonymous athlete at two events
  * within a short time of each other. Winner times, Competition Score, records and elevation
- * are NOT used. Factor 1.000 = the cohort's geometric centre; < 1 historically faster,
+ * are NOT used. Factors are centred so the geometric mean of the ELIGIBLE COHORT is 1.000: a
+ * cohort reference, not a physically neutral 5K course. < 1 historically faster than that reference,
  * > 1 historically slower.
  *
  * 1. MATCHING (no pseudo-replication). For each athlete and each pair of events (A, B), all

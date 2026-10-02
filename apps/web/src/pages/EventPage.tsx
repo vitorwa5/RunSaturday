@@ -27,7 +27,7 @@ import { PageHeader, SectionHeading } from '../components/ui/PageHeader';
 import { ReservedFeature } from '../components/ui/ReservedFeature';
 import { Tabs, type TabDef } from '../components/ui/Tabs';
 import { useEvent, useEventHistory, useProfile } from '../hooks/queries';
-import { COURSE_TYPE_LABEL, factorPhrase, formatCount, formatDeltaSeconds, formatFactor, formatMeters, LIMITED_MATCHED, SURFACE_LABEL } from '../lib/display';
+import { COURSE_TYPE_LABEL, factorPhrase, formatCount, formatFactor, formatMeters, LIMITED_MATCHED, SURFACE_LABEL } from '../lib/display';
 
 type TabId = 'overview' | 'results' | 'course' | 'info';
 const TABS: TabDef<TabId>[] = [
@@ -126,9 +126,9 @@ function CourseTab({ event }: { event: EventDetail }) {
             <p className="font-semibold">Course speed</p>
             {event.scores?.courseSpeedFactor != null ? (
               <p className="text-muted">
-                <strong className="text-ink tabular-nums">{formatFactor(event.scores.courseSpeedFactor)}</strong> · {factorPhrase(event.scores.courseSpeedFactor)}, from
-                runners who also ran other events. About {formatDeltaSeconds(Math.round(1200 * (event.scores.courseSpeedFactor - 1)))} on a 20:00 run at an
-                average course.
+                Course Speed Factor <strong className="text-ink tabular-nums">{formatFactor(event.scores.courseSpeedFactor)}</strong> ·{' '}
+                {factorPhrase(event.scores.courseSpeedFactor)}, from runners who also ran other events. 1.000 is the reference of the analysed course cohort,
+                not a neutral course.
               </p>
             ) : (
               <p className="text-muted">Course adjustment unavailable — {LIMITED_MATCHED.toLowerCase()}.</p>
