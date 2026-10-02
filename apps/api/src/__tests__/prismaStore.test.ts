@@ -69,19 +69,49 @@ describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
     expect(sort(await store!.listCompetitionInputs(today))).toEqual(sort(await memory.listCompetitionInputs(today)));
   });
 
-  it('recalculates analytics idempotently and serves the same snapshots as the demo store', async () => {
-    const count = () => db!.eventScore.count({ where: { calculationVersion: { in: ['competition_v1', 'difficulty_v1'] }, asOfDate: new Date(`${today}T00:00:00Z`) } });
+  it('recalculates analytics idempotently and serves the same snapshots as the demo store', { timeout: 60_000 }, async () => {
+    const asOfDate = new Date(`${today}T00:00:00Z`);
+    const count = async () => [
+      await db!.eventScore.count({ where: { calculationVersion: { in: ['competition_v1', 'difficulty_v1', 'pb_v1'] }, asOfDate } }),
+      await db!.courseFactorSnapshot.count({ where: { asOfDate } }),
+    ];
     await recalculateAnalytics(db!, today);
     const first = await count();
     await recalculateAnalytics(db!, today);
-    expect(await count()).toBe(first);
+    expect(await count()).toEqual(first);
+    expect(first[1]).toBe(10);
     for (const id of ['demo-riverside-5k', 'demo-heath-common-5k', 'demo-dockside-promenade-5k']) {
       for (const windowDays of [30, 90, 0]) {
         expect(await store!.getAnalytics(id, windowDays)).toEqual(await memory.getAnalytics(id, windowDays));
       }
     }
-    const strip = (e: { id: string; scores: { competitionScore: number | null; difficultyScore: number | null } | null }) => [e.id, e.scores?.competitionScore, e.scores?.difficultyScore];
+    const strip = (e: Awaited<ReturnType<MemoryDataStore['listActiveEvents']>>[number]) => [
+      e.id,
+      e.scores?.competitionScore,
+      e.scores?.difficultyScore,
+      e.scores?.pbScore,
+      e.scores?.courseSpeedFactor,
+      e.scores?.courseSpeedConfidence,
+    ];
     expect((await store!.listActiveEvents()).map(strip)).toEqual((await memory.listActiveEvents()).map(strip));
+  });
+
+  it('stores Course Speed Factors with aligned bootstrap draws identical to the demo store', async () => {
+    const byId = <T extends { eventId: string }>(rows: T[]) => [...rows].sort((a, b) => a.eventId.localeCompare(b.eventId));
+    const [fromDb, fromMemory] = [byId(await store!.listCourseFactors()), byId(await memory.listCourseFactors())];
+    // Scalars round-trip exactly; float8[] draws may differ in the 17th significant digit.
+    expect(fromDb.map(({ bootstrap: _b, ...f }) => f)).toEqual(fromMemory.map(({ bootstrap: _b, ...f }) => f));
+    fromDb.forEach((f, i) => {
+      expect(f.bootstrap).toHaveLength(fromMemory[i]!.bootstrap.length);
+      f.bootstrap.forEach((v, b) => expect(Math.abs(v - fromMemory[i]!.bootstrap[b]!)).toBeLessThan(1e-12));
+    });
+  });
+
+  it('reads the same matched-runner performances in SQL as in memory', async () => {
+    const key = (p: { athleteKey: string; eventId: string; date: string }) => `${p.athleteKey}|${p.eventId}|${p.date}`;
+    const sort = <T extends { athleteKey: string; eventId: string; date: string }>(rows: T[]) => [...rows].sort((a, b) => key(a).localeCompare(key(b)));
+    const from = '2026-06-01';
+    expect(sort(await store!.listPerformances(from, today))).toEqual(sort(await memory.listPerformances(from, today)));
   });
 
   it('searches case-insensitively in SQL', async () => {
@@ -119,6 +149,7 @@ describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
       windowDays,
       asOfDate: date(asOf),
       pbScore,
+      gemBaseScore: pbScore,
     });
     afterAll(async () => db?.eventScore.deleteMany({ where: { calculationVersion: version } }));
 
@@ -139,10 +170,11 @@ describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
       await expect(db!.eventScore.create({ data: snapshot(90, '2026-09-26', 50) })).rejects.toMatchObject({ code: 'P2002' });
     });
 
-    it('serves the latest snapshot in the default 90-day window', async () => {
+    it('serves the latest legacy snapshot in the default 90-day window (PB Score comes from pb_v1 only)', async () => {
       const versioned = new PrismaDataStore(db!, version);
       const event = (await versioned.listActiveEvents()).find((e) => e.id === eventId);
-      expect(event?.scores).toMatchObject({ windowDays: 90, asOfDate: '2026-09-26', pbScore: 92 });
+      expect(event?.scores).toMatchObject({ windowDays: 90, gemBaseScore: 92, calculationVersion: 'pb_v1' });
+      expect(event?.scores?.pbScore).not.toBe(92);
     });
   });
 
@@ -152,5 +184,7 @@ describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
       'demo-lakeside-5k',
       'demo-riverside-5k',
     ]);
+    expect(user?.recentPbEvent).toEqual({ id: 'demo-riverside-5k', name: 'Riverside 5K' });
+    expect(user?.lifetimePbEvent).toEqual(await memory.getUser('demo-user').then((u) => u?.lifetimePbEvent));
   });
 });

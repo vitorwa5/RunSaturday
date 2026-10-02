@@ -3,7 +3,17 @@
  * interface only, never on Prisma directly, so storage can change (and tests can
  * run without PostgreSQL).
  */
-import type { CompetitionBreakdown, DifficultyBreakdown, EventDetail, EventSummary, Goal, OccurrenceSummary } from '@runsaturday/shared';
+import type {
+  CompetitionBreakdown,
+  CourseSpeedBreakdown,
+  DifficultyBreakdown,
+  EventDetail,
+  EventSummary,
+  Goal,
+  OccurrenceSummary,
+  PbBreakdown,
+} from '@runsaturday/shared';
+import type { CourseFactorResult, PerformanceInput } from '../analytics/courseSpeed';
 import type { CompetitionOccurrenceInput } from '../analytics/competition';
 import type { PlacementOccurrenceInput } from '../domain/placementEngine';
 
@@ -31,6 +41,8 @@ export interface UserRecord {
   current5kEstimateSeconds: number | null;
   preferredGoal: Goal;
   isDemo: boolean;
+  lifetimePbEvent: { id: string; name: string } | null;
+  recentPbEvent: { id: string; name: string } | null;
   events: UserEventRecord[];
 }
 
@@ -61,7 +73,17 @@ export interface DataStore {
    * Latest stored analytics for an event: Competition V1 for the window (days; 0 = all history)
    * and Difficulty V1. Read from snapshots; never recalculated per request.
    */
-  getAnalytics(eventId: string, windowDays: number): Promise<{ competition: CompetitionBreakdown | null; difficulty: DifficultyBreakdown | null }>;
+  getAnalytics(
+    eventId: string,
+    windowDays: number,
+  ): Promise<{ competition: CompetitionBreakdown | null; difficulty: DifficultyBreakdown | null; courseSpeed: CourseSpeedBreakdown | null; pb: PbBreakdown | null }>;
+  /**
+   * Latest Course Speed Factors from ONE calculation run (bootstrap draws are only comparable
+   * within a run), for course-adjusted comparisons.
+   */
+  listCourseFactors(): Promise<CourseFactorResult[]>;
+  /** Results with a pseudonymous athlete key from usable occurrences dated in [from, to]. */
+  listPerformances(from: string | null, to: string): Promise<PerformanceInput[]>;
   /** Per-occurrence placing times derived from Result rows, for occurrences dated on or before `to`. */
   listCompetitionInputs(to: string): Promise<CompetitionOccurrenceInput[]>;
   /** True when the underlying store is reachable. */

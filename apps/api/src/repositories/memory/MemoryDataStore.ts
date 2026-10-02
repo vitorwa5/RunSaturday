@@ -3,13 +3,16 @@
  * PostgreSQL (DATA_SOURCE=demo) and gives API tests a deterministic fixture.
  */
 import { addDays, type OccurrenceSummary } from '@runsaturday/shared';
-import { computeCoreAnalytics, type CoreAnalytics } from '../../analytics/core';
+import { computeCoreAnalytics, usablePerformances, type CoreAnalytics } from '../../analytics/core';
+import type { CourseFactorResult, PerformanceInput } from '../../analytics/courseSpeed';
+import { toCourseSpeedBreakdown, toPbBreakdown } from '../../analytics/dto';
 import { DEFAULT_ANALYTICS_WINDOW } from '../../analytics/versions';
 import {
   buildDemoDataset,
   DEMO_WINDOW_DAYS,
   demoCompetitionInputs,
   demoCourseFacts,
+  demoPerformances,
   type DemoDataset,
   type DemoEventBundle,
 } from '../../demo/buildDemoDataset';
@@ -39,19 +42,48 @@ function toRecord(b: DemoEventBundle, dataset: DemoDataset, analytics: CoreAnaly
     source: 'demo',
     scores: assembleScores(
       {
-        pbScore: def.scores.pbScore,
         gemBaseScore: def.scores.gemBaseScore,
-        pbConfidence: lower(def.scores.pbConfidence),
         sampleSize: b.sampleSize,
         windowDays: DEMO_WINDOW_DAYS,
         asOfDate: dataset.latestDate,
-        calculationVersion: dataset.scoreVersion,
         calculatedAt: generatedAt,
       },
+      pbOf(analytics, b.id),
       analytics.competition.get(b.id)?.get(DEFAULT_ANALYTICS_WINDOW) ?? null,
       analytics.difficulty.get(b.id) ?? null,
+      speedOf(analytics, b.id),
     ),
   };
+}
+
+function pbOf(analytics: CoreAnalytics, eventId: string) {
+  const p = analytics.pb.get(eventId);
+  return p ? toPbBreakdown(p) : null;
+}
+
+function speedOf(analytics: CoreAnalytics, eventId: string) {
+  const f = analytics.courseFactors.get(eventId);
+  return f ? toCourseSpeedBreakdown(f) : null;
+}
+
+/**
+ * The demo dataset and its analytics depend only on "today", and the Course Speed bootstrap
+ * takes a few seconds, so both are computed once per date and shared between store instances.
+ */
+const cache = new Map<string, { dataset: DemoDataset; analytics: CoreAnalytics; performances: PerformanceInput[] }>();
+
+function demoState(today: string) {
+  let state = cache.get(today);
+  if (!state) {
+    const dataset = buildDemoDataset(today);
+    const inputs = demoCompetitionInputs(dataset);
+    const performances = usablePerformances(demoPerformances(dataset), inputs);
+    // Same pure calculation the recalculation job persists.
+    const analytics = computeCoreAnalytics(demoCourseFacts(dataset), inputs, performances, today);
+    state = { dataset, analytics, performances };
+    cache.set(today, state);
+  }
+  return state;
 }
 
 /** Occurrence summaries, oldest first (generation order). */
@@ -63,12 +95,11 @@ export class MemoryDataStore implements DataStore {
   readonly kind = 'demo-memory' as const;
   private readonly dataset: DemoDataset;
   private readonly analytics: CoreAnalytics;
+  private readonly performances: PerformanceInput[];
   private readonly generatedAt = new Date().toISOString();
 
   constructor(today: string) {
-    this.dataset = buildDemoDataset(today);
-    // Same pure calculation the recalculation job persists, run once at startup.
-    this.analytics = computeCoreAnalytics(demoCourseFacts(this.dataset), demoCompetitionInputs(this.dataset), today);
+    ({ dataset: this.dataset, analytics: this.analytics, performances: this.performances } = demoState(today));
   }
 
   private records(): EventRecord[] {
@@ -170,7 +201,17 @@ export class MemoryDataStore implements DataStore {
     return {
       competition: this.analytics.competition.get(eventId)?.get(windowDays) ?? null,
       difficulty: this.analytics.difficulty.get(eventId) ?? null,
+      courseSpeed: speedOf(this.analytics, eventId),
+      pb: pbOf(this.analytics, eventId),
     };
+  }
+
+  async listCourseFactors(): Promise<CourseFactorResult[]> {
+    return [...this.analytics.courseFactors.values()];
+  }
+
+  async listPerformances(from: string | null, to: string): Promise<PerformanceInput[]> {
+    return this.performances.filter((p) => p.date <= to && (from == null || p.date >= from));
   }
 
   async listCompetitionInputs(to: string) {
@@ -192,6 +233,8 @@ export class MemoryDataStore implements DataStore {
       current5kEstimateSeconds: u.current5kEstimateSeconds,
       preferredGoal: 'pb',
       isDemo: true,
+      lifetimePbEvent: this.eventRef(u.lifetimePbEventId),
+      recentPbEvent: this.eventRef(u.recentPbEventId),
       events: u.history.map((h) => ({
         eventId: h.slug,
         visited: true,
@@ -200,6 +243,11 @@ export class MemoryDataStore implements DataStore {
         personalBestSeconds: h.personalBestSeconds,
       })),
     };
+  }
+
+  private eventRef(id: string | null) {
+    const b = this.dataset.events.find((e) => e.id === id);
+    return b ? { id: b.id, name: b.def.name } : null;
   }
 
   async ping(): Promise<boolean> {

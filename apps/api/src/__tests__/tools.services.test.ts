@@ -114,6 +114,7 @@ describe('placement ranking', () => {
       placements.map((p, i) => ({ eventId: id, date: `2026-09-${String(26 - i).padStart(2, '0')}`, status: 'completed' as const, dataQuality: 'valid' as const, participantCount: fieldSize, resultCount: fieldSize, fasterCount: p - 1, equalCount: 0 })),
       'top10',
       '2026-10-01',
+      { seconds: 1200, adjustment: null },
     );
 
   it('ranks by target frequency, then median, with too-little-data events last and empty events dropped', () => {

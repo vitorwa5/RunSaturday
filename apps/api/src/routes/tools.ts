@@ -14,10 +14,13 @@ import {
   SURFACE_FILTERS,
   VISITED_FILTERS,
   type CompareResponse,
+  type CourseAdjustment,
   type EventPlacement,
+  type EventSummary,
   type HiddenGemsResponse,
   type HistoryWindowId,
   type PbFinderResponse,
+  type PlacementMode,
   type PlacementResponse,
   type PlacementTargetId,
 } from '@runsaturday/shared';
@@ -26,24 +29,39 @@ import { currentUser, resolveOrigin, type RequestContext } from '../http/context
 import { AppError, notFound, parseInput } from '../http/errors';
 import { idsOf, OriginQuery, parseTimeParam, TravelOption, WindowParam } from '../http/schemas';
 import { bestByMetric } from '../services/comparisonService';
+import { windowFrom } from '../domain/windows';
 import { withContext } from '../services/eventContext';
 import { rankHiddenGems } from '../services/hiddenGemService';
 import { pbFinder } from '../services/pbFinderService';
-import { computePlacements, rankPlacements } from '../services/placementService';
+import { ADJUSTMENT_UNAVAILABLE, isReliableFactor } from '../services/courseAdjustment';
+import { computeAdjustedPlacements, computePlacements, rankPlacements } from '../services/placementService';
 
 const FALLBACK_TRAVEL_MINUTES = 45;
 const TRAVEL_NOTE = 'Travel times are estimates from straight-line distance, not driving directions.';
 const HISTORY_NOTE = 'Placements show where this time would have finished at past events. They are not predictions of who will run next time.';
 const DATA_NOTE = 'Only completed events with complete, validated results are used. Cancelled dates are excluded.';
+const ADJUSTED_NOTE =
+  'Course adjusted: your time is converted to an equivalent at each course using Course Speed Factors from matched runners, then compared with past results. Equivalent times are historical conversions, not predicted finish times.';
+
+/** auto: course adjusted when a source event with a reliable factor is given, otherwise raw time. */
+const ModeParam = z.enum(['auto', 'adjusted', 'raw']).default('auto');
+const SourceParam = z.string().min(1).max(200).optional();
 
 const PlacementQuery = z.object({
   time: z.string(),
   window: WindowParam.default(DEFAULT_HISTORY_WINDOW),
   target: z.enum(idsOf(PLACEMENT_TARGETS)).default(DEFAULT_PLACEMENT_TARGET),
   maxTravel: TravelOption.optional(),
+  mode: ModeParam,
+  source: SourceParam,
 });
 
-const EventPlacementQuery = z.object({ time: z.string(), window: WindowParam.default(DEFAULT_HISTORY_WINDOW) });
+const EventPlacementQuery = z.object({
+  time: z.string(),
+  window: WindowParam.default(DEFAULT_HISTORY_WINDOW),
+  mode: ModeParam,
+  source: SourceParam,
+});
 
 const PbFinderQuery = z.object({
   maxTravel: TravelOption.optional(),
@@ -64,6 +82,8 @@ const CompareQuery = z.object({
   ids: z.string().min(1),
   time: z.string().optional(),
   window: WindowParam.default(DEFAULT_HISTORY_WINDOW),
+  mode: ModeParam,
+  source: SourceParam,
 });
 
 export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
@@ -74,6 +94,57 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
     return { user, events };
   }
 
+  /**
+   * Placements in raw or course-adjusted mode. "auto" adjusts when a source event with a
+   * reliable Course Speed Factor is given and says why when it cannot; an explicit "adjusted"
+   * request never falls back to raw silently.
+   */
+  async function placementsFor(
+    all: EventSummary[],
+    selected: EventSummary[],
+    q: { timeSeconds: number; mode: 'auto' | 'adjusted' | 'raw'; source?: string | undefined; window: HistoryWindowId; target: PlacementTargetId },
+  ): Promise<{
+    mode: PlacementMode;
+    modeNote: string | null;
+    source: PlacementResponse['source'];
+    placements: EventPlacement[];
+    unavailable: CourseAdjustment[];
+    from: string | null;
+  }> {
+    const base = { window: q.window, target: q.target, today: ctx.today() };
+    const raw = async (modeNote: string | null, source: PlacementResponse['source'] = null) => {
+      const { placements, from } = await computePlacements(ctx.store, selected, { ...base, timeSeconds: q.timeSeconds });
+      return { mode: 'raw' as const, modeNote, source, placements, unavailable: [], from };
+    };
+    if (q.mode === 'raw') return raw(null);
+    if (q.source == null) {
+      if (q.mode === 'adjusted') throw new AppError(400, 'source_required', 'Choose where the time was achieved to adjust it for each course.');
+      return raw(null);
+    }
+    const sourceEvent = all.find((e) => e.id === q.source || e.slug === q.source);
+    if (!sourceEvent) throw notFound('The event where the time was achieved');
+
+    const factors = new Map((await ctx.store.listCourseFactors()).map((f) => [f.eventId, f]));
+    const sourceFactor = factors.get(sourceEvent.id);
+    const source = {
+      eventId: sourceEvent.id,
+      name: sourceEvent.name,
+      factor: sourceFactor?.factor ?? null,
+      confidence: sourceFactor?.confidence.level ?? ('insufficient' as const),
+    };
+    if (!isReliableFactor(sourceFactor)) {
+      const note = `${ADJUSTMENT_UNAVAILABLE} at ${sourceEvent.name}.`;
+      if (q.mode === 'auto') return raw(`${note} Showing raw-time placements instead.`, source);
+      return { mode: 'adjusted', modeNote: `${note} Switch to Raw time to compare the time unchanged.`, source, placements: [], unavailable: [], from: windowFrom(q.window, ctx.today()) };
+    }
+    const result = await computeAdjustedPlacements(ctx.store, selected, {
+      ...base,
+      source: { eventId: sourceEvent.id, name: sourceEvent.name, seconds: q.timeSeconds },
+      factors,
+    });
+    return { mode: 'adjusted', modeNote: null, source, ...result };
+  }
+
   app.get('/api/placement', async (request): Promise<PlacementResponse> => {
     const origin = parseInput(OriginQuery, request.query);
     const q = parseInput(PlacementQuery, request.query);
@@ -82,14 +153,20 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
     const maxTravelMinutes = q.maxTravel ?? user?.defaultTravelMinutes ?? FALLBACK_TRAVEL_MINUTES;
     const inRange = events.filter((e) => e.travel && e.travel.minutes <= maxTravelMinutes);
 
-    const { placements, from } = await computePlacements(ctx.store, inRange, {
+    const { mode, modeNote, source, placements, unavailable, from } = await placementsFor(events, inRange, {
       timeSeconds,
+      mode: q.mode,
+      source: q.source,
       window: q.window as HistoryWindowId,
       target: q.target,
-      today: ctx.today(),
     });
     const ranked = rankPlacements(placements);
+    const names = new Map(events.map((e) => [e.id, e.name]));
     return {
+      mode,
+      modeNote,
+      source,
+      unavailable: unavailable.map((a) => ({ eventId: a.targetEventId, name: names.get(a.targetEventId) ?? a.targetEventId, reason: a.reason ?? ADJUSTMENT_UNAVAILABLE })),
       timeSeconds,
       window: q.window as HistoryWindowId,
       from,
@@ -98,7 +175,7 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
       maxTravelMinutes,
       results: ranked,
       eventsWithoutData: placements.length - ranked.length,
-      notes: [HISTORY_NOTE, DATA_NOTE, TRAVEL_NOTE],
+      notes: [...(mode === 'adjusted' ? [ADJUSTED_NOTE] : []), HISTORY_NOTE, DATA_NOTE, TRAVEL_NOTE],
     };
   });
 
@@ -109,13 +186,39 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
     const { events } = await contextualEvents({});
     const event = events.find((e) => e.id === id || e.slug === id);
     if (!event) throw notFound('This event');
+    const result = await placementsFor(events, [event], {
+      timeSeconds,
+      mode: q.mode,
+      source: q.source,
+      window: q.window as HistoryWindowId,
+      target: DEFAULT_PLACEMENT_TARGET,
+    });
+    if (result.placements[0]) return result.placements[0];
+    // Adjustment not possible here: the raw-time placement, carrying the reason (shown to the user).
     const { placements } = await computePlacements(ctx.store, [event], {
       timeSeconds,
       window: q.window as HistoryWindowId,
       target: DEFAULT_PLACEMENT_TARGET,
       today: ctx.today(),
     });
-    return placements[0]!;
+    const adjustment =
+      result.unavailable[0] ??
+      ({
+        available: false,
+        reason: ADJUSTMENT_UNAVAILABLE,
+        sourceEventId: result.source?.eventId ?? '',
+        sourceEventName: result.source?.name ?? '',
+        sourceSeconds: timeSeconds,
+        targetEventId: event.id,
+        equivalentSeconds: null,
+        deltaSeconds: null,
+        ratio: null,
+        sourceFactor: result.source?.factor ?? null,
+        targetFactor: null,
+        conversionRange: null,
+        confidence: 'insufficient',
+      } satisfies CourseAdjustment);
+    return { ...placements[0]!, adjustment };
   });
 
   app.get('/api/pb-finder', async (request): Promise<PbFinderResponse> => {
@@ -136,7 +239,10 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
       results,
       counts,
       ...(message ? { message } : {}),
-      notes: ['PB Scores are demo values until the PB Score model is built.', TRAVEL_NOTE],
+      notes: [
+        'PB Score V1 is 75% observed course speed (Course Speed Factor from matched runners) and 25% structural ease. Competition is not part of it, and your filters never change it.',
+        TRAVEL_NOTE,
+      ],
     };
   });
 
@@ -192,17 +298,22 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
     const missing = ids.filter((_, i) => found[i] == null);
 
     let placementById = new Map<string, EventPlacement>();
+    let mode: PlacementMode = 'raw';
+    let source: CompareResponse['source'] = null;
     if (timeSeconds != null && selected.length > 0) {
-      const { placements } = await computePlacements(ctx.store, selected, {
+      const result = await placementsFor(events, selected, {
         timeSeconds,
+        mode: q.mode,
+        source: q.source,
         window: q.window as HistoryWindowId,
         target: 'top10' as PlacementTargetId,
-        today: ctx.today(),
       });
-      placementById = new Map(placements.map((p) => [p.event.id, p]));
+      mode = result.mode;
+      source = result.source ? { eventId: result.source.eventId, name: result.source.name } : null;
+      placementById = new Map(result.placements.map((p) => [p.event.id, p]));
     }
 
     const rows = selected.map((event) => ({ event, placement: placementById.get(event.id) ?? null }));
-    return { events: rows, missing, timeSeconds, window: q.window as HistoryWindowId, best: bestByMetric(rows) };
+    return { events: rows, missing, timeSeconds, mode, source, window: q.window as HistoryWindowId, best: bestByMetric(rows) };
   });
 }

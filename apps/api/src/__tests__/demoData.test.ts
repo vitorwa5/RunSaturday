@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildDemoDataset, latestCompletedSaturday } from '../demo/buildDemoDataset';
 import { DEMO_EVENTS } from '../demo/demoEvents';
-import { generateDemoHistory } from '../demo/generateDemoHistory';
+import { generateDemoHistories, simulationCourseEffect } from '../demo/generateDemoHistory';
 
 describe('DEMO dataset', () => {
   it('has 8–12 clearly labelled fictional events with unique slugs', () => {
@@ -27,8 +27,44 @@ describe('DEMO dataset', () => {
   });
 
   it('generates identical history for the same date (deterministic)', () => {
-    const def = DEMO_EVENTS[0]!;
-    expect(generateDemoHistory(def, '2026-09-26')).toEqual(generateDemoHistory(def, '2026-09-26'));
+    expect(generateDemoHistories(DEMO_EVENTS, '2026-09-26')).toEqual(generateDemoHistories(DEMO_EVENTS, '2026-09-26'));
+  });
+
+  it('gives results pseudonymous demo athlete keys shared across events', () => {
+    const dataset = buildDemoDataset('2026-10-01');
+    const eventsByAthlete = new Map<string, Set<string>>();
+    for (const { id, occurrences } of dataset.events) {
+      for (const o of occurrences) {
+        for (const r of o.results) {
+          expect(r.athleteKey).toMatch(/^demo-athlete-\d{5}$/);
+          eventsByAthlete.set(r.athleteKey, (eventsByAthlete.get(r.athleteKey) ?? new Set()).add(id));
+        }
+      }
+    }
+    const multi = [...eventsByAthlete.values()].filter((s) => s.size >= 2).length;
+    // Most runners stay local, but a substantial minority visit other events.
+    expect(multi / eventsByAthlete.size).toBeGreaterThan(0.2);
+    expect(multi / eventsByAthlete.size).toBeLessThan(0.6);
+  });
+
+  it('never clamps winners to a fixed floor', () => {
+    const winners = buildDemoDataset('2026-10-01').events.flatMap((e) => e.occurrences.flatMap((o) => (o.winnerTimeSeconds != null ? [o.winnerTimeSeconds] : [])));
+    expect(winners.filter((w) => w === 900).length).toBe(0);
+    expect(Math.min(...winners)).toBeGreaterThanOrEqual(13 * 60);
+  });
+
+  it('runs each athlete at most once per event day', () => {
+    for (const { occurrences } of buildDemoDataset('2026-10-01').events) {
+      for (const o of occurrences) expect(new Set(o.results.map((r) => r.athleteKey)).size).toBe(o.results.length);
+    }
+  });
+
+  it('derives the hidden simulation course effect from course facts (never read by analytics)', () => {
+    for (const def of DEMO_EVENTS) {
+      const effect = simulationCourseEffect(def);
+      expect(effect).toBeGreaterThan(0.95);
+      expect(effect).toBeLessThan(1.2);
+    }
   });
 
   it('keeps placing times consistent with result rows', () => {

@@ -9,6 +9,8 @@ type Row = { event: EventSummary; placement: EventPlacement | null };
  */
 const METRICS: { key: CompareMetricKey; value: (r: Row) => number | null; better: 'higher' | 'lower' }[] = [
   { key: 'pb_score', value: (r) => r.event.scores?.pbScore ?? null, better: 'higher' },
+  // Course Speed Factor: lower = runners have historically been faster here.
+  { key: 'course_speed', value: (r) => r.event.scores?.courseSpeedFactor ?? null, better: 'lower' },
   { key: 'difficulty', value: (r) => r.event.scores?.difficultyScore ?? null, better: 'lower' },
   { key: 'elevation', value: (r) => r.event.elevationM, better: 'lower' },
   { key: 'travel', value: (r) => r.event.travel?.minutes ?? null, better: 'lower' },

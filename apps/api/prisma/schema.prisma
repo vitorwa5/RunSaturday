@@ -76,8 +76,8 @@ enum ConfidenceLevel {
 }
 
 model Event {
-  id                String     @id @default(cuid())
-  slug              String     @unique
+  id                String  @id @default(cuid())
+  slug              String  @unique
   name              String
   country           String
   region            String?
@@ -108,9 +108,13 @@ model Event {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  occurrences EventOccurrence[]
-  scores      EventScore[]
-  userEvents  UserEvent[]
+  occurrences     EventOccurrence[]
+  scores          EventScore[]
+  userEvents      UserEvent[]
+  courseFactors   CourseFactorSnapshot[]
+  /// Users whose reference times were achieved here.
+  lifetimePbUsers User[]                 @relation("LifetimePbEvent")
+  recentPbUsers   User[]                 @relation("RecentPbEvent")
 
   @@index([region])
   @@index([active])
@@ -178,11 +182,17 @@ model User {
   homeLon   Float?
   homeLabel String?
 
-  defaultTravelMinutes     Int  @default(30)
+  defaultTravelMinutes     Int     @default(30)
   lifetimePbSeconds        Int?
+  /// Where the lifetime PB was achieved, when known (needed for course-adjusted comparisons).
+  lifetimePbEventId        String?
+  lifetimePbEvent          Event?  @relation("LifetimePbEvent", fields: [lifetimePbEventId], references: [id], onDelete: SetNull)
   recentPbSeconds          Int?
+  /// Where the recent best was achieved, when known.
+  recentPbEventId          String?
+  recentPbEvent            Event?  @relation("RecentPbEvent", fields: [recentPbEventId], references: [id], onDelete: SetNull)
   current5kEstimateSeconds Int?
-  preferredGoal            Goal @default(PB)
+  preferredGoal            Goal    @default(PB)
 
   isDemo Boolean @default(false)
 
@@ -245,4 +255,39 @@ model EventScore {
 
   @@unique([eventId, calculationVersion, windowDays, asOfDate])
   @@index([calculationVersion, windowDays, asOfDate])
+}
+
+/// Course Speed Factor snapshot (course_speed_v1): observed course speed from matched runners.
+/// Kept apart from EventScore because a factor is a multiplier around 1.000 with its own
+/// uncertainty (bootstrap draws), not a 0–100 score.
+model CourseFactorSnapshot {
+  id      String @id @default(cuid())
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  version    String
+  windowDays Int
+  asOfDate   DateTime @db.Date
+
+  /// exp(θ); < 1 historically faster than the cohort centre, > 1 slower. Null = limited data.
+  factor              Float?
+  logFactor           Float?
+  /// Runner-bootstrap replicate log-factors, index-aligned across events in the same run.
+  bootstrapLogFactors Float[]
+
+  matchedRunners  Int
+  comparisons     Int
+  connectedEvents Int
+  medianGapDays   Float?
+  dispersion      Float?
+
+  confidence      ConfidenceLevel
+  confidenceScore Int
+  /// Full breakdown (confidence factors, reasons) for "How it's calculated".
+  breakdown       Json
+
+  calculatedAt DateTime @default(now())
+
+  @@unique([eventId, version, windowDays, asOfDate])
+  @@index([version, windowDays, asOfDate])
 }

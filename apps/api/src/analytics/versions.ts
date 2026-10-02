@@ -1,6 +1,8 @@
 /** Calculation versions. Bump a version when its formula changes; old snapshots stay intact. */
 export const COMPETITION_VERSION = 'competition_v1';
 export const DIFFICULTY_VERSION = 'difficulty_v1';
+export const COURSE_SPEED_VERSION = 'course_speed_v1';
+export const PB_VERSION = 'pb_v1';
 /** Windows (days) snapshots are calculated for. 0 = all history. */
 export const ANALYTICS_WINDOWS = [30, 60, 90, 365, 0] as const;
 export const DEFAULT_ANALYTICS_WINDOW = 90;

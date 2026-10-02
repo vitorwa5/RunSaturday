@@ -66,7 +66,8 @@ describe('API', () => {
     app = await buildTestApp();
     const body = (await app.inject('/api/recommendations/best-pick?goal=pb')).json<BestPickResponse>();
     expect(body.date).toBe('2026-10-03');
-    expect(body.pick?.event.name).toBe('Riverside 5K');
+    // Fastest observed course (PB Score V1) within the demo user's travel limit.
+    expect(body.pick?.event.name).toBe('Dockside Promenade 5K');
     expect(body.pick?.reasons.length).toBeGreaterThan(0);
     expect(body.pick?.highlights).toEqual(['Fast', 'Flat', 'Tarmac']);
     expect(body.alternatives).toHaveLength(3);
@@ -117,7 +118,7 @@ describe('API', () => {
       expect(body.goal).toBe('pb');
       expect(body.results.map((r) => r.rank)).toEqual(body.results.map((_, i) => i + 1));
       expect(body.results.every((r) => r.event.travel!.minutes <= 45)).toBe(true);
-      expect(body.results[0]!.event.name).toBe('Riverside 5K');
+      expect(body.results[0]!.event.name).toBe('Dockside Promenade 5K');
       expect(body.notes.length).toBeGreaterThan(0);
     });
 
@@ -260,14 +261,57 @@ describe('API', () => {
       for (const h of body.history) expect(h.worst).toBeGreaterThanOrEqual(h.best);
       expect((await app.inject('/api/events/nope/placement?time=1180')).statusCode).toBe(404);
     });
+
+    it('course-adjusts a time achieved at a source event and feeds the equivalent to the placement engine', async () => {
+      app = await buildTestApp();
+      const q = '/api/placement?time=19:35&maxTravel=90&window=all';
+      const adjusted = (await app.inject(`${q}&source=demo-riverside-5k`)).json<PlacementResponse>();
+      const raw = (await app.inject(`${q}&source=demo-riverside-5k&mode=raw`)).json<PlacementResponse>();
+      expect(adjusted.mode).toBe('adjusted');
+      expect(adjusted.source).toMatchObject({ eventId: 'demo-riverside-5k', name: 'Riverside 5K', confidence: 'high' });
+      expect(adjusted.notes[0]).toMatch(/not predicted finish times/);
+      expect(raw.mode).toBe('raw');
+      expect(raw.results.every((r) => r.adjustment == null && r.analysedSeconds === 1175)).toBe(true);
+
+      const at = (body: PlacementResponse, id: string) => body.results.find((r) => r.event.id === id)!;
+      // Same course: unchanged. Hilly forest trail: a clearly slower equivalent, placed further back.
+      expect(at(adjusted, 'demo-riverside-5k').analysedSeconds).toBe(1175);
+      const forest = at(adjusted, 'demo-forest-trail-5k');
+      expect(forest.adjustment).toMatchObject({ available: true, sourceEventId: 'demo-riverside-5k', sourceSeconds: 1175 });
+      expect(forest.analysedSeconds).toBe(forest.adjustment!.equivalentSeconds);
+      expect(forest.analysedSeconds).toBeGreaterThan(1175 * 1.05);
+      expect(forest.adjustment!.deltaSeconds).toBe(forest.analysedSeconds - 1175);
+      expect(forest.adjustment!.conversionRange!.lowSeconds).toBeLessThanOrEqual(forest.analysedSeconds);
+      expect(forest.stats!.medianPlacement.low).toBeGreaterThan(at(raw, 'demo-forest-trail-5k').stats!.medianPlacement.high);
+    });
+
+    it('falls back to raw time in auto mode only with a note, and never silently when adjustment is requested', async () => {
+      app = await buildTestApp();
+      const noSource = (await app.inject('/api/placement?time=19:35')).json<PlacementResponse>();
+      expect(noSource).toMatchObject({ mode: 'raw', source: null, unavailable: [] });
+      const required = await app.inject('/api/placement?time=19:35&mode=adjusted');
+      expect(required.statusCode).toBe(400);
+      expect(required.json().error.message).toMatch(/where the time was achieved/);
+      expect((await app.inject('/api/placement?time=19:35&source=nope')).statusCode).toBe(404);
+    });
+
+    it('serves an equivalent time for the event page outlook', async () => {
+      app = await buildTestApp();
+      const body = (await app.inject('/api/events/demo-moorland-edge-5k/placement?time=19:32&source=demo-riverside-5k')).json<EventPlacement>();
+      expect(body.adjustment).toMatchObject({ available: true, sourceEventName: 'Riverside 5K', targetEventId: 'demo-moorland-edge-5k' });
+      expect(body.analysedSeconds).toBeGreaterThan(1172);
+      const raw = (await app.inject('/api/events/demo-moorland-edge-5k/placement?time=19:32')).json<EventPlacement>();
+      expect(raw).toMatchObject({ analysedSeconds: 1172, adjustment: null });
+    });
   });
 
   describe('PB finder', () => {
     it('ranks by stored PB Score and supports sorting and filters', async () => {
       app = await buildTestApp();
       const body = (await app.inject('/api/pb-finder')).json<PbFinderResponse>();
-      expect(body.results[0]!.event.name).toBe('Riverside 5K');
-      expect(body.notes[0]).toMatch(/demo values/);
+      expect(body.results[0]!.event.name).toBe('Dockside Promenade 5K');
+      expect(body.notes[0]).toMatch(/PB Score V1/);
+      expect(body.notes.join(' ')).not.toMatch(/demo values/);
       const byElevation = (await app.inject('/api/pb-finder?sort=elevation&maxTravel=90')).json<PbFinderResponse>();
       const elevations = byElevation.results.map((r) => r.event.elevationM!);
       expect(elevations).toEqual([...elevations].sort((a, b) => a - b));
@@ -312,6 +356,18 @@ describe('API', () => {
       expect(body.best.travel).toEqual(['demo-riverside-5k']);
     });
 
+    it('compares course-adjusted equivalents when a source event is given', async () => {
+      app = await buildTestApp();
+      const body = (await app.inject('/api/compare?ids=demo-riverside-5k,demo-forest-trail-5k&time=19:32&source=demo-riverside-5k')).json<CompareResponse>();
+      expect(body).toMatchObject({ mode: 'adjusted', source: { eventId: 'demo-riverside-5k', name: 'Riverside 5K' } });
+      const [riverside, forest] = body.events;
+      expect(riverside!.placement!.analysedSeconds).toBe(1172);
+      expect(forest!.placement!.analysedSeconds).toBeGreaterThan(1172);
+      expect(body.best.course_speed).toEqual(['demo-riverside-5k']);
+      const raw = (await app.inject('/api/compare?ids=demo-riverside-5k,demo-forest-trail-5k&time=19:32')).json<CompareResponse>();
+      expect(raw.mode).toBe('raw');
+    });
+
     it('omits placement without a runner time', async () => {
       app = await buildTestApp();
       const body = (await app.inject('/api/compare?ids=demo-estuary-path-5k,demo-riverside-5k')).json<CompareResponse>();
@@ -332,18 +388,21 @@ describe('API', () => {
   });
 
   describe('core analytics', () => {
-    it('serves calculated Competition V1 and Difficulty V1 while PB stays demo', async () => {
+    it('serves calculated Competition V1, Difficulty V1, Course Speed V1 and PB Score V1', async () => {
       app = await buildTestApp();
       const events = (await app.inject('/api/events')).json<EventSummary[]>();
       for (const e of events) {
-        expect(e.scores!.versions).toEqual({ pb: 'demo_v0', competition: 'competition_v1', difficulty: 'difficulty_v1' });
+        expect(e.scores!.versions).toEqual({ pb: 'pb_v1', competition: 'competition_v1', difficulty: 'difficulty_v1', courseSpeed: 'course_speed_v1' });
+        expect(e.scores!.pbScore).toBeGreaterThanOrEqual(0);
+        expect(e.scores!.pbScore).toBeLessThanOrEqual(100);
         expect(e.scores!.difficultyScore).toBeGreaterThanOrEqual(1);
         expect(e.scores!.difficultyScore).toBeLessThanOrEqual(10);
       }
       const byId = new Map(events.map((e) => [e.id, e.scores!]));
-      // Deterministic demo values: deepest field 100, slowest field 0; flattest course easiest.
-      expect(byId.get('demo-lakeside-5k')!.competitionScore).toBe(100);
-      expect(byId.get('demo-moorland-edge-5k')!.competitionScore).toBe(0);
+      // Deterministic demo values: deepest field highest, slowest field lowest; flattest course easiest.
+      const comp = [...byId].sort((a, b) => b[1].competitionScore! - a[1].competitionScore!).map(([id]) => id);
+      expect(comp[0]).toBe('demo-lakeside-5k');
+      expect(comp.at(-1)).toBe('demo-moorland-edge-5k');
       expect(byId.get('demo-forest-trail-5k')!.difficultyScore).toBe(6.9);
       expect(byId.get('demo-dockside-promenade-5k')!.difficultyScore).toBe(1.8);
       expect(byId.get('demo-riverside-5k')!.competitionConfidence).toBe('high');
@@ -361,6 +420,16 @@ describe('API', () => {
       expect(d).toMatchObject({ metric: 'difficulty', version: 'difficulty_v1', value: 4.9 });
       expect(d.components.map((x) => x.input)).toEqual(['54 m', 'Mixed', '3+ laps']);
       expect(body.notes.join(' ')).toMatch(/not an official or universal parkrun rating/);
+      const speed = body.courseSpeed!;
+      expect(speed).toMatchObject({ metric: 'course_speed', version: 'course_speed_v1', windowDays: 365, limitedReason: null });
+      expect(speed.factor).toBeGreaterThan(0.9);
+      expect(speed.matchedRunners).toBeGreaterThanOrEqual(20);
+      expect(speed.confidence.factors.map((f) => f.key)).toEqual(['matched_runners', 'comparisons', 'connectivity', 'proximity', 'agreement', 'recency']);
+      expect(body.pb!.components.map((x) => [x.key, x.weight])).toEqual([
+        ['course_speed', 0.75],
+        ['structural', 0.25],
+      ]);
+      expect(body.notes.join(' ')).toMatch(/Competition is never part of it/);
     });
 
     it('supports every window and 404s unknown events', async () => {
@@ -392,6 +461,8 @@ describe('API', () => {
     app = await buildTestApp();
     const profile = (await app.inject('/api/profile')).json();
     expect(profile).toMatchObject({ isDemo: true, lifetimePbSeconds: 1138, current5kEstimateSeconds: 1180 });
+    expect(profile.recentPbEvent).toEqual({ id: 'demo-riverside-5k', name: 'Riverside 5K' });
+    expect(profile.lifetimePbEvent).toEqual({ id: 'demo-riverside-5k', name: 'Riverside 5K' });
     expect(profile.savedEventIds).toContain('demo-riverside-5k');
   });
 });

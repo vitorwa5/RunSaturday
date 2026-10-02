@@ -2,7 +2,9 @@
 import type {
   CompetitionBreakdown,
   ConfidenceLevel,
+  CourseSpeedBreakdown,
   DifficultyBreakdown,
+  PbBreakdown,
   CourseType,
   DataSource,
   FacilityStatus,
@@ -12,7 +14,7 @@ import type {
 } from '@runsaturday/shared';
 import type { $Enums, Event, EventOccurrence, EventScore } from '../../generated/prisma/client';
 import type { EventRecord } from '../DataStore';
-import { assembleScores, type PbSnapshot } from '../scoreAssembly';
+import { assembleScores, type LegacySnapshot } from '../scoreAssembly';
 
 const lower = <T extends string>(value: string) => value.toLowerCase() as T;
 
@@ -29,33 +31,33 @@ export const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 
 /** Latest snapshots behind an event's scores. */
 export interface EventSnapshots {
+  /** Legacy demo snapshot (average participants, Gem base). */
+  legacy?: EventScore;
   pb?: EventScore;
   competition?: EventScore;
   difficulty?: EventScore;
+  courseSpeed?: CourseSpeedBreakdown;
 }
 
 /** The breakdown persisted in EventScore.components by the analytics job. */
-export function breakdownOf<T extends CompetitionBreakdown | DifficultyBreakdown>(row: EventScore | undefined): T | null {
+export function breakdownOf<T extends CompetitionBreakdown | DifficultyBreakdown | PbBreakdown>(row: EventScore | undefined): T | null {
   const components = row?.components as { breakdown?: T } | null | undefined;
   return components?.breakdown ?? null;
 }
 
-function pbSnapshot(row: EventScore | undefined): PbSnapshot | null {
+function legacySnapshot(row: EventScore | undefined): LegacySnapshot | null {
   if (!row) return null;
   return {
-    pbScore: row.pbScore,
     gemBaseScore: row.gemBaseScore,
-    pbConfidence: mapConfidence(row.pbConfidence),
     sampleSize: row.sampleSize,
     windowDays: row.windowDays,
     asOfDate: isoDate(row.asOfDate),
-    calculationVersion: row.calculationVersion,
     calculatedAt: row.calculatedAt.toISOString(),
   };
 }
 
 export function mapEvent(event: Event, snapshots: EventSnapshots): EventRecord {
-  const pb = snapshots.pb;
+  const legacy = snapshots.legacy;
   return {
     id: event.id,
     slug: event.slug,
@@ -69,12 +71,14 @@ export function mapEvent(event: Event, snapshots: EventSnapshots): EventRecord {
     courseType: mapCourseType(event.courseType),
     laps: event.laps,
     elevationM: event.elevationM,
-    averageParticipants: pb?.averageParticipants != null ? Math.round(pb.averageParticipants) : null,
+    averageParticipants: legacy?.averageParticipants != null ? Math.round(legacy.averageParticipants) : null,
     source: mapSource(event.source),
     scores: assembleScores(
-      pbSnapshot(pb),
+      legacySnapshot(legacy),
+      breakdownOf<PbBreakdown>(snapshots.pb),
       breakdownOf<CompetitionBreakdown>(snapshots.competition),
       breakdownOf<DifficultyBreakdown>(snapshots.difficulty),
+      snapshots.courseSpeed ?? null,
     ),
   };
 }

@@ -5,9 +5,12 @@ import type { Db } from '../../db/prisma';
 import { Prisma } from '../../generated/prisma/client';
 import type { DataStore, EventDetailRecord, EventRecord, UserRecord } from '../DataStore';
 import { breakdownOf, mapEvent, mapFacility, mapGoal, mapOccurrence, type EventSnapshots } from './mappers';
-import type { CompetitionBreakdown, DifficultyBreakdown } from '@runsaturday/shared';
+import type { CompetitionBreakdown, DifficultyBreakdown, PbBreakdown } from '@runsaturday/shared';
+import { COURSE_SPEED_V1, type CourseFactorResult, type PerformanceInput } from '../../analytics/courseSpeed';
+import { toCourseSpeedBreakdown } from '../../analytics/dto';
+import type { CourseFactorSnapshot, EventScore } from '../../generated/prisma/client';
 import type { CompetitionOccurrenceInput } from '../../analytics/competition';
-import { COMPETITION_VERSION, DEFAULT_ANALYTICS_WINDOW, DIFFICULTY_VERSION, STRUCTURAL_WINDOW } from '../../analytics/versions';
+import { COMPETITION_VERSION, COURSE_SPEED_VERSION, DEFAULT_ANALYTICS_WINDOW, DIFFICULTY_VERSION, PB_VERSION, STRUCTURAL_WINDOW } from '../../analytics/versions';
 import type { Event } from '../../generated/prisma/client';
 
 const RECENT_OCCURRENCES = 12;
@@ -25,24 +28,61 @@ export class PrismaDataStore implements DataStore {
    * window) and Difficulty V1 (structural). One query for any number of events.
    */
   private async snapshots(eventIds: string[], competitionWindow = DEFAULT_ANALYTICS_WINDOW): Promise<Map<string, EventSnapshots>> {
-    const rows = await this.db.eventScore.findMany({
-      where: {
-        eventId: { in: eventIds },
-        OR: [
-          { calculationVersion: this.activeScoreVersion, windowDays: DEFAULT_SCORE_WINDOW_DAYS },
-          { calculationVersion: COMPETITION_VERSION, windowDays: competitionWindow },
-          { calculationVersion: DIFFICULTY_VERSION, windowDays: STRUCTURAL_WINDOW },
-        ],
-      },
-      orderBy: [{ asOfDate: 'desc' }, { calculatedAt: 'desc' }],
-    });
+    const [rows, factors] = await Promise.all([
+      this.db.eventScore.findMany({
+        where: {
+          eventId: { in: eventIds },
+          OR: [
+            { calculationVersion: this.activeScoreVersion, windowDays: DEFAULT_SCORE_WINDOW_DAYS },
+            { calculationVersion: PB_VERSION, windowDays: COURSE_SPEED_V1.WINDOW_DAYS },
+            { calculationVersion: COMPETITION_VERSION, windowDays: competitionWindow },
+            { calculationVersion: DIFFICULTY_VERSION, windowDays: STRUCTURAL_WINDOW },
+          ],
+        },
+        orderBy: [{ asOfDate: 'desc' }, { calculatedAt: 'desc' }],
+      }),
+      this.latestFactorRows(eventIds),
+    ]);
     const result = new Map<string, EventSnapshots>(eventIds.map((id) => [id, {}]));
+    const SLOT: Record<string, keyof EventSnapshots> = {
+      [PB_VERSION]: 'pb',
+      [COMPETITION_VERSION]: 'competition',
+      [DIFFICULTY_VERSION]: 'difficulty',
+    };
     for (const row of rows) {
       const entry = result.get(row.eventId)!;
-      const slot = row.calculationVersion === COMPETITION_VERSION ? 'competition' : row.calculationVersion === DIFFICULTY_VERSION ? 'difficulty' : 'pb';
-      entry[slot] ??= row; // rows are newest first
+      const slot = SLOT[row.calculationVersion] ?? 'legacy';
+      (entry[slot] as EventScore | undefined) ??= row; // rows are newest first
     }
+    for (const f of factors) result.get(f.eventId)!.courseSpeed = toCourseSpeedBreakdown(factorFromRow(f));
     return result;
+  }
+
+  /** Course factor rows from the latest calculation run only (bootstrap draws align within a run). */
+  private async latestFactorRows(eventIds?: string[]) {
+    const latest = await this.db.courseFactorSnapshot.findFirst({
+      where: { version: COURSE_SPEED_VERSION, windowDays: COURSE_SPEED_V1.WINDOW_DAYS },
+      orderBy: { asOfDate: 'desc' },
+      select: { asOfDate: true },
+    });
+    if (!latest) return [];
+    return this.db.courseFactorSnapshot.findMany({
+      where: {
+        version: COURSE_SPEED_VERSION,
+        windowDays: COURSE_SPEED_V1.WINDOW_DAYS,
+        asOfDate: latest.asOfDate,
+        ...(eventIds ? { eventId: { in: eventIds } } : {}),
+      },
+      orderBy: { eventId: 'asc' },
+    });
+  }
+
+  async listCourseFactors(): Promise<CourseFactorResult[]> {
+    return (await this.latestFactorRows()).map(factorFromRow);
+  }
+
+  async listPerformances(from: string | null, to: string): Promise<PerformanceInput[]> {
+    return queryPerformances(this.db, from, to);
   }
 
   private async withScores(events: Event[]): Promise<EventRecord[]> {
@@ -155,6 +195,8 @@ export class PrismaDataStore implements DataStore {
     return {
       competition: breakdownOf<CompetitionBreakdown>(snap.competition),
       difficulty: breakdownOf<DifficultyBreakdown>(snap.difficulty),
+      courseSpeed: snap.courseSpeed ?? null,
+      pb: breakdownOf<PbBreakdown>(snap.pb),
     };
   }
 
@@ -163,7 +205,10 @@ export class PrismaDataStore implements DataStore {
   }
 
   async getUser(userId: string): Promise<UserRecord | null> {
-    const user = await this.db.user.findUnique({ where: { id: userId }, include: { events: true } });
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+      include: { events: true, lifetimePbEvent: { select: { id: true, name: true } }, recentPbEvent: { select: { id: true, name: true } } },
+    });
     if (!user) return null;
     return {
       id: user.id,
@@ -177,6 +222,8 @@ export class PrismaDataStore implements DataStore {
       current5kEstimateSeconds: user.current5kEstimateSeconds,
       preferredGoal: mapGoal(user.preferredGoal),
       isDemo: user.isDemo,
+      lifetimePbEvent: user.lifetimePbEvent,
+      recentPbEvent: user.recentPbEvent,
       events: user.events.map((ue) => ({
         eventId: ue.eventId,
         visited: ue.visited,
@@ -257,4 +304,29 @@ export async function queryCompetitionInputs(db: Db, to: string): Promise<Compet
     tenthSeconds: r.tenthSeconds,
     fieldDepthSeconds: r.resultCount > 0 ? r.fieldDepthSeconds : null,
   }));
+}
+
+/** Rebuild the internal factor result from a stored snapshot (breakdown JSON + bootstrap column). */
+export function factorFromRow(row: CourseFactorSnapshot): CourseFactorResult {
+  const stored = row.breakdown as unknown as Omit<CourseFactorResult, 'bootstrap'>;
+  return { ...stored, bootstrap: row.bootstrapLogFactors };
+}
+
+/**
+ * Results with a pseudonymous athlete key from completed, validated occurrences in [from, to].
+ * Completeness (result rows = participant count) is checked against the occurrence inputs by
+ * the caller (usablePerformances).
+ */
+export async function queryPerformances(db: Db, from: string | null, to: string): Promise<PerformanceInput[]> {
+  const rows = await db.$queryRaw<{ athleteKey: string; eventId: string; date: string; seconds: number }[]>`
+    SELECT r."athleteKey", o."eventId", to_char(o.date, 'YYYY-MM-DD') AS date, r."finishTimeSeconds" AS seconds
+    FROM "Result" r
+    JOIN "EventOccurrence" o ON o.id = r."occurrenceId"
+    WHERE r."athleteKey" IS NOT NULL
+      AND o.status = 'COMPLETED'
+      AND o."dataQuality" = 'VALID'
+      AND o.date <= ${to}::date
+      ${from ? Prisma.sql`AND o.date >= ${from}::date` : Prisma.empty}
+    ORDER BY r."athleteKey", o."eventId", o.date`;
+  return rows;
 }

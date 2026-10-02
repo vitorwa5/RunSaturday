@@ -19,7 +19,8 @@ async function main() {
     const summary = await recalculateAnalytics(db, asOfDate);
     console.log(
       `Analytics recalculated as of ${summary.asOfDate}: ${summary.events} events, ` +
-        `${summary.competitionSnapshots} competition_v1 and ${summary.difficultySnapshots} difficulty_v1 snapshots ` +
+        `${summary.courseFactorSnapshots} course_speed_v1 (${summary.fittedFactors} fitted), ` +
+        `${summary.difficultySnapshots} difficulty_v1, ${summary.competitionSnapshots} competition_v1 and ${summary.pbSnapshots} pb_v1 snapshots ` +
         `(${Date.now() - started} ms).`,
     );
   } finally {

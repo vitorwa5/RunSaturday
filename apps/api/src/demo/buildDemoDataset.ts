@@ -8,7 +8,8 @@ import { DEMO_EVENTS, DEMO_SCORE_VERSION, DEMO_USER, type DemoEventDefinition } 
 import type { CompetitionOccurrenceInput } from '../analytics/competition';
 import { fieldDepthPosition } from '../analytics/competition';
 import type { CourseFacts } from '../analytics/difficulty';
-import { generateDemoHistory, type DemoOccurrence } from './generateDemoHistory';
+import type { PerformanceInput } from '../analytics/courseSpeed';
+import { generateDemoHistories, type DemoOccurrence } from './generateDemoHistory';
 
 /** Demo scores exist only for the default window. */
 export const DEMO_WINDOW_DAYS = DEFAULT_SCORE_WINDOW_DAYS;
@@ -40,8 +41,9 @@ export function buildDemoDataset(today: string): DemoDataset {
   const latestDate = latestCompletedSaturday(today);
   const windowStart = addDays(latestDate, -DEMO_WINDOW_DAYS);
 
-  const events = DEMO_EVENTS.map((def) => {
-    const occurrences = generateDemoHistory(def, latestDate);
+  const histories = generateDemoHistories(DEMO_EVENTS, latestDate);
+  const events = DEMO_EVENTS.map((def, i) => {
+    const occurrences = histories[i]!;
     const inWindow = occurrences.filter((o) => o.status === 'COMPLETED' && o.date >= windowStart);
     const total = inWindow.reduce((sum, o) => sum + (o.participantCount ?? 0), 0);
     return {
@@ -88,4 +90,15 @@ export function demoCourseFacts(dataset: DemoDataset): CourseFacts[] {
     courseType: def.courseType.toLowerCase() as CourseFacts['courseType'],
     laps: def.laps,
   }));
+}
+
+/** Pseudonymous matched-runner inputs from the generated results (completed occurrences). */
+export function demoPerformances(dataset: DemoDataset): (PerformanceInput & { occurrenceKey: string })[] {
+  return dataset.events.flatMap(({ id, occurrences }) =>
+    occurrences
+      .filter((o) => o.status === 'COMPLETED')
+      .flatMap((o) =>
+        o.results.map((r) => ({ athleteKey: r.athleteKey, eventId: id, date: o.date, seconds: r.finishTimeSeconds, occurrenceKey: `${id}|${o.date}` })),
+      ),
+  );
 }

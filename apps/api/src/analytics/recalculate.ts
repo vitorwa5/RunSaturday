@@ -6,10 +6,13 @@
  */
 import type { Db } from '../db/prisma';
 import { Prisma } from '../generated/prisma/client';
-import { queryCompetitionInputs } from '../repositories/prisma/PrismaDataStore';
-import { computeCoreAnalytics } from './core';
+import { windowStart } from '../domain/confidence';
+import { queryCompetitionInputs, queryPerformances } from '../repositories/prisma/PrismaDataStore';
+import { computeCoreAnalytics, usablePerformances } from './core';
+import { COURSE_SPEED_V1 } from './courseSpeed';
+import { toPbBreakdown } from './dto';
 import type { CourseFacts } from './difficulty';
-import { COMPETITION_VERSION, DIFFICULTY_VERSION, STRUCTURAL_WINDOW } from './versions';
+import { COMPETITION_VERSION, COURSE_SPEED_VERSION, DIFFICULTY_VERSION, PB_VERSION, STRUCTURAL_WINDOW } from './versions';
 
 const toDate = (iso: string) => new Date(`${iso}T00:00:00Z`);
 const LEVEL = { high: 'HIGH', medium: 'MEDIUM', low: 'LOW', insufficient: 'INSUFFICIENT' } as const;
@@ -19,6 +22,9 @@ export interface RecalculationSummary {
   events: number;
   competitionSnapshots: number;
   difficultySnapshots: number;
+  courseFactorSnapshots: number;
+  pbSnapshots: number;
+  fittedFactors: number;
 }
 
 export async function recalculateAnalytics(db: Db, asOfDate: string): Promise<RecalculationSummary> {
@@ -35,7 +41,13 @@ export async function recalculateAnalytics(db: Db, asOfDate: string): Promise<Re
     laps: e.laps,
   }));
   const inputs = await queryCompetitionInputs(db, asOfDate);
-  const core = computeCoreAnalytics(courses, inputs, asOfDate);
+  const rawPerformances = await queryPerformances(db, windowStart(asOfDate, COURSE_SPEED_V1.WINDOW_DAYS), asOfDate);
+  const performances = usablePerformances(
+    rawPerformances.map((p) => ({ ...p, occurrenceKey: `${p.eventId}|${p.date}` })),
+    inputs,
+  );
+  // Dependency order: course factors → difficulty → competition → PB (see computeCoreAnalytics).
+  const core = computeCoreAnalytics(courses, inputs, performances, asOfDate);
 
   const writes: Prisma.PrismaPromise<unknown>[] = [];
   const upsert = (eventId: string, version: string, windowDays: number, data: Omit<Prisma.EventScoreUncheckedCreateInput, 'eventId' | 'calculationVersion' | 'windowDays' | 'asOfDate'>) =>
@@ -66,6 +78,46 @@ export async function recalculateAnalytics(db: Db, asOfDate: string): Promise<Re
       components: { breakdown: b } as unknown as Prisma.InputJsonValue,
     });
   }
+  for (const [eventId, f] of core.courseFactors) {
+    const { bootstrap, ...stored } = f;
+    const data = {
+      factor: f.factor,
+      logFactor: f.logFactor,
+      bootstrapLogFactors: bootstrap,
+      matchedRunners: f.matchedRunners,
+      comparisons: f.comparisons,
+      connectedEvents: f.connectedEvents,
+      medianGapDays: f.medianGapDays,
+      dispersion: f.dispersion,
+      confidence: LEVEL[f.confidence.level],
+      confidenceScore: f.confidence.score,
+      breakdown: stored as unknown as Prisma.InputJsonValue,
+    };
+    const key = { eventId, version: COURSE_SPEED_VERSION, windowDays: f.windowDays, asOfDate: toDate(asOfDate) };
+    writes.push(
+      db.courseFactorSnapshot.upsert({
+        where: { eventId_version_windowDays_asOfDate: key },
+        create: { ...key, ...data },
+        update: { ...data, calculatedAt: new Date() },
+      }),
+    );
+  }
+  for (const [eventId, p] of core.pb) {
+    upsert(eventId, PB_VERSION, COURSE_SPEED_V1.WINDOW_DAYS, {
+      pbScore: p.value,
+      pbConfidence: LEVEL[p.confidence.level],
+      sampleSize: core.courseFactors.get(eventId)?.comparisons ?? 0,
+      components: { breakdown: toPbBreakdown(p) } as unknown as Prisma.InputJsonValue,
+    });
+  }
   await db.$transaction(writes);
-  return { asOfDate, events: events.length, competitionSnapshots, difficultySnapshots: core.difficulty.size };
+  return {
+    asOfDate,
+    events: events.length,
+    competitionSnapshots,
+    difficultySnapshots: core.difficulty.size,
+    courseFactorSnapshots: core.courseFactors.size,
+    pbSnapshots: core.pb.size,
+    fittedFactors: [...core.courseFactors.values()].filter((f) => f.factor != null).length,
+  };
 }

@@ -17,6 +17,8 @@ export async function profileRoutes(app: FastifyInstance, ctx: RequestContext) {
       defaultTravelMinutes: user.defaultTravelMinutes,
       lifetimePbSeconds: user.lifetimePbSeconds,
       recentPbSeconds: user.recentPbSeconds,
+      lifetimePbEvent: user.lifetimePbEvent,
+      recentPbEvent: user.recentPbEvent,
       current5kEstimateSeconds: user.current5kEstimateSeconds,
       preferredGoal: user.preferredGoal,
       runsCompleted: user.events.reduce((n, ue) => n + ue.visitCount, 0),

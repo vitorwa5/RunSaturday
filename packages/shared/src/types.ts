@@ -23,7 +23,7 @@ export interface TravelEstimate {
 }
 
 export interface EventScores {
-  /** 0–100, higher = better potential for a fast 5K. */
+  /** PB Score V1 (pb_v1), 0–100, higher = historically more favourable for a fast 5K; null = unavailable. */
   pbScore: number | null;
   /** Course Difficulty V1 (difficulty_v1): 1.0–10.0 structural rating, higher = harder. */
   difficultyScore: number | null;
@@ -31,7 +31,7 @@ export interface EventScores {
   competitionScore: number | null;
   /** 0–100 base (non-personalised) Hidden Gem score. */
   gemBaseScore: number | null;
-  /** Confidence of the (demo) PB Score data. */
+  /** Confidence of the PB Score (for pb_v1: the Course Speed Factor's confidence). */
   pbConfidence: ConfidenceLevel;
   /** Confidence V2 level for Competition V1. */
   competitionConfidence: ConfidenceLevel;
@@ -40,8 +40,11 @@ export interface EventScores {
   /** Usable occurrences behind Competition V1 (90-day window). */
   competitionSampleSize: number;
   difficultyConfidence: ConfidenceLevel;
-  /** Versions behind each value; PB stays demo until Phase 3B. */
-  versions: { pb: string; competition: string | null; difficulty: string | null };
+  /** Course Speed Factor V1 (course_speed_v1): < 1 historically faster, > 1 slower; null = limited data. */
+  courseSpeedFactor: number | null;
+  courseSpeedConfidence: ConfidenceLevel;
+  /** Versions behind each value. */
+  versions: { pb: string; competition: string | null; difficulty: string | null; courseSpeed: string | null };
   /** Number of event occurrences the (demo) PB Score is based on. Never hidden from users. */
   sampleSize: number;
   /** Analysis window in days (30, 60, 90, 365; 0 = all-time). */
@@ -206,6 +209,9 @@ export interface UserProfile {
   uniqueEventsVisited: number;
   savedEventIds: string[];
   isDemo: boolean;
+  /** Where the profile's reference times were achieved, when known. */
+  lifetimePbEvent: { id: string; name: string } | null;
+  recentPbEvent: { id: string; name: string } | null;
 }
 
 export interface HealthResponse {
@@ -277,8 +283,41 @@ export interface PlacementStats {
   };
 }
 
+/**
+ * Converting a performance from one course to another: neutral = source ÷ f_source,
+ * equivalent = neutral × f_target. An equivalent performance, never a predicted finish.
+ */
+export interface CourseAdjustment {
+  available: boolean;
+  /** Why it is unavailable, e.g. limited matched-runner data. */
+  reason: string | null;
+  sourceEventId: string;
+  sourceEventName: string;
+  sourceSeconds: number;
+  targetEventId: string;
+  /** Point estimate, whole seconds. */
+  equivalentSeconds: number | null;
+  /** equivalent − source. */
+  deltaSeconds: number | null;
+  /** f_target ÷ f_source. */
+  ratio: number | null;
+  sourceFactor: number | null;
+  targetFactor: number | null;
+  /**
+   * Course-comparison uncertainty only: 5th–95th percentile of the ratio over a runner-cluster
+   * bootstrap, applied to the source time. NOT a prediction interval for a finish time.
+   */
+  conversionRange: { lowSeconds: number; highSeconds: number; replicates: number } | null;
+  /** Lower of the two factors' confidence levels. */
+  confidence: ConfidenceLevel;
+}
+
 export interface EventPlacement {
   event: EventSummary;
+  /** Time fed into the placement engine (the equivalent time in course-adjusted mode). */
+  analysedSeconds: number;
+  /** Present in course-adjusted mode. */
+  adjustment: CourseAdjustment | null;
   /** Usable occurrences in the window. */
   sampleSize: number;
   confidence: ConfidenceLevel;
@@ -292,7 +331,17 @@ export interface EventPlacement {
   history: HistoricalPlacement[];
 }
 
+export type PlacementMode = 'adjusted' | 'raw';
+
 export interface PlacementResponse {
+  /** "adjusted": source performance converted per event; "raw": the exact time everywhere. */
+  mode: PlacementMode;
+  /** Why course adjustment was not used, when "auto" fell back to raw or adjustment was impossible. */
+  modeNote: string | null;
+  /** Where the performance was achieved (course-adjusted mode). */
+  source: { eventId: string; name: string; factor: number | null; confidence: ConfidenceLevel } | null;
+  /** Events in range that could not be course-adjusted (limited matched-runner data). */
+  unavailable: { eventId: string; name: string; reason: string }[];
   timeSeconds: number;
   window: HistoryWindowId;
   from: string | null;
@@ -370,7 +419,8 @@ export type CompareMetricKey =
   | 'elevation'
   | 'travel'
   | 'median_placement'
-  | 'top10';
+  | 'top10'
+  | 'course_speed';
 
 export interface CompareResponse {
   /** In the requested order. */
@@ -378,6 +428,8 @@ export interface CompareResponse {
   /** Requested ids that do not exist. */
   missing: string[];
   timeSeconds: number | null;
+  mode: PlacementMode;
+  source: { eventId: string; name: string } | null;
   window: HistoryWindowId;
   /** Event ids with the most favourable value per metric (ties included); absent when not comparable. */
   best: Partial<Record<CompareMetricKey, string[]>>;
@@ -388,7 +440,17 @@ export interface CompareResponse {
 // ---------------------------------------------------------------------------
 
 export interface ConfidenceFactor {
-  key: 'amount' | 'recency' | 'completeness' | 'stability' | 'structure';
+  key:
+    | 'amount'
+    | 'recency'
+    | 'completeness'
+    | 'stability'
+    | 'structure'
+    | 'matched_runners'
+    | 'comparisons'
+    | 'connectivity'
+    | 'proximity'
+    | 'agreement';
   label: string;
   /** Weight as a fraction (factors with weight sum to 1). */
   weight: number;
@@ -455,10 +517,51 @@ export interface DifficultyBreakdown {
   confidence: ConfidenceAssessment;
 }
 
+export interface CourseSpeedBreakdown {
+  metric: 'course_speed';
+  version: string;
+  asOfDate: string;
+  windowDays: number;
+  /** null = Limited matched-runner data. */
+  factor: number | null;
+  matchedRunners: number;
+  comparisons: number;
+  connectedEvents: number;
+  medianGapDays: number | null;
+  /** Robust spread of this event's comparisons around the model (fraction, e.g. 0.035). */
+  dispersion: number | null;
+  /** Half-width of the runner-bootstrap 5th–95th interval of ln(factor). */
+  bootstrapHalfWidth: number | null;
+  latestComparison: string | null;
+  confidence: ConfidenceAssessment;
+  limitedReason: string | null;
+}
+
+export interface PbComponentBreakdown {
+  key: 'course_speed' | 'structural';
+  label: string;
+  weight: number;
+  value: number | null;
+  input: string;
+}
+
+export interface PbBreakdown {
+  metric: 'pb';
+  version: string;
+  asOfDate: string;
+  value: number | null;
+  cohortSize: number;
+  components: PbComponentBreakdown[];
+  confidence: ConfidenceAssessment;
+  limitedReason: string | null;
+}
+
 export interface EventAnalyticsResponse {
   eventId: string;
   window: HistoryWindowId;
   competition: CompetitionBreakdown | null;
   difficulty: DifficultyBreakdown | null;
+  courseSpeed: CourseSpeedBreakdown | null;
+  pb: PbBreakdown | null;
   notes: string[];
 }

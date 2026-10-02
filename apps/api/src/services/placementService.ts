@@ -1,9 +1,11 @@
 /** Where Could I Place? Orchestrates the data layer and the pure placement engine. */
-import type { EventPlacement, EventSummary, HistoryWindowId, PlacementTargetId } from '@runsaturday/shared';
+import type { CourseAdjustment, EventPlacement, EventSummary, HistoryWindowId, PlacementTargetId } from '@runsaturday/shared';
+import type { CourseFactorResult } from '../analytics/courseSpeed';
 import { assessConfidence, STABILITY_SCALES } from '../domain/confidence';
 import { historicalPlacements, summarizePlacements, targetFrequency, type PlacementOccurrenceInput } from '../domain/placementEngine';
 import { windowFrom } from '../domain/windows';
 import type { DataStore } from '../repositories/DataStore';
+import { adjustPerformance, type AdjustmentSource } from './courseAdjustment';
 
 const HISTORY_SHOWN = 12;
 
@@ -13,6 +15,7 @@ export function buildEventPlacement(
   inputs: readonly PlacementOccurrenceInput[],
   target: PlacementTargetId,
   asOfDate: string,
+  analysed: { seconds: number; adjustment: CourseAdjustment | null },
 ): EventPlacement {
   const { placements, excluded } = historicalPlacements(inputs);
   const stats = summarizePlacements(placements);
@@ -25,6 +28,8 @@ export function buildEventPlacement(
   });
   return {
     event,
+    analysedSeconds: analysed.seconds,
+    adjustment: analysed.adjustment,
     sampleSize: placements.length,
     confidence: confidence.level,
     stats,
@@ -53,10 +58,27 @@ export function rankPlacements(placements: EventPlacement[]): EventPlacement[] {
     );
 }
 
+function groupByEvent(inputs: readonly PlacementOccurrenceInput[]) {
+  const byEvent = new Map<string, PlacementOccurrenceInput[]>();
+  for (const input of inputs) {
+    const list = byEvent.get(input.eventId) ?? [];
+    list.push(input);
+    byEvent.set(input.eventId, list);
+  }
+  return byEvent;
+}
+
+interface PlacementOptions {
+  window: HistoryWindowId;
+  target: PlacementTargetId;
+  today: string;
+}
+
+/** Raw mode: the exact same time analysed at every event. */
 export async function computePlacements(
   store: DataStore,
   events: EventSummary[],
-  options: { timeSeconds: number; window: HistoryWindowId; target: PlacementTargetId; today: string },
+  options: PlacementOptions & { timeSeconds: number },
 ): Promise<{ placements: EventPlacement[]; from: string | null }> {
   const from = windowFrom(options.window, options.today);
   const inputs = await store.listPlacementInputs(
@@ -65,11 +87,51 @@ export async function computePlacements(
     from,
     options.today,
   );
-  const byEvent = new Map<string, PlacementOccurrenceInput[]>();
-  for (const input of inputs) {
-    const list = byEvent.get(input.eventId) ?? [];
-    list.push(input);
-    byEvent.set(input.eventId, list);
+  const byEvent = groupByEvent(inputs);
+  return {
+    placements: events.map((e) =>
+      buildEventPlacement(e, byEvent.get(e.id) ?? [], options.target, options.today, { seconds: options.timeSeconds, adjustment: null }),
+    ),
+    from,
+  };
+}
+
+/**
+ * Course-adjusted mode: the source performance is converted to each event's equivalent time
+ * (Course Speed Factor V1), and that equivalent goes through the unchanged placement engine.
+ * Events whose factors are not reliable are returned in `unavailable`, never placed with an
+ * unadjusted time.
+ */
+export async function computeAdjustedPlacements(
+  store: DataStore,
+  events: EventSummary[],
+  options: PlacementOptions & { source: AdjustmentSource; factors: ReadonlyMap<string, CourseFactorResult> },
+): Promise<{ placements: EventPlacement[]; unavailable: CourseAdjustment[]; from: string | null }> {
+  const from = windowFrom(options.window, options.today);
+  const sourceFactor = options.factors.get(options.source.eventId);
+  const adjustments = events.map((e) => ({ event: e, adjustment: adjustPerformance(options.source, sourceFactor, { eventId: e.id }, options.factors.get(e.id)) }));
+
+  // One data query per distinct equivalent time (events often share one).
+  const bySeconds = new Map<number, string[]>();
+  for (const { event, adjustment } of adjustments) {
+    if (adjustment.equivalentSeconds == null) continue;
+    bySeconds.set(adjustment.equivalentSeconds, [...(bySeconds.get(adjustment.equivalentSeconds) ?? []), event.id]);
   }
-  return { placements: events.map((e) => buildEventPlacement(e, byEvent.get(e.id) ?? [], options.target, options.today)), from };
+  const byEvent = new Map<string, PlacementOccurrenceInput[]>();
+  for (const [seconds, ids] of bySeconds) {
+    for (const [id, list] of groupByEvent(await store.listPlacementInputs(seconds, ids, from, options.today))) byEvent.set(id, list);
+  }
+
+  const placements: EventPlacement[] = [];
+  const unavailable: CourseAdjustment[] = [];
+  for (const { event, adjustment } of adjustments) {
+    if (adjustment.equivalentSeconds == null) {
+      unavailable.push(adjustment);
+      continue;
+    }
+    placements.push(
+      buildEventPlacement(event, byEvent.get(event.id) ?? [], options.target, options.today, { seconds: adjustment.equivalentSeconds, adjustment }),
+    );
+  }
+  return { placements, unavailable, from };
 }

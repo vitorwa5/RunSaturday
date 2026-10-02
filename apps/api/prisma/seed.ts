@@ -51,7 +51,7 @@ async function main() {
           scores: {
             create: {
               ...def.scores,
-              components: { note: 'DEMO placeholder values; no component breakdown yet.' },
+              components: { note: 'DEMO legacy snapshot: average participants and Gem base score only. PB Score comes from pb_v1.' },
               averageParticipants,
               sampleSize,
               windowDays: DEMO_WINDOW_DAYS,
@@ -100,9 +100,12 @@ async function main() {
       },
     });
 
-    // Derived analytics (Competition V1, Difficulty V1) so a fresh database is complete.
+    // Derived analytics (Course Speed V1, Difficulty V1, Competition V1, PB Score V1) so a fresh database is complete.
     const analytics = await recalculateAnalytics(db, today);
-    console.log(`Calculated analytics as of ${analytics.asOfDate}: ${analytics.competitionSnapshots + analytics.difficultySnapshots} snapshots.`);
+    console.log(
+      `Calculated analytics as of ${analytics.asOfDate}: ${analytics.courseFactorSnapshots} course factors (${analytics.fittedFactors} fitted), ` +
+        `${analytics.competitionSnapshots + analytics.difficultySnapshots + analytics.pbSnapshots} score snapshots.`,
+    );
 
     const occurrenceCount = dataset.events.reduce((n, e) => n + e.occurrences.length, 0);
     console.log(
