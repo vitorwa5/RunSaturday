@@ -1,8 +1,10 @@
 import { formatLongDate, goalDefinition, type Goal } from '@runsaturday/shared';
 import { ArrowRight, Flag, SearchX } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router';
 import { BestPickCard } from '../components/events/BestPickCard';
 import { EventCard } from '../components/events/EventCard';
+import { ChallengeProgressCard } from '../components/explore/ChallengeProgressCard';
 import { GoalSelector } from '../components/goals/GoalSelector';
 import { ToolLinks } from '../components/navigation/ToolLinks';
 import { AlertBanner } from '../components/ui/AlertBanner';
@@ -11,7 +13,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { ErrorState } from '../components/ui/ErrorState';
 import { LoadingState } from '../components/ui/LoadingState';
 import { SectionHeading } from '../components/ui/PageHeader';
-import { useBestPick, useProfile } from '../hooks/queries';
+import { useBestPick, useChallenges, useProfile } from '../hooks/queries';
 import { upcomingSaturday } from '../lib/saturday';
 
 function plannerLink(goal: Goal) {
@@ -81,6 +83,46 @@ function Recommendations({ goal }: { goal: Goal }) {
   );
 }
 
+/**
+ * "Challenge" on Home: progress and the events in the dataset that would move it on. The planner
+ * cannot rank by challenge yet, so this lists honestly instead of recommending one pick.
+ */
+function ChallengeOptions() {
+  const { data, isPending, isError, error, refetch } = useChallenges();
+  if (isPending) return <LoadingState variant="card" label="Loading challenges" />;
+  if (isError) return <ErrorState error={error} title="Challenges could not be loaded" onRetry={() => refetch()} />;
+  return (
+    <section aria-labelledby="challenge-options" className="space-y-3">
+      <SectionHeading>
+        <span id="challenge-options">Your challenges</span>
+      </SectionHeading>
+      {data.challenges.map((c) => {
+        const next = c.items.filter((i) => !i.completed && i.opportunities.length > 0);
+        return (
+          <div key={c.id} className="space-y-2">
+            <ChallengeProgressCard challenge={c} compact />
+            {next.length > 0 && (
+              <ul aria-label={`Events that would add to the ${c.name}`} className="space-y-1 text-sm">
+                {next.slice(0, 3).map((i) => (
+                  <li key={i.key} className="flex items-baseline gap-2">
+                    <span className="w-4 font-extrabold">{i.label}</span>
+                    <Link to={`/event/${i.opportunities[0]!.eventId}`} className="font-semibold text-brand-700">
+                      {i.opportunities[0]!.eventName}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+      <ButtonLink to="/challenges" variant="secondary">
+        My Challenges <ArrowRight className="size-4" aria-hidden />
+      </ButtonLink>
+    </section>
+  );
+}
+
 function AlertsSection() {
   const { data } = useProfile();
   const saved = data?.savedEventIds.length ?? 0;
@@ -118,10 +160,10 @@ export function HomePage() {
         <SectionHeading>
           <span id="goal-heading">What do you want this Saturday?</span>
         </SectionHeading>
-        <GoalSelector value={activeGoal} onChange={setGoal} />
+        <GoalSelector value={activeGoal} onChange={setGoal} isSoon={() => false} />
       </section>
 
-      <Recommendations goal={activeGoal} />
+      {activeGoal === 'challenge' ? <ChallengeOptions /> : <Recommendations goal={activeGoal} />}
 
       <section aria-labelledby="tools-heading">
         <SectionHeading>

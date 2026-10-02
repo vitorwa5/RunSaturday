@@ -45,9 +45,13 @@ test.describe('Home', () => {
     await expect(pick.getByText('Average runners', { exact: true })).toBeVisible();
     await expect(pick.getByRole('heading', { name: 'Dockside Promenade 5K' })).toBeHidden();
 
+    // Challenge: real progress and matching events, not a ranked pick.
     await page.getByRole('radio', { name: /Challenge/ }).click();
-    await expect(page.getByRole('heading', { name: "Challenge isn't available yet" })).toBeVisible();
     await expect(bestPick(page)).toHaveCount(0);
+    const challenges = page.getByRole('region', { name: 'Your challenges' });
+    await expect(challenges.getByRole('link', { name: /^Alphabet Challenge: 4 of 25 completed, 16%/ })).toBeVisible();
+    await expect(challenges.getByRole('list', { name: 'Events that would add to the Alphabet Challenge' }).getByRole('listitem')).toHaveCount(3);
+    await expect(page.getByText(/Soon/)).toHaveCount(0);
   });
 
   test('shows other options that open the event page', async ({ page }) => {
@@ -852,3 +856,103 @@ test.describe('No "neutral course" claims (Phase 4B.1)', () => {
   }
 });
 
+
+test.describe('Explore & Challenges (Phase 5A)', () => {
+  test('Explore → Not visited / Visited / Favourites, derived from recorded runs', async ({ page }) => {
+    await page.goto('/explore');
+    await expect(page.getByText('10 events')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Your exploring' }).getByText('Events visited: 4 of 10')).toBeVisible();
+    const show = page.getByRole('radiogroup', { name: 'Show' });
+    await show.getByRole('radio', { name: 'Not visited', exact: true }).click();
+    await expect(page).toHaveURL(/show=not_visited/);
+    await expect(page.getByText('6 events')).toBeVisible();
+    await expect(page.getByText('New to you')).toHaveCount(6);
+    await expect(page.getByRole('link').filter({ hasText: 'Riverside 5K' })).toHaveCount(0);
+    await show.getByRole('radio', { name: 'Visited', exact: true }).click();
+    await expect(page.getByText('4 events')).toBeVisible();
+    await expect(page.getByRole('link').getByText('Visited', { exact: true })).toHaveCount(4);
+    await show.getByRole('radio', { name: 'Favourites', exact: true }).click();
+    await expect(page.getByText('2 events')).toBeVisible();
+    // Explore leads with discovery, not performance scores.
+    await expect(page.getByText('PB Score')).toHaveCount(0);
+    await expect(page.getByText(/^Comp/)).toHaveCount(0);
+    await expectNoHorizontalScroll(page);
+  });
+
+  test('Profile → My Challenges → Alphabet → missing letter → Explore → Event page', async ({ page }) => {
+    await page.goto('/profile');
+    const my5k = page.getByRole('region', { name: 'My 5K' });
+    await expect(my5k.getByText('Events visited')).toBeVisible();
+    await expect(my5k.getByText('Riverside 5K — 34')).toBeVisible();
+    await expect(my5k.getByText('Total recorded runs')).toBeVisible();
+    await expect(my5k.getByText('43', { exact: true })).toBeVisible();
+    // The performance summary stays intact beside it.
+    await expect(page.getByRole('region', { name: 'Performance summary' }).getByRole('link', { name: /^Overall 5K PB 18:58/ })).toBeVisible();
+    await my5k.getByRole('link', { name: 'My Challenges' }).click();
+
+    await expect(page).toHaveURL(/\/challenges$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'My Challenges' })).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Challenges' }).getByRole('listitem')).toHaveCount(1);
+    await expect(page.getByText(/not official parkrun challenges/)).toBeVisible();
+    await page.getByRole('link', { name: /^Alphabet Challenge: 4 of 25 completed, 16%/ }).click();
+
+    await expect(page).toHaveURL(/\/challenges\/alphabet$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Alphabet Challenge' })).toBeVisible();
+    await expect(page.getByText('4 of 25 completed')).toBeVisible();
+    await expect(page.getByRole('progressbar', { name: 'Alphabet Challenge progress' })).toHaveAttribute('aria-valuenow', '16');
+    const grid = page.getByRole('list', { name: 'Alphabet Challenge letters' });
+    await expect(grid.getByRole('listitem')).toHaveCount(25);
+    await expect(grid.getByRole('listitem', { name: /^R: completed at Riverside 5K on / })).toBeVisible();
+    await expect(grid.getByRole('listitem', { name: 'B: not completed' })).toBeVisible();
+    await expect(grid.getByRole('listitem', { name: 'B: not completed' }).getByRole('link')).toHaveCount(0); // no B event to promise
+    await expect(grid.getByRole('listitem', { name: 'X: not completed' })).toHaveCount(0);
+    // The grid stays a grid at every width: four letters per row from 380 px, three below.
+    const width = page.viewportSize()!.width;
+    const tops = await grid.getByRole('listitem').evaluateAll((els) => els.slice(0, 5).map((e) => Math.round(e.getBoundingClientRect().top)));
+    expect(new Set(tops.slice(0, width >= 380 ? 4 : 3)).size).toBe(1);
+    const tileHeight = await grid.getByRole('listitem').first().evaluate((e) => e.getBoundingClientRect().height);
+    expect(tileHeight).toBeLessThan(110);
+    await expect(page.getByRole('list', { name: 'Possible events in the current dataset' }).getByRole('listitem')).toHaveCount(6);
+    await expectNoHorizontalScroll(page);
+
+    await grid.getByRole('listitem', { name: 'H: not completed' }).getByRole('link', { name: 'Find an H' }).click();
+    await expect(page).toHaveURL(/\/explore\?challenge=alphabet&item=H$/);
+    const context = page.getByRole('region', { name: 'Challenge filter' });
+    await expect(context.getByText('Alphabet Challenge')).toBeVisible();
+    await expect(context.getByText('Looking for: H')).toBeVisible();
+    await expect(page.getByText('1 event', { exact: true })).toBeVisible();
+    await expectNoHorizontalScroll(page);
+    await page.getByRole('link').filter({ hasText: 'Heath Common 5K' }).click();
+
+    await expect(page).toHaveURL(/\/event\/demo-heath-common-5k$/);
+    const visits = page.getByRole('region', { name: 'Your visits' });
+    await expect(visits.getByText('New to you')).toBeVisible();
+    await expect(visits.getByText('Helps with:')).toBeVisible();
+    await expect(visits.getByRole('link', { name: 'Alphabet — H' })).toBeVisible();
+    // Performance content is still there.
+    await expect(page.getByRole('region', { name: 'Key metrics' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Your outlook' })).toBeVisible();
+    await expectNoHorizontalScroll(page);
+  });
+
+  test('the challenge filter can be cleared, and a letter with no dataset event says so', async ({ page }) => {
+    await page.goto('/explore?challenge=alphabet&item=B');
+    await expect(page.getByRole('region', { name: 'Challenge filter' }).getByText('Looking for: B')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No B events in 5K Compass yet' })).toBeVisible();
+    await page.getByRole('button', { name: 'Clear challenge filter' }).click();
+    await expect(page).toHaveURL(/\/explore$/);
+    await expect(page.getByText('10 events')).toBeVisible();
+  });
+
+  test('Event page shows the visit history for a visited event', async ({ page }) => {
+    await page.goto('/event/demo-victoria-park-5k');
+    const visits = page.getByRole('region', { name: 'Your visits' });
+    await expect(visits.getByText('Visited', { exact: true })).toBeVisible();
+    await expect(visits.getByText(/^Visited 6 times$/)).toBeVisible();
+    await expect(visits.getByText(/^First visit \d{1,2} \w+ \d{4}$/)).toBeVisible();
+    await expect(visits.getByText(/^Latest visit \d{1,2} \w+ \d{4}$/)).toBeVisible();
+    await expect(visits.getByText('Helps with:')).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Your history here' })).toBeVisible();
+    await expectNoHorizontalScroll(page);
+  });
+});

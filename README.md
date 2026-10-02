@@ -144,6 +144,11 @@ Web (optional, `apps/web/.env`): `VITE_API_BASE_URL` (default `/api`) and `VITE_
 | `GET /api/hidden-gems?mode=&maxTravel=&time=` | Hidden Gem V1 ranking with component breakdowns |
 | `GET /api/compare?ids=a,b[,c,d]&time=&window=` | 2–4 events side by side, with best-value markers and optional historical placement |
 | `GET /api/events/:idOrSlug/analytics?window=` | stored Competition V1 (for the window) and Difficulty V1 breakdowns, versions and confidence factors |
+| `GET /api/profile/explore-summary` | Explore side of My 5K: events visited, runs, repeat visits, first/latest/most-visited event, challenge progress |
+| `GET /api/profile/challenges` | every 5K Compass challenge, evaluated from the user's performances |
+| `GET /api/profile/challenges/:id` | one challenge with every item (completed by, qualifying events, opportunities) |
+| `GET /api/profile/challenges/:id/opportunities?item=` | events in the dataset that would complete one item (Explore's challenge filter) |
+| `GET /api/profile/events/:idOrSlug/visits` | the user's visits to one event and the challenge items a visit would complete |
 
 Without `lat`/`lon`, the user's saved home location is the origin. There's no authentication yet: every request acts as the demo user (see `http/context.ts`).
 
@@ -319,7 +324,7 @@ The app never assumes that a particular slow result was an easy run.
   | Hidden Gem | `hidden_gem_v1` Gem Score, the same as the Hidden Gems tool; its placement opportunity uses **Current Form** converted to each course (else inverse Competition) |
   | New Event | visit state and estimated travel; no runner ability |
   | Quiet | average field size; no runner ability |
-  | Challenge | not available yet |
+  | Challenge | not ranked by the planner yet; Home's Challenge goal shows challenge progress and matching events instead (Phase 5A) |
 
   The response's `ability` says whether the goal used Current Form (`usesCurrentForm`) and what it used. Goals that do not depend on ability never load it.
 - **When Current Form is unavailable:** every tool says so and falls back transparently. An old PB is never used as current ability.
@@ -328,6 +333,82 @@ The app never assumes that a particular slow result was an easy run.
 **Future effort metadata (documented only; V1 works without it).** A later version could record per-performance effort: *Hard/race*, *Normal*, *Easy/social*, *Pacing*, *Buggy/stroller*. Evidence from Garmin or Strava (heart rate, splits) could support it. Known easy efforts could then be set aside outright instead of relying on the frontier. V1 needs none of this, and never guesses a run's effort.
 
 **Scope and future.** V1 is 5000 m only. A future 10K, half or marathon form must be its own distance-specific model with distance-specific course factors; a 5K Current Form is never reused for them. Current Form is the foundation for later features (PB gap, form trend, PB-attempt recommendations, adaptive training plans), none of which are implemented yet.
+
+### Explore & Challenges (Phase 5A)
+
+**Three complementary pillars, not user types.** Nobody is labelled "casual" or "performance": the same runner may want a PB one Saturday, a social run the next and a new event after that.
+
+| Pillar | What it covers | Where |
+| --- | --- | --- |
+| **Explore** | discovering events, tourism, challenges | Explore, My Challenges, Home's *New Event*, *Hidden Gem* and *Challenge* goals |
+| **Perform** | Current Form, PB opportunities, placement, course intelligence | Saturday tools, the Event page metrics and outlook, Profile performance summary |
+| **My 5K** | history, visited events, achievements, progress | Profile: performance summary *and* My 5K |
+
+Explore leads with discovery: its event cards show visit status and course character, not PB Score or Competition. Those stay one tap away on the Event page.
+
+**Canonical source of visited status.** A known 5K Compass event is visited when the user has at least one `UserPerformance` there (dated on or before today). Everything is derived on the server (`challenges/visits.ts`): visit count, first and latest visit, the event's 5K PB, events visited, and repeat visits (runs at a known event after the first visit there). The deprecated `UserEvent.visited` / `visitCount` columns are not read. An external race (no `eventId`) is a recorded run but never a visit to a 5K Compass event.
+
+**Challenge Engine** (`apps/api/src/challenges/`). Deterministic, server-side and read-only:
+
+```
+UserPerformance ─▶ deriveVisits ─▶ ChallengeContext { visited events, active events }
+                                     │
+     definitions.ts (data) ─▶ evaluator for the definition's kind ─▶ items
+                                     │
+                         finalize (generic) ─▶ status · progress · % · completed/missing · completedOn
+```
+
+- **Definitions** (`definitions.ts`) are data: id, kind, name, description, rules and the kind's parameters.
+- **Evaluators** (`initialLetters.ts`): one per kind. An evaluator only produces items, and answers two questions:
+  - is this key one of the definition's items?
+  - would a visit to this event satisfy that item?
+- **The engine** (`engine.ts`) computes status, progress, percentage and completion date the same way for every kind.
+- **No write path.** Clients cannot submit completion; progress always comes from performances.
+- **Lightweight.** It reads only the user's performances and the event list, never Result rows.
+- **Statuses:** `not_started`, `in_progress` and `completed`.
+- **Every result** carries: id, name, description, rules, status, progress (current, target, %), completed and missing items, and the completion date. Each item carries the visit that completed it, every qualifying visited event, and opportunities.
+
+**Alphabet Challenge** (`alphabet`, kind `initial_letters`):
+- **Letters.** The required letters are explicit in the definition: A–Z without X, 25 letters, because very few events start with X.
+- **Normalisation.** The event name is read with Unicode NFKD, accents removed and upper-cased, then leading spaces and punctuation are skipped. The first character is the letter if it is A–Z.
+  - A name that starts with a digit has no letter.
+  - A character with no A–Z form (such as Ø) gives no letter rather than a guess.
+- **Choice.** A letter is completed by the **earliest first visit** to any qualifying event (ties: event name, then id). All qualifying events stay listed on the item.
+- **Completion date.** The challenge's completion date is the date its last letter was completed.
+- **Branding.** It is a 5K Compass challenge, not an official parkrun challenge, and uses no parkrun logos.
+- **Demo data.** It is derived honestly from the 43 demo performances: **4 / 25** (F, L, R, V). The demo history was not edited; fuller cases (18/25 = 72%, completion, ties) are deterministic test fixtures.
+
+**Challenge opportunities.** For each missing item, the evaluator lists the events in the current internal dataset that would complete it:
+- They are sorted by name. They are descriptive and not ranked by distance or date, and no geography is invented.
+- *Find a C* in the detail page opens `/explore?challenge=alphabet&item=C`. That is a generic `{challenge, item}` filter, backed by `GET /api/profile/challenges/:id/opportunities`, so Explore holds no Alphabet-specific logic.
+- A letter with no event in the dataset shows no link and is never promised.
+- The Event page shows *Helps with: Alphabet — H* when a visit there would complete a missing item.
+
+**Adding challenges later.**
+- **A new challenge of an existing kind** is one new entry in `definitions.ts`.
+- **A new kind** adds three things:
+  1. a definition type (`types.ts`);
+  2. an evaluator;
+  3. one line in `EVALUATORS`.
+
+  Planned kinds include: visit N different events; repeat one event N times; events in different regions; events with given attributes (surface, course type); custom collections; milestones. No generic rules language is planned.
+- **Later phases** can combine challenge progress with travel, Saturday scheduling and preferences.
+
+**Favourites vs "want to visit".** Favourites already mean "events I want to keep an eye on", and Explore can show them, so Phase 5A adds no second bookmark system. A separate *Want to visit* list would only earn its place if users need to distinguish "watch this event" (alerts, a regular) from "plan to go once" (tourism). That is a Phase 5B decision.
+
+**Saturday intent (preparation only).** `SATURDAY_INTENTS` in `packages/shared/src/goals.ts` maps a per-Saturday intent onto today's goals. It is never a permanent runner type:
+
+| Intent | Goal |
+| --- | --- |
+| RUN_FASTER | PB |
+| VISIT_NEW_EVENT | New Event |
+| COMPLETE_CHALLENGE | Challenge |
+| QUIET_EVENT | Quiet |
+| SOCIAL, SURPRISE_ME | none yet (Phase 5B) |
+
+Home's existing "What do you want this Saturday?" selector is that choice. No onboarding flow has been built.
+
+**Data sources.** Only the internal or demo event dataset and the user's own recorded performances are used. There is no parkrun scraping, live parkrun API or unofficial results source, and the parkrun connection on the Profile remains a placeholder.
 
 ### Source of truth: Result vs EventOccurrence
 

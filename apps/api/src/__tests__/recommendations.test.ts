@@ -65,7 +65,7 @@ describe('bestPick (Phase 1 placeholder ranking)', () => {
   it('reports Challenge as not yet available instead of guessing', () => {
     const res = bestPick('challenge', [makeEvent({ id: 'a' })], opts);
     expect(res.pick).toBeNull();
-    expect(res.message).toMatch(/arrive once personal run history/);
+    expect(res.message).toMatch(/^Challenge ranking in the Saturday Planner is not available yet\. My Challenges shows your progress/);
   });
 
   it('explains travel relative to the travel limit, labelled as an estimate', () => {

@@ -2,6 +2,7 @@ import { formatDateWithYear, formatFinishTime, GOALS, type UserPerformance, type
 import { ChevronRight, Heart, Link2, MapPin, Plus, ShieldCheck, Timer } from 'lucide-react';
 import { useId } from 'react';
 import { Link } from 'react-router';
+import { My5kSummary } from '../components/profile/My5kSummary';
 import { PerformanceList } from '../components/profile/PerformanceList';
 import { CONFIDENCE_SHORT, formatAgo, PERFORMANCE_TYPE_LABEL, TREND_LABEL } from '../lib/display';
 import { ConfidenceBadge } from '../components/ui/ConfidenceBadge';
@@ -250,6 +251,8 @@ export function ProfilePage() {
               Current Form is different: it estimates your present 5K capability from your strongest supported recent performances, adjusted for course differences. It is not a recorded result.
             </p>
           </section>
+
+          <My5kSummary />
 
           <section aria-labelledby="recent-performances">
             <SectionHeading>

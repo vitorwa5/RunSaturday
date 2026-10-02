@@ -1,5 +1,10 @@
 import type {
   BestPickResponse,
+  ChallengeOpportunitiesResponse,
+  ChallengeResult,
+  ChallengesResponse,
+  EventVisitSummary,
+  ExploreSummary,
   CompareResponse,
   EventAnalyticsResponse,
   EventPlacement,
@@ -58,6 +63,12 @@ export const api = {
   createPerformance: (input: PerformanceInput) => apiSend<UserPerformance>('POST', '/profile/performances', input),
   updatePerformance: (id: string, input: PerformanceInput) => apiSend<UserPerformance>('PATCH', `/profile/performances/${encodeURIComponent(id)}`, input),
   deletePerformance: (id: string) => apiSend<null>('DELETE', `/profile/performances/${encodeURIComponent(id)}`),
+  exploreSummary: (signal?: AbortSignal) => apiGet<ExploreSummary>('/profile/explore-summary', {}, signal),
+  challenges: (signal?: AbortSignal) => apiGet<ChallengesResponse>('/profile/challenges', {}, signal),
+  challenge: (id: string, signal?: AbortSignal) => apiGet<ChallengeResult>(`/profile/challenges/${encodeURIComponent(id)}`, {}, signal),
+  challengeOpportunities: (id: string, item: string, signal?: AbortSignal) =>
+    apiGet<ChallengeOpportunitiesResponse>(`/profile/challenges/${encodeURIComponent(id)}/opportunities`, { item }, signal),
+  eventVisits: (id: string, signal?: AbortSignal) => apiGet<EventVisitSummary>(`/profile/events/${encodeURIComponent(id)}/visits`, {}, signal),
   eventAnalytics: (id: string, window: HistoryWindowId, signal?: AbortSignal) =>
     apiGet<EventAnalyticsResponse>(`/events/${encodeURIComponent(id)}/analytics`, { window }, signal),
   placement: (q: PlacementQuery, signal?: AbortSignal) =>

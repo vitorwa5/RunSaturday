@@ -152,7 +152,7 @@ describe('API', () => {
       app = await buildTestApp();
       const body = await plan('?goal=challenge');
       expect(body.results).toEqual([]);
-      expect(body.message).toMatch(/arrive once personal run history/);
+      expect(body.message).toMatch(/^Challenge ranking in the Saturday Planner is not available yet\. My Challenges shows your progress/);
     });
 
     it('rejects dates outside the planning horizon and unknown filter values', async () => {

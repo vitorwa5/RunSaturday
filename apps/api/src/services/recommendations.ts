@@ -165,7 +165,7 @@ export interface Ranking {
 }
 
 export const CHALLENGE_UNAVAILABLE =
-  'Challenge recommendations arrive once personal run history and challenges are supported. Choose another goal for now.';
+  'Challenge ranking in the Saturday Planner is not available yet. My Challenges shows your progress and the events that would complete each challenge.';
 
 /**
  * Rank already-filtered events for a goal. Events outside `maxTravelMinutes` are excluded.

@@ -10,7 +10,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'Home', icon: House },
-  { to: '/explore', label: 'Explore', icon: Search, matches: ['/event/', '/compare'] },
+  { to: '/explore', label: 'Explore', icon: Search, matches: ['/event/', '/compare', '/challenges'] },
   { to: '/saturday', label: 'Saturday', icon: Sparkles, matches: ['/pb-finder', '/where-could-i-place', '/hidden-gems'] },
   { to: '/map', label: 'Map', icon: Map },
   { to: '/profile', label: 'Profile', icon: UserRound },

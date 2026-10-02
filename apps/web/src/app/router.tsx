@@ -1,4 +1,6 @@
 import { createBrowserRouter } from 'react-router';
+import { ChallengeDetailPage } from '../pages/ChallengeDetailPage';
+import { ChallengesPage } from '../pages/ChallengesPage';
 import { ComparePage } from '../pages/ComparePage';
 import { CurrentFormPage } from '../pages/CurrentFormPage';
 import { EventPage } from '../pages/EventPage';
@@ -28,6 +30,8 @@ export const router = createBrowserRouter([
       { path: '/profile/performances', element: <PerformancesPage /> },
       { path: '/profile/performances/new', element: <PerformanceFormPage /> },
       { path: '/profile/performances/:id/edit', element: <PerformanceFormPage /> },
+      { path: '/challenges', element: <ChallengesPage /> },
+      { path: '/challenges/:id', element: <ChallengeDetailPage /> },
       { path: '/event/:id', element: <EventPage /> },
       { path: '/pb-finder', element: <PbFinderPage /> },
       { path: '/where-could-i-place', element: <WhereCouldIPlacePage /> },

@@ -2,7 +2,7 @@
  * Presentation mappings: how values are labelled and toned in the UI.
  * No scoring maths lives here, only display thresholds and wording.
  */
-import { ordinal, type FormTrendDirection, type PerformanceSource, type PerformanceType, type ConfidenceLevel, type CourseType, type FacilityStatus, type HistoricalFrequency, type Recommendation, type Surface } from '@runsaturday/shared';
+import { ordinal, type FormTrendDirection, type PerformanceSource, type PerformanceType, type ConfidenceLevel, type ChallengeStatus, type CourseType, type FacilityStatus, type HistoricalFrequency, type Recommendation, type Surface } from '@runsaturday/shared';
 
 export type Tone = 'positive' | 'caution' | 'problem' | 'info' | 'neutral';
 
@@ -171,3 +171,17 @@ export const TREND_LABEL: Record<FormTrendDirection, string> = {
   declining: 'Declining',
   limited: 'Trend: limited data',
 };
+
+/** Challenge status labels (Phase 5A). */
+export const CHALLENGE_STATUS_LABEL: Record<ChallengeStatus, string> = {
+  not_started: 'Not started',
+  in_progress: 'In progress',
+  completed: 'Completed',
+};
+
+/** "a B", "an H": the article for a spoken letter name. */
+export const letterArticle = (letter: string) => (/^[AEFHILMNORSX]$/.test(letter) ? 'an' : 'a');
+
+/** Explore links for one challenge item (the generic challenge filter). */
+export const challengeFilterLink = (challengeId: string, itemKey: string) =>
+  `/explore?challenge=${encodeURIComponent(challengeId)}&item=${encodeURIComponent(itemKey)}`;

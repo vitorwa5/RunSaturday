@@ -15,6 +15,7 @@ import { FacilityList } from '../components/events/FacilityList';
 import { CoverageNote, HistoricalTimes, OccurrenceTable, ParticipantsChart, SampleNote } from '../components/events/HistoryViews';
 import { OutlookCard } from '../components/events/OutlookCard';
 import { YourHistoryHere } from '../components/events/YourHistoryHere';
+import { EventExploreContext } from '../components/explore/EventExploreContext';
 import { ScoreExplainer } from '../components/events/ScoreExplainer';
 import { AlertBanner } from '../components/ui/AlertBanner';
 import { ButtonLink } from '../components/ui/Button';
@@ -254,6 +255,7 @@ export function EventPage() {
             </span>
           )}
         </div>
+        <EventExploreContext eventId={event.id} />
       </div>
 
       {latest?.status === 'cancelled' && (

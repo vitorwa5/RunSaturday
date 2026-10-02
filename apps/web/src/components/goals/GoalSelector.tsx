@@ -17,6 +17,8 @@ interface GoalSelectorProps {
   /** "short" labels for Home, "long" labels (e.g. "High Finish") for the Planner. */
   labels?: 'short' | 'long';
   label?: string;
+  /** Goals to tag "Soon" (default: goals the planner cannot rank yet). */
+  isSoon?: (goal: Goal) => boolean;
 }
 
 /**
@@ -24,7 +26,7 @@ interface GoalSelectorProps {
  * has a check badge, bold text and a thicker border. Goals not supported yet stay
  * selectable (so the app can explain why) and carry a "Soon" tag.
  */
-export function GoalSelector({ value, onChange, labels = 'short', label = 'What do you want this Saturday?' }: GoalSelectorProps) {
+export function GoalSelector({ value, onChange, labels = 'short', label = 'What do you want this Saturday?', isSoon = (g) => !GOALS.find((x) => x.id === g)!.available }: GoalSelectorProps) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const onKeyDown = (e: KeyboardEvent, index: number) => {
@@ -67,7 +69,7 @@ export function GoalSelector({ value, onChange, labels = 'short', label = 'What 
             )}
             <Icon className="size-5" aria-hidden />
             <span className="text-center">{labels === 'long' ? goal.longLabel : goal.label}</span>
-            {!goal.available && <span className="text-[10px] font-semibold tracking-wide text-subtle uppercase">Soon</span>}
+            {isSoon(goal.id) && <span className="text-[10px] font-semibold tracking-wide text-subtle uppercase">Soon</span>}
           </button>
         );
       })}

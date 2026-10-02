@@ -74,7 +74,10 @@ export interface EventSummary {
   source: DataSource;
   /** Present when the request supplied an origin. */
   travel?: TravelEstimate;
-  /** Present when a user context exists. */
+  /**
+   * Present when a user context exists. Derived from the user's performances (Phase 4A/5A):
+   * true when they have at least one performance at this event.
+   */
   visited?: boolean;
   favourite?: boolean;
 }
@@ -792,4 +795,117 @@ export interface EventAnalyticsResponse {
   courseSpeed: CourseSpeedBreakdown | null;
   pb: PbBreakdown | null;
   notes: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Explore & Challenges (Phase 5A): visits and 5K Compass challenges
+// ---------------------------------------------------------------------------
+
+/**
+ * A known (internal) event the user has visited. CANONICAL SOURCE: their UserPerformance rows.
+ * An event counts as visited when they have at least one performance there; an external race
+ * (no eventId) never makes a 5K Compass event visited.
+ */
+export interface VisitedEvent {
+  eventId: string;
+  eventName: string;
+  visitCount: number;
+  firstVisit: string;
+  latestVisit: string;
+  /** Fastest 5K at this event (null if none of the visits was a 5K). */
+  pbSeconds: number | null;
+}
+
+/** The user's visit history at one event (Event page). */
+export interface EventVisitSummary {
+  eventId: string;
+  visited: boolean;
+  visitCount: number;
+  firstVisit: string | null;
+  latestVisit: string | null;
+  pbSeconds: number | null;
+  /** Challenge items a (further) visit here would complete. */
+  helpsWith: ChallengeItemRef[];
+}
+
+export type ChallengeStatus = 'not_started' | 'in_progress' | 'completed';
+
+/** Challenge kinds the engine can evaluate. New kinds add an evaluator on the server. */
+export type ChallengeKind = 'initial_letters';
+
+/** Points at one requirement of one challenge: also the generic Explore challenge filter. */
+export interface ChallengeItemRef {
+  challengeId: string;
+  challengeName: string;
+  itemKey: string;
+  itemLabel: string;
+}
+
+/** An event in the current dataset that could complete a missing item. Descriptive, not ranked. */
+export interface ChallengeOpportunityEvent {
+  eventId: string;
+  eventName: string;
+  town: string | null;
+  region: string | null;
+}
+
+export interface ChallengeItem {
+  key: string;
+  label: string;
+  completed: boolean;
+  /** The visit that completed it (deterministic choice; see the challenge's rules). */
+  completedBy: { eventId: string; eventName: string; date: string } | null;
+  /** Every visited event that qualifies for this item, earliest first. */
+  qualifyingEvents: { eventId: string; eventName: string; firstVisit: string }[];
+  /** For a missing item: events in the current dataset that would complete it. */
+  opportunities: ChallengeOpportunityEvent[];
+}
+
+export interface ChallengeResult {
+  id: string;
+  kind: ChallengeKind;
+  name: string;
+  description: string;
+  /** Plain-language rules, shown on the detail page. */
+  rules: string[];
+  status: ChallengeStatus;
+  progress: { current: number; target: number; percentage: number };
+  completedItems: string[];
+  missingItems: string[];
+  /** Date the last required item was completed (status "completed" only). */
+  completedOn: string | null;
+  items: ChallengeItem[];
+}
+
+export interface ChallengesResponse {
+  asOfDate: string;
+  challenges: ChallengeResult[];
+}
+
+/** Events that would complete one challenge item (Explore's challenge filter). */
+export interface ChallengeOpportunitiesResponse {
+  item: ChallengeItemRef;
+  completed: boolean;
+  events: EventSummary[];
+}
+
+/** The exploration side of "My 5K", derived from performances. */
+export interface ExploreSummary {
+  asOfDate: string;
+  /** Distinct known 5K Compass events with at least one performance. */
+  eventsVisited: number;
+  /** All recorded performances, including external races. */
+  totalRuns: number;
+  /** Performances at external races (not 5K Compass events, so they never count as visits). */
+  externalRuns: number;
+  /** Runs at a known event after the first visit there (internal runs − events visited). */
+  repeatVisits: number;
+  firstVisit: { eventId: string; eventName: string; date: string } | null;
+  latestVisit: { eventId: string; eventName: string; date: string } | null;
+  mostVisited: { eventId: string; eventName: string; visitCount: number } | null;
+  /** Active events in the dataset (for "x of y events visited"). */
+  eventsInDataset: number;
+  challengesCompleted: number;
+  challenges: { id: string; name: string; status: ChallengeStatus; progress: ChallengeResult['progress'] }[];
+  visitedEvents: VisitedEvent[];
 }

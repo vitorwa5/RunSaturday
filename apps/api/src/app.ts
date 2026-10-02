@@ -10,6 +10,7 @@ import { healthRoutes } from './routes/health';
 import { plannerRoutes } from './routes/planner';
 import { toolRoutes } from './routes/tools';
 import { profileRoutes } from './routes/profile';
+import { challengeRoutes } from './routes/challenges';
 import { recommendationRoutes } from './routes/recommendations';
 
 export interface BuildAppOptions {
@@ -34,6 +35,7 @@ export async function buildApp({ config, store, now = () => new Date(), logger }
   await toolRoutes(app, ctx);
   await analyticsRoutes(app, ctx);
   await profileRoutes(app, ctx);
+  await challengeRoutes(app, ctx);
 
   app.addHook('onClose', async () => store.close());
   return app;

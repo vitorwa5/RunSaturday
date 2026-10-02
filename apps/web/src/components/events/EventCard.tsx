@@ -2,16 +2,18 @@ import type { EventSummary } from '@runsaturday/shared';
 import { ChevronRight, Heart } from 'lucide-react';
 import { Link } from 'react-router';
 import { ConfidenceBadge } from '../ui/ConfidenceBadge';
-import { pbLabel } from '../../lib/display';
+import { COURSE_TYPE_LABEL, pbLabel, SURFACE_LABEL } from '../../lib/display';
+import { VisitTag } from '../explore/VisitTag';
 import { DemoBadge } from '../ui/DemoBadge';
 import { ScoreBadge } from '../ui/ScoreBadge';
 import { TravelBadge } from '../ui/TravelBadge';
 
 /**
  * Compact, tappable event row (Home options, Explore, search results). Shows only what is
- * needed to decide whether to open the event.
+ * needed to decide whether to open the event. The "explore" variant leads with discovery
+ * (visit status, course character) instead of performance scores, which stay on the event page.
  */
-export function EventCard({ event }: { event: EventSummary }) {
+export function EventCard({ event, variant = 'performance' }: { event: EventSummary; variant?: 'performance' | 'explore' }) {
   return (
     <Link
       to={`/event/${event.id}`}
@@ -27,11 +29,20 @@ export function EventCard({ event }: { event: EventSummary }) {
           {event.town && <span>{event.town}</span>}
           <TravelBadge travel={event.travel} />
         </div>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          <ScoreBadge label={pbLabel(true)} score={event.scores?.pbScore} />
-          <ScoreBadge label="Comp" score={event.scores?.competitionScore} kind="competition" />
-          <ConfidenceBadge level={event.scores?.pbConfidence ?? 'insufficient'} compact />
-        </div>
+        {variant === 'explore' ? (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+            <VisitTag visited={event.visited} />
+            {event.surface !== 'unknown' && <span>{SURFACE_LABEL[event.surface]}</span>}
+            {event.courseType !== 'unknown' && <span>· {COURSE_TYPE_LABEL[event.courseType]}</span>}
+          </div>
+        ) : (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <ScoreBadge label={pbLabel(true)} score={event.scores?.pbScore} />
+            <ScoreBadge label="Comp" score={event.scores?.competitionScore} kind="competition" />
+            <ConfidenceBadge level={event.scores?.pbConfidence ?? 'insufficient'} compact />
+            <VisitTag visited={event.visited} />
+          </div>
+        )}
       </div>
       <ChevronRight className="size-5 shrink-0 text-subtle" aria-hidden />
     </Link>

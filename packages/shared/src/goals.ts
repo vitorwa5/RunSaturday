@@ -23,3 +23,19 @@ export function isGoal(value: unknown): value is Goal {
 export function goalDefinition(goal: Goal) {
   return GOALS.find((g) => g.id === goal)!;
 }
+
+/**
+ * PREPARATION ONLY (Phase 5A): what a runner is looking for THIS Saturday. It is a per-visit
+ * choice, never a permanent "casual" or "performance" label. Today each intent maps onto an
+ * existing goal (Home's "What do you want this Saturday?"); null = not supported yet (Phase 5B).
+ */
+export const SATURDAY_INTENTS = {
+  RUN_FASTER: 'pb',
+  VISIT_NEW_EVENT: 'new_event',
+  COMPLETE_CHALLENGE: 'challenge',
+  QUIET_EVENT: 'quiet',
+  SOCIAL: null,
+  SURPRISE_ME: null,
+} as const satisfies Record<string, Goal | null>;
+
+export type SaturdayIntent = keyof typeof SATURDAY_INTENTS;

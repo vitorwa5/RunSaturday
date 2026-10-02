@@ -117,6 +117,19 @@ function usePerformanceMutation<V>(fn: (variables: V) => Promise<unknown>) {
   return useMutation({ mutationFn: fn, onSuccess: () => client.invalidateQueries() });
 }
 
+/** Explore & Challenges (Phase 5A): all derived on the server from performances. */
+export const useExploreSummary = () => useQuery({ queryKey: ['explore-summary'] as const, queryFn: ({ signal }) => api.exploreSummary(signal) });
+export const useChallenges = () => useQuery({ queryKey: ['challenges'] as const, queryFn: ({ signal }) => api.challenges(signal) });
+export const useChallenge = (id: string) => useQuery({ queryKey: ['challenges', id] as const, queryFn: ({ signal }) => api.challenge(id, signal) });
+/** Events that would complete one challenge item (Explore's challenge filter); disabled without one. */
+export const useChallengeOpportunities = (filter: { challenge: string; item: string } | null) =>
+  useQuery({
+    queryKey: ['challenges', filter?.challenge, 'opportunities', filter?.item] as const,
+    queryFn: ({ signal }) => api.challengeOpportunities(filter!.challenge, filter!.item, signal),
+    enabled: filter != null,
+  });
+export const useEventVisits = (id: string) => useQuery({ queryKey: ['event', id, 'visits'] as const, queryFn: ({ signal }) => api.eventVisits(id, signal) });
+
 export const useSavePerformance = (id?: string) =>
   usePerformanceMutation((input: PerformanceInput) => (id ? api.updatePerformance(id, input) : api.createPerformance(input)));
 

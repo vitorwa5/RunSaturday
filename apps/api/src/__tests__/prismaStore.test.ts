@@ -14,6 +14,7 @@ import { DuplicatePerformanceError } from '../repositories/DataStore';
 import { refreshAllAnalytics } from '../analytics/refreshAll';
 import { computeUserRunnerForm, recalculateRunnerForm } from '../services/runnerForm';
 import { loadUser } from '../services/userPerformance';
+import { eventVisitSummary, exploreSummary, loadExploreState } from '../services/explore';
 
 const url = process.env.TEST_DATABASE_URL;
 const FIVE_K_PARKRUN = { externalEventName: null, performanceType: 'parkrun' as const, distanceMeters: 5000 };
@@ -203,6 +204,18 @@ describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
     expect(rows.every((r) => r.distanceMeters === 5000 && r.performanceType === 'PARKRUN' && r.externalEventName === null && r.eventId != null)).toBe(true);
     expect(rows.every((r) => r.duplicateKey === `event:${r.eventId}|${r.date.toISOString().slice(0, 10)}|5000`)).toBe(true);
     expect(fromDb?.recentPbEvent).toEqual({ id: 'demo-riverside-5k', name: 'Riverside 5K' });
+  });
+
+  it('derives identical visits, Explore summary and challenge progress in SQL and in memory (Phase 5A)', async () => {
+    const [fromDb, fromMemory] = await Promise.all([loadExploreState(store!, 'demo-user', today), loadExploreState(memory, 'demo-user', today)]);
+    expect(fromDb.history).toEqual(fromMemory.history);
+    expect(fromDb.challenges).toEqual(fromMemory.challenges);
+    expect(exploreSummary(fromDb)).toEqual(exploreSummary(fromMemory));
+    expect(fromDb.challenges[0]!.completedItems).toEqual(['F', 'L', 'R', 'V']);
+    for (const id of ['demo-riverside-5k', 'demo-moorland-edge-5k']) {
+      const event = fromDb.context.events.find((e) => e.id === id)!;
+      expect(eventVisitSummary(fromDb, event)).toEqual(eventVisitSummary(fromMemory, event));
+    }
   });
 
   it('stores Current Form snapshots that match the demo store, replacing same-day recalculations', async () => {
