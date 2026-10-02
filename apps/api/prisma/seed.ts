@@ -12,6 +12,7 @@ import { createPrismaClient } from '../src/db/prisma';
 import { summarizeResults } from '../src/domain/occurrenceSummary';
 import { buildDemoDataset, DEMO_WINDOW_DAYS } from '../src/demo/buildDemoDataset';
 import { demoUserPerformances } from '../src/demo/demoUserPerformances';
+import { performanceDuplicateKey } from '../src/domain/performanceKey';
 
 const RESULT_BATCH_SIZE = 5000;
 const toDate = (iso: string) => new Date(`${iso}T00:00:00Z`);
@@ -98,7 +99,13 @@ async function main() {
     });
     const performances = demoUserPerformances(dataset.latestDate);
     await db.userPerformance.createMany({
-      data: performances.map((p) => ({ ...p, date: toDate(p.date), source: 'MANUAL' as const })),
+      data: performances.map((p) => ({
+        ...p,
+        date: toDate(p.date),
+        performanceType: 'PARKRUN' as const,
+        source: 'MANUAL' as const,
+        duplicateKey: performanceDuplicateKey(p),
+      })),
     });
 
     // Derived analytics (Course Speed V1, Difficulty V1, Competition V1, PB Score V1) so a fresh database is complete.

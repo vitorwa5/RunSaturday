@@ -665,4 +665,69 @@ test.describe('Personal performance history (Phase 4A)', () => {
     await expect(page.getByText(/Historically, 18:58 at Riverside 5K, converted to each course/)).toBeVisible();
     await expectNoHorizontalScroll(page);
   });
+
+  test('Add another 5K race by name: it is listed, counts as a performance, and has no event page', async ({ page }, info) => {
+    const date = isoFor(info.project.name, 5);
+    const name = `Test Harriers 5K ${info.project.name}`;
+    const cleanUpExternal = async () => {
+      const all = (await (await page.request.get('/api/profile/performances')).json()) as { performances: { id: string; eventName: string }[] };
+      for (const p of all.performances.filter((x) => x.eventName === name)) await page.request.delete(`/api/profile/performances/${p.id}`);
+    };
+    await cleanUpExternal();
+    await page.goto('/profile/performances/new');
+    const form = page.getByRole('form', { name: 'Add performance' });
+    await form.getByRole('radiogroup', { name: 'Performance type' }).getByRole('radio', { name: 'Other 5K race' }).click();
+    await expect(form.getByLabel('Event')).toHaveCount(0);
+    await form.getByLabel('Race name').fill(name);
+    await form.getByLabel('Date').fill(date);
+    await form.getByLabel('Finish time').fill('24:55');
+    await expect(form.getByText(/count towards your 5K PB but cannot be course-adjusted/)).toBeVisible();
+    await expectNoHorizontalScroll(page);
+    await form.getByRole('button', { name: 'Add performance' }).click();
+    await expect(page).toHaveURL(/\/profile$/);
+
+    await page.goto('/profile/performances');
+    const row = page.getByRole('list', { name: 'All performances' }).getByRole('listitem').filter({ hasText: name });
+    await expect(row).toContainText(`${name} · 24:55`);
+    await expect(row).toContainText('Other 5K race · Manual');
+    // Only the edit link: no event page exists for a course 5K Compass does not model.
+    await expect(row.getByRole('link')).toHaveCount(1);
+    await expect(row.getByRole('link')).toHaveAccessibleName(`Edit ${name}, ${longDate(date)}`);
+    await cleanUpExternal();
+  });
+
+  test('An external-race Lifetime PB works in Raw time and never silently becomes course adjusted', async ({ page }) => {
+    // Pretend the fastest 5K was an external road race (mocked profile; shared data untouched).
+    await page.route('**/api/profile', async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      const external = { ...body.performance.lifetimePb, id: 'ext-pb', eventId: null, eventName: 'Warrington 5K', externalEventName: 'Warrington 5K', courseModelled: false, performanceType: 'road_race', finishTimeSeconds: 1120 };
+      body.performance.lifetimePb = external;
+      body.lifetimePbSeconds = 1120;
+      body.lifetimePbEvent = null;
+      await route.fulfill({ response: res, json: body });
+    });
+    await page.goto('/where-could-i-place?src=pb&travel=90');
+    await expect(page.getByRole('radio', { name: 'Lifetime PB 18:40' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByLabel('Achieved at')).toBeDisabled();
+    await expect(page.getByLabel('Achieved at')).toContainText('Warrington 5K (not modelled by 5K Compass)');
+    const modes = page.getByRole('radiogroup', { name: 'Compare as' });
+    await expect(modes.getByRole('radio', { name: 'Raw time' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByText('Raw time comparison — course adjustment unavailable', { exact: true })).toBeVisible();
+    const notModelled = 'Course adjustment unavailable — this performance was recorded at a course not currently modelled by 5K Compass.';
+    await expect(page.getByText(notModelled).first()).toBeVisible();
+    // Raw time works: placements for 18:40 unchanged at every event.
+    await expect(page.getByText(/Historically, 18:40 would have placed like this at/)).toBeVisible();
+    await expect(page.getByRole('article').first().getByText('Equivalent here')).toHaveCount(0);
+
+    await modes.getByRole('radio', { name: 'Course adjusted' }).click();
+    const prompt = page.getByRole('note', { name: 'Course adjustment needs a source event' });
+    await expect(prompt.getByText('Course adjustment unavailable', { exact: true })).toBeVisible();
+    await expect(page.getByRole('article')).toHaveCount(0);
+    await expectNoHorizontalScroll(page);
+    await prompt.getByRole('button', { name: 'Compare as raw time' }).click();
+    await expect(modes.getByRole('radio', { name: 'Raw time' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('article').first()).toBeVisible();
+  });
 });
+

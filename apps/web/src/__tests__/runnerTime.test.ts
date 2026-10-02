@@ -1,4 +1,4 @@
-import type { UserProfile } from '@runsaturday/shared';
+import type { UserPerformance, UserProfile } from '@runsaturday/shared';
 import { describe, expect, it } from 'vitest';
 import { formatFrequency, formatPlacementRange } from '../lib/display';
 import { MANUAL_TIME_ERROR, parseIdList, resolveRunnerTime, validateManualTime } from '../lib/runnerTime';
@@ -36,12 +36,38 @@ describe('placement formatting', () => {
 });
 
 describe('profile source events', () => {
+  const perf = (eventId: string | null, name: string, seconds: number): UserPerformance => ({
+    id: `${name}-${seconds}`,
+    eventId,
+    eventName: name,
+    externalEventName: eventId == null ? name : null,
+    courseModelled: eventId != null,
+    performanceType: eventId == null ? 'road_race' : 'parkrun',
+    distanceMeters: 5000,
+    date: '2026-09-12',
+    finishTimeSeconds: seconds,
+    source: 'manual',
+    verified: false,
+    editable: true,
+  });
+  const withPerformances = (recentBest: UserPerformance, lifetimePb: UserPerformance) =>
+    ({ ...profile, performance: { recentBest, lifetimePb } }) as unknown as UserProfile;
+
   it('carries where recent best and lifetime PB were run; current form has none', async () => {
-    const { profileSourceEvent } = await import('../lib/runnerTime');
-    const withEvents = { ...profile, recentPbEvent: { id: 'r', name: 'R' }, lifetimePbEvent: { id: 'l', name: 'L' } } as UserProfile;
-    expect(profileSourceEvent('recent', withEvents)).toEqual({ id: 'r', name: 'R' });
-    expect(profileSourceEvent('pb', withEvents)).toEqual({ id: 'l', name: 'L' });
-    expect(profileSourceEvent('current', withEvents)).toBeNull();
-    expect(profileSourceEvent('manual', withEvents)).toBeNull();
+    const { profileSourceEvent, profileExternalCourse } = await import('../lib/runnerTime');
+    const p = withPerformances(perf('r', 'R', 1172), perf('l', 'L', 1138));
+    expect(profileSourceEvent('recent', p)).toEqual({ id: 'r', name: 'R' });
+    expect(profileSourceEvent('pb', p)).toEqual({ id: 'l', name: 'L' });
+    expect(profileSourceEvent('current', p)).toBeNull();
+    expect(profileSourceEvent('manual', p)).toBeNull();
+    expect(profileExternalCourse('pb', p)).toBeNull();
+  });
+
+  it('never offers an external race as a course-adjustment source', async () => {
+    const { profileSourceEvent, profileExternalCourse } = await import('../lib/runnerTime');
+    const p = withPerformances(perf('r', 'R', 1172), perf(null, 'Warrington 5K', 1120));
+    expect(profileSourceEvent('pb', p)).toBeNull();
+    expect(profileExternalCourse('pb', p)).toBe('Warrington 5K');
+    expect(profileExternalCourse('recent', p)).toBeNull();
   });
 });

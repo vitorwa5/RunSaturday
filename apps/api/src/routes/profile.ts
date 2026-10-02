@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify';
-import { formatShortDate, parsePerformanceTime, type PerformanceSummary, type UserPerformance, type UserPerformancesResponse, type UserProfile } from '@runsaturday/shared';
+import { FIVE_K_METERS, formatShortDate, parsePerformanceTime, type PerformanceSummary, type UserPerformance, type UserPerformancesResponse, type UserProfile } from '@runsaturday/shared';
 import { z } from 'zod';
 import { CURRENT_USER_ID, currentUser, type RequestContext } from '../http/context';
 import { AppError, notFound, parseInput } from '../http/errors';
 import { DuplicatePerformanceError, type NewPerformance, type PerformanceRecord } from '../repositories/DataStore';
+import { cleanExternalEventName } from '../domain/performanceKey';
 import { isEditable, summarizePerformances, toPerformanceDto } from '../services/userPerformance';
 
 /** Typo guard only (e.g. "1026" for "2026"); not a judgement on old results. */
@@ -11,10 +12,17 @@ const EARLIEST_PERFORMANCE_DATE = '1950-01-01';
 
 const Id = z.string().min(1).max(200);
 const PerformanceBody = z.object({
-  eventId: Id,
+  // Empty strings are allowed here; the location rule below reports them clearly.
+  eventId: z.string().max(200).nullish(),
+  externalEventName: z.string().max(200).nullish(),
+  performanceType: z.enum(['parkrun', 'road_race', 'other_race']).optional(),
+  /** Architectural preparation only: the product records 5K performances for now. */
+  distanceMeters: z.number().int().optional(),
   date: z.string().max(20),
   time: z.string().max(20),
 });
+/** External event names: long enough to mean something, short enough to be a name. */
+const EXTERNAL_NAME_LENGTH = { min: 2, max: 100 };
 const ListQuery = z.object({
   eventId: Id.optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
@@ -29,18 +37,44 @@ export async function profileRoutes(app: FastifyInstance, ctx: RequestContext) {
 
   /** Validates input against business rules; returns the values to store. */
   async function validated(body: z.infer<typeof PerformanceBody>): Promise<NewPerformance> {
-    const eventId = await ctx.store.findEventId(body.eventId);
-    if (!eventId) throw new AppError(400, 'unknown_event', 'Choose an event from the list.');
+    // Where it happened: exactly one of a known event or an external (unmodelled) event name.
+    const externalRaw = body.externalEventName != null ? cleanExternalEventName(body.externalEventName) : '';
+    const hasEvent = body.eventId != null && body.eventId !== '';
+    const hasExternal = externalRaw !== '';
+    if (hasEvent === hasExternal) {
+      throw new AppError(400, 'invalid_location', 'Choose an event from the list, or enter the name of another 5K race, but not both.');
+    }
+    let eventId: string | null = null;
+    let externalEventName: string | null = null;
+    if (hasEvent) {
+      eventId = await ctx.store.findEventId(body.eventId!);
+      if (!eventId) throw new AppError(400, 'unknown_event', 'Choose an event from the list.');
+    } else {
+      if (externalRaw.length < EXTERNAL_NAME_LENGTH.min || externalRaw.length > EXTERNAL_NAME_LENGTH.max) {
+        throw new AppError(400, 'invalid_event_name', `Enter the race name (${EXTERNAL_NAME_LENGTH.min}–${EXTERNAL_NAME_LENGTH.max} characters).`);
+      }
+      externalEventName = externalRaw;
+    }
+    const distanceMeters = body.distanceMeters ?? FIVE_K_METERS;
+    if (distanceMeters !== FIVE_K_METERS) throw new AppError(400, 'unsupported_distance', 'Only 5K performances can be recorded at the moment.');
     if (!isCalendarDate(body.date)) throw new AppError(400, 'invalid_date', 'Enter a valid date.');
     if (body.date > ctx.today()) throw new AppError(400, 'future_date', 'The date cannot be in the future.');
     if (body.date < EARLIEST_PERFORMANCE_DATE) throw new AppError(400, 'invalid_date', 'Enter a valid date.');
     const finishTimeSeconds = parsePerformanceTime(body.time);
     if (finishTimeSeconds == null) throw new AppError(400, 'invalid_time', 'Enter a finish time like 19:35 or 1:05:30.');
-    return { eventId, date: body.date, finishTimeSeconds, source: 'manual' };
+    return {
+      eventId,
+      externalEventName,
+      performanceType: body.performanceType ?? (eventId != null ? 'parkrun' : 'other_race'),
+      distanceMeters,
+      date: body.date,
+      finishTimeSeconds,
+      source: 'manual',
+    };
   }
 
   const duplicate = async (input: NewPerformance) => {
-    const name = (await ctx.store.getEvent(input.eventId, ctx.today()))?.name ?? 'this event';
+    const name = input.eventId != null ? ((await ctx.store.getEvent(input.eventId, ctx.today()))?.name ?? 'this event') : input.externalEventName!;
     return new AppError(409, 'duplicate_performance', `You already have a performance at ${name} on ${formatShortDate(input.date)}. Edit that one instead.`);
   };
 

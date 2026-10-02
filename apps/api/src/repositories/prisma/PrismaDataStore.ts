@@ -13,7 +13,8 @@ import {
   type PerformanceRecord,
   type StoredUser,
 } from '../DataStore';
-import type { PerformanceSource } from '@runsaturday/shared';
+import type { PerformanceSource, PerformanceType } from '@runsaturday/shared';
+import { cleanExternalEventName, performanceDuplicateKey } from '../../domain/performanceKey';
 import { breakdownOf, isoDate, mapEvent, mapFacility, mapGoal, mapOccurrence, type EventSnapshots } from './mappers';
 import type { CompetitionBreakdown, DifficultyBreakdown, PbBreakdown } from '@runsaturday/shared';
 import { COURSE_SPEED_V1, type CourseFactorResult, type PerformanceInput } from '../../analytics/courseSpeed';
@@ -27,6 +28,8 @@ const RECENT_OCCURRENCES = 12;
 
 const PERFORMANCE_INCLUDE = { event: { select: { name: true } } } as const;
 type PerformanceSourceDb = 'MANUAL' | 'CSV' | 'PARKRUN_API' | 'GARMIN' | 'STRAVA';
+type PerformanceTypeDb = 'PARKRUN' | 'ROAD_RACE' | 'OTHER_RACE';
+const PERFORMANCE_TYPE_DB: Record<PerformanceType, PerformanceTypeDb> = { parkrun: 'PARKRUN', road_race: 'ROAD_RACE', other_race: 'OTHER_RACE' };
 const PERFORMANCE_SOURCE_DB: Record<PerformanceSource, PerformanceSourceDb> = {
   manual: 'MANUAL',
   csv: 'CSV',
@@ -38,8 +41,11 @@ const PERFORMANCE_SOURCE_DB: Record<PerformanceSource, PerformanceSourceDb> = {
 function mapPerformance(row: {
   id: string;
   userId: string;
-  eventId: string;
-  event: { name: string };
+  eventId: string | null;
+  event: { name: string } | null;
+  externalEventName: string | null;
+  performanceType: PerformanceTypeDb;
+  distanceMeters: number;
   date: Date;
   finishTimeSeconds: number;
   source: PerformanceSourceDb;
@@ -50,7 +56,10 @@ function mapPerformance(row: {
     id: row.id,
     userId: row.userId,
     eventId: row.eventId,
-    eventName: row.event.name,
+    eventName: row.event?.name ?? null,
+    externalEventName: row.externalEventName,
+    performanceType: row.performanceType.toLowerCase() as PerformanceType,
+    distanceMeters: row.distanceMeters,
     date: isoDate(row.date),
     finishTimeSeconds: row.finishTimeSeconds,
     source: row.source.toLowerCase() as PerformanceSource,
@@ -59,7 +68,21 @@ function mapPerformance(row: {
   };
 }
 
-/** Postgres unique violation (P2002) on (userId, eventId, date) → DuplicatePerformanceError. */
+/** Columns for a create/update, including the deterministic duplicate key. */
+function performanceData(p: PerformancePatch) {
+  const externalEventName = p.externalEventName != null ? cleanExternalEventName(p.externalEventName) : null;
+  return {
+    eventId: p.eventId,
+    externalEventName,
+    performanceType: PERFORMANCE_TYPE_DB[p.performanceType],
+    distanceMeters: p.distanceMeters,
+    date: new Date(`${p.date}T00:00:00Z`),
+    finishTimeSeconds: p.finishTimeSeconds,
+    duplicateKey: performanceDuplicateKey({ ...p, externalEventName }),
+  };
+}
+
+/** Postgres unique violation (P2002) on (userId, duplicateKey) → DuplicatePerformanceError. */
 async function uniqueOrDuplicate<T>(write: () => Promise<T>): Promise<T> {
   try {
     return await write();
@@ -295,13 +318,7 @@ export class PrismaDataStore implements DataStore {
     return uniqueOrDuplicate(async () =>
       mapPerformance(
         await this.db.userPerformance.create({
-          data: {
-            userId,
-            eventId: input.eventId,
-            date: new Date(`${input.date}T00:00:00Z`),
-            finishTimeSeconds: input.finishTimeSeconds,
-            source: PERFORMANCE_SOURCE_DB[input.source],
-          },
+          data: { userId, ...performanceData(input), source: PERFORMANCE_SOURCE_DB[input.source] },
           include: PERFORMANCE_INCLUDE,
         }),
       ),
@@ -316,7 +333,7 @@ export class PrismaDataStore implements DataStore {
       mapPerformance(
         await this.db.userPerformance.update({
           where: { id: existing.id },
-          data: { eventId: patch.eventId, date: new Date(`${patch.date}T00:00:00Z`), finishTimeSeconds: patch.finishTimeSeconds },
+          data: performanceData(patch),
           include: PERFORMANCE_INCLUDE,
         }),
       ),

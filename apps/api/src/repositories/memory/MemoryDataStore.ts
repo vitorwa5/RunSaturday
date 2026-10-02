@@ -20,6 +20,7 @@ import { assembleScores } from '../scoreAssembly';
 import type { PlacementOccurrenceInput } from '../../domain/placementEngine';
 import { randomUUID } from 'node:crypto';
 import { demoUserPerformances } from '../../demo/demoUserPerformances';
+import { cleanExternalEventName, performanceDuplicateKey } from '../../domain/performanceKey';
 import { byNewest } from '../../services/userPerformance';
 import {
   DuplicatePerformanceError,
@@ -272,15 +273,9 @@ export class MemoryDataStore implements DataStore {
   }
 
   async createUserPerformance(userId: string, input: NewPerformance): Promise<PerformanceRecord> {
-    this.assertUnique(userId, input.eventId, input.date, null);
-    const record: PerformanceRecord = {
-      id: randomUUID(),
-      userId,
-      ...input,
-      eventName: this.eventName(input.eventId),
-      externalResultId: null,
-      verified: false,
-    };
+    const values = this.performanceValues(input);
+    this.assertUnique(userId, values, null);
+    const record: PerformanceRecord = { id: randomUUID(), userId, ...values, source: input.source, externalResultId: null, verified: false };
     this.userPerformances.push(record);
     return { ...record };
   }
@@ -288,8 +283,9 @@ export class MemoryDataStore implements DataStore {
   async updateUserPerformance(userId: string, id: string, patch: PerformancePatch): Promise<PerformanceRecord | null> {
     const p = this.userPerformances.find((x) => x.userId === userId && x.id === id);
     if (!p) return null;
-    this.assertUnique(userId, patch.eventId, patch.date, id);
-    Object.assign(p, patch, { eventName: this.eventName(patch.eventId) });
+    const values = this.performanceValues(patch);
+    this.assertUnique(userId, values, id);
+    Object.assign(p, values);
     return { ...p };
   }
 
@@ -300,14 +296,19 @@ export class MemoryDataStore implements DataStore {
     return true;
   }
 
-  private assertUnique(userId: string, eventId: string, date: string, exceptId: string | null) {
-    if (this.userPerformances.some((x) => x.userId === userId && x.eventId === eventId && x.date === date && x.id !== exceptId)) {
-      throw new DuplicatePerformanceError();
-    }
+  /** Same normalisation as the Prisma store: cleaned external name, internal name looked up. */
+  private performanceValues(p: PerformancePatch) {
+    const externalEventName = p.externalEventName != null ? cleanExternalEventName(p.externalEventName) : null;
+    const eventName = p.eventId != null ? (this.dataset.events.find((e) => e.id === p.eventId)?.def.name ?? p.eventId) : null;
+    return { ...p, externalEventName, eventName };
   }
 
-  private eventName(id: string) {
-    return this.dataset.events.find((e) => e.id === id)?.def.name ?? id;
+  /** Same deterministic duplicate key as the database's unique (userId, duplicateKey) index. */
+  private assertUnique(userId: string, p: PerformancePatch, exceptId: string | null) {
+    const key = performanceDuplicateKey(p);
+    if (this.userPerformances.some((x) => x.userId === userId && x.id !== exceptId && performanceDuplicateKey(x) === key)) {
+      throw new DuplicatePerformanceError();
+    }
   }
 
   async ping(): Promise<boolean> {

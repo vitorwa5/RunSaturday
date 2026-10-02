@@ -203,11 +203,28 @@ export interface EventHistoryResponse {
 /** Where a performance came from. Only "manual" is used in Phase 4A; the rest are reserved. */
 export type PerformanceSource = 'manual' | 'csv' | 'parkrun_api' | 'garmin' | 'strava';
 
-/** One of the user's own 5K performances at an event. Personal data: always scoped to its user. */
+/** What kind of event a performance was (Phase 4A.1). */
+export type PerformanceType = 'parkrun' | 'road_race' | 'other_race';
+
+/** The only distance the product supports today. distanceMeters exists for future distances. */
+export const FIVE_K_METERS = 5000;
+
+export const COURSE_NOT_MODELLED_MESSAGE =
+  'Course adjustment unavailable — this performance was recorded at a course not currently modelled by 5K Compass.';
+
+/** One of the user's own performances. Personal data: always scoped to its user. */
 export interface UserPerformance {
   id: string;
-  eventId: string;
+  /** Known internal event, or null for a course 5K Compass does not model. */
+  eventId: string | null;
+  /** Display name: the internal event's name, or the external event name. */
   eventName: string;
+  /** Set only for a course 5K Compass does not model (eventId is then null). */
+  externalEventName: string | null;
+  /** True when the course has an internal event (and so can, data permitting, be course-adjusted). */
+  courseModelled: boolean;
+  performanceType: PerformanceType;
+  distanceMeters: number;
   /** ISO date. */
   date: string;
   finishTimeSeconds: number;
@@ -223,7 +240,7 @@ export interface UserPerformancesResponse {
   total: number;
 }
 
-/** A user's history at one event, derived from their performances. */
+/** A user's history at one INTERNAL event, derived from their performances. */
 export interface EventPerformanceSummary {
   eventId: string;
   eventName: string;
@@ -237,18 +254,29 @@ export interface PerformanceSummary {
   asOfDate: string;
   /** "Recent" = performances dated within this many days up to asOfDate. */
   recentWindowDays: number;
+  /** Overall 5K PB: fastest 5000 m performance of any type (parkrun or another race). */
   lifetimePb: UserPerformance | null;
+  /** parkrun PB: fastest 5000 m performance of type parkrun. May be the same performance. */
+  parkrunPb: UserPerformance | null;
+  /** Fastest 5000 m performance in the recent window (any type). */
   recentBest: UserPerformance | null;
   latest: UserPerformance | null;
   totalPerformances: number;
+  /** Distinct places run: internal events plus distinct external event names. */
   uniqueEvents: number;
-  /** Most recently run first. */
+  /** Internal events only, most recently run first. */
   events: EventPerformanceSummary[];
 }
 
-/** Body for creating or editing a performance. `time` is "MM:SS" or "HH:MM:SS". */
+/**
+ * Body for creating or editing a performance. `time` is "MM:SS" or "HH:MM:SS". Give exactly one
+ * of eventId (a known event) or externalEventName (a course 5K Compass does not model).
+ * performanceType defaults to parkrun for a known event and other_race otherwise.
+ */
 export interface PerformanceInput {
-  eventId: string;
+  eventId?: string | null;
+  externalEventName?: string | null;
+  performanceType?: PerformanceType;
   date: string;
   time: string;
 }

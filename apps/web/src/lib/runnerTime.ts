@@ -1,5 +1,5 @@
 /** Resolving which 5K time the performance tools use. */
-import { parseFinishTime, type RunnerTimeSourceId, type UserProfile } from '@runsaturday/shared';
+import { parseFinishTime, type RunnerTimeSourceId, type UserPerformance, type UserProfile } from '@runsaturday/shared';
 
 export const PROFILE_TIME_FIELD = {
   current: 'current5kEstimateSeconds',
@@ -7,11 +7,23 @@ export const PROFILE_TIME_FIELD = {
   pb: 'lifetimePbSeconds',
 } as const satisfies Record<Exclude<RunnerTimeSourceId, 'manual'>, keyof UserProfile>;
 
-/** Where each profile time was achieved (current form is an estimate, not a run at one event). */
-export function profileSourceEvent(source: RunnerTimeSourceId, profile: UserProfile | undefined): { id: string; name: string } | null {
-  if (source === 'recent') return profile?.recentPbEvent ?? null;
-  if (source === 'pb') return profile?.lifetimePbEvent ?? null;
+/** The recorded performance behind a preset (current form is an estimate, so it has none). */
+export function profilePerformance(source: RunnerTimeSourceId, profile: UserProfile | undefined): UserPerformance | null {
+  if (source === 'recent') return profile?.performance.recentBest ?? null;
+  if (source === 'pb') return profile?.performance.lifetimePb ?? null;
   return null;
+}
+
+/** Where a preset was achieved, when it is a known (modelled) event: the course-adjustment source. */
+export function profileSourceEvent(source: RunnerTimeSourceId, profile: UserProfile | undefined): { id: string; name: string } | null {
+  const p = profilePerformance(source, profile);
+  return p?.eventId != null ? { id: p.eventId, name: p.eventName } : null;
+}
+
+/** The name of the course when a preset was run somewhere 5K Compass does not model. */
+export function profileExternalCourse(source: RunnerTimeSourceId, profile: UserProfile | undefined): string | null {
+  const p = profilePerformance(source, profile);
+  return p != null && !p.courseModelled ? p.eventName : null;
 }
 
 /** The time for a source, or null when the profile has none / manual time is invalid. */

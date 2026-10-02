@@ -14,6 +14,7 @@ import { DuplicatePerformanceError } from '../repositories/DataStore';
 import { loadUser } from '../services/userPerformance';
 
 const url = process.env.TEST_DATABASE_URL;
+const FIVE_K_PARKRUN = { externalEventName: null, performanceType: 'parkrun' as const, distanceMeters: 5000 };
 
 describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
   const today = calendarDateIn(new Date(), 'Europe/London');
@@ -194,6 +195,11 @@ describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
     const [fromDb, fromMemory] = await Promise.all([loadUser(store!, 'demo-user', today), loadUser(memory, 'demo-user', today)]);
     expect(fromDb).toEqual(fromMemory);
     expect(fromDb?.lifetimePbSeconds).toBe(1138);
+    // The 43 migrated demo rows: all 5000 m parkruns at known events, keyed by event and date.
+    const rows = await db!.userPerformance.findMany({ where: { userId: 'demo-user' } });
+    expect(rows).toHaveLength(43);
+    expect(rows.every((r) => r.distanceMeters === 5000 && r.performanceType === 'PARKRUN' && r.externalEventName === null && r.eventId != null)).toBe(true);
+    expect(rows.every((r) => r.duplicateKey === `event:${r.eventId}|${r.date.toISOString().slice(0, 10)}|5000`)).toBe(true);
     expect(fromDb?.recentPbEvent).toEqual({ id: 'demo-riverside-5k', name: 'Riverside 5K' });
   });
 
@@ -207,27 +213,49 @@ describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
     afterAll(async () => db?.user.deleteMany({ where: { id: { in: [owner, other] } } }));
 
     it('creates, edits and deletes a manual performance, scoped to its user', async () => {
-      const created = await store!.createUserPerformance(owner, { eventId: 'demo-lakeside-5k', date: '2026-08-01', finishTimeSeconds: 1300, source: 'manual' });
+      const created = await store!.createUserPerformance(owner, { ...FIVE_K_PARKRUN, eventId: 'demo-lakeside-5k', date: '2026-08-01', finishTimeSeconds: 1300, source: 'manual' });
       expect(created).toMatchObject({ userId: owner, eventName: 'Lakeside 5K', date: '2026-08-01', source: 'manual', verified: false });
       // Another user can neither see nor change it.
       expect(await store!.listUserPerformances(other)).toEqual([]);
       expect(await store!.getUserPerformance(other, created.id)).toBeNull();
-      expect(await store!.updateUserPerformance(other, created.id, { eventId: 'demo-lakeside-5k', date: '2026-08-01', finishTimeSeconds: 1 })).toBeNull();
+      expect(await store!.updateUserPerformance(other, created.id, { ...FIVE_K_PARKRUN, eventId: 'demo-lakeside-5k', date: '2026-08-01', finishTimeSeconds: 1 })).toBeNull();
       expect(await store!.deleteUserPerformance(other, created.id)).toBe(false);
 
-      const updated = await store!.updateUserPerformance(owner, created.id, { eventId: 'demo-riverside-5k', date: '2026-08-08', finishTimeSeconds: 1290 });
+      const updated = await store!.updateUserPerformance(owner, created.id, { ...FIVE_K_PARKRUN, eventId: 'demo-riverside-5k', date: '2026-08-08', finishTimeSeconds: 1290 });
       expect(updated).toMatchObject({ id: created.id, eventName: 'Riverside 5K', date: '2026-08-08', finishTimeSeconds: 1290 });
       expect(await store!.deleteUserPerformance(owner, created.id)).toBe(true);
       expect(await store!.listUserPerformances(owner)).toEqual([]);
     });
 
     it('rejects a duplicate (user, event, date) in SQL as in memory, but allows it for another user', async () => {
-      const input = { eventId: 'demo-heath-common-5k', date: '2026-07-04', finishTimeSeconds: 1400, source: 'manual' as const };
+      const input = { ...FIVE_K_PARKRUN, eventId: 'demo-heath-common-5k', date: '2026-07-04', finishTimeSeconds: 1400, source: 'manual' as const };
       await store!.createUserPerformance(owner, input);
       await expect(store!.createUserPerformance(owner, { ...input, finishTimeSeconds: 1500 })).rejects.toBeInstanceOf(DuplicatePerformanceError);
       await expect(store!.createUserPerformance(other, input)).resolves.toMatchObject({ userId: other });
       const second = await store!.createUserPerformance(owner, { ...input, date: '2026-07-11' });
       await expect(store!.updateUserPerformance(owner, second.id, { ...input })).rejects.toBeInstanceOf(DuplicatePerformanceError);
+    });
+
+    it('stores an external 5K race by name (no Event row) and de-duplicates it by normalised name in SQL', async () => {
+      const eventCount = await db!.event.count();
+      const external = { eventId: null, externalEventName: '  Warrington   5K ', performanceType: 'road_race' as const, distanceMeters: 5000, date: '2026-06-13', finishTimeSeconds: 1165, source: 'manual' as const };
+      const created = await store!.createUserPerformance(owner, external);
+      expect(created).toMatchObject({ eventId: null, eventName: null, externalEventName: 'Warrington 5K', performanceType: 'road_race', distanceMeters: 5000 });
+      expect(await db!.event.count()).toBe(eventCount);
+      expect((await db!.userPerformance.findUniqueOrThrow({ where: { id: created.id } })).duplicateKey).toBe('external:warrington 5k|2026-06-13|5000');
+      await expect(store!.createUserPerformance(owner, { ...external, externalEventName: 'warrington 5k' })).rejects.toBeInstanceOf(DuplicatePerformanceError);
+      await expect(store!.createUserPerformance(owner, { ...external, date: '2026-06-20' })).resolves.toMatchObject({ externalEventName: 'Warrington 5K' });
+      // Same answers as the in-memory store.
+      const [fromDb, fromMemory] = [await loadUser(store!, owner, today), await loadUser(memory, 'demo-user', today)];
+      expect(fromDb?.performance.lifetimePb).toMatchObject({ eventId: null, eventName: 'Warrington 5K', courseModelled: false });
+      expect(fromMemory?.performance.parkrunPb?.performanceType).toBe('parkrun');
+    });
+
+    it('enforces "exactly one location" in the database itself', async () => {
+      const base = { userId: owner, date: new Date('2026-05-02T00:00:00Z'), finishTimeSeconds: 1200, duplicateKey: 'check-test' };
+      await expect(db!.userPerformance.create({ data: { ...base } })).rejects.toThrow();
+      await expect(db!.userPerformance.create({ data: { ...base, eventId: 'demo-riverside-5k', externalEventName: 'Both' } })).rejects.toThrow();
+      expect(await db!.userPerformance.count({ where: { duplicateKey: 'check-test' } })).toBe(0);
     });
   });
 });

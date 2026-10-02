@@ -8,7 +8,7 @@
  * recent window, slower than the recent best), so the derived values reproduce the legacy ones.
  * Dates are Saturdays counted back from the dataset's latest date; seeds are fixed strings.
  */
-import { addDays } from '@runsaturday/shared';
+import { addDays, FIVE_K_METERS } from '@runsaturday/shared';
 import { hashString, mulberry32 } from '../domain/random';
 import { DEMO_USER, DEMO_USER_LEGACY_HISTORY } from './demoEvents';
 
@@ -16,6 +16,10 @@ export interface DemoUserPerformance {
   id: string;
   userId: string;
   eventId: string;
+  externalEventName: null;
+  /** Every demo performance is a 5000 m parkrun at a known demo event. */
+  performanceType: 'parkrun';
+  distanceMeters: number;
   date: string;
   finishTimeSeconds: number;
 }
@@ -66,7 +70,16 @@ export function demoUserPerformances(latestDate: string): DemoUserPerformance[] 
   return runs
     .map((r) => {
       const date = addDays(latestDate, -7 * r.weeksAgo);
-      return { id: `demo-perf-${date}-${r.eventId}`, userId: DEMO_USER.id, eventId: r.eventId, date, finishTimeSeconds: r.seconds };
+      return {
+        id: `demo-perf-${date}-${r.eventId}`,
+        userId: DEMO_USER.id,
+        eventId: r.eventId,
+        externalEventName: null,
+        performanceType: 'parkrun' as const,
+        distanceMeters: FIVE_K_METERS,
+        date,
+        finishTimeSeconds: r.seconds,
+      };
     })
     .sort((a, b) => b.date.localeCompare(a.date));
 }

@@ -4,6 +4,7 @@ import {
   formatFinishTime,
   HISTORY_WINDOWS,
   PLACEMENT_TARGETS,
+  COURSE_NOT_MODELLED_MESSAGE,
   RUNNER_TIME_SOURCES,
   TRAVEL_LIMIT_OPTIONS,
   type HistoryWindowId,
@@ -26,7 +27,7 @@ import { LoadingState } from '../components/ui/LoadingState';
 import { PageHeader } from '../components/ui/PageHeader';
 import { useEvents, usePlacement, useProfile } from '../hooks/queries';
 import { LIMITED_MATCHED, RAW_FALLBACK_LABEL } from '../lib/display';
-import { profileSourceEvent, resolveRunnerTime } from '../lib/runnerTime';
+import { profileExternalCourse, profileSourceEvent, resolveRunnerTime } from '../lib/runnerTime';
 
 const MODE_HELP: Record<PlacementMode, string> = {
   adjusted:
@@ -65,7 +66,10 @@ export function WhereCouldIPlacePage() {
   // Where the time was achieved: the preset's own event, unless the runner picked another ("none" = not specified).
   const { data: events } = useEvents();
   const fromParam = params.get('from');
-  const achievedAt = fromParam === 'none' ? null : (fromParam ?? profileSourceEvent(source, profile)?.id ?? null);
+  // A preset run at a course 5K Compass does not model can never be course-adjusted, and is never
+  // re-attributed to a modelled event.
+  const externalCourse = profileExternalCourse(source, profile);
+  const achievedAt = externalCourse != null || fromParam === 'none' ? null : (fromParam ?? profileSourceEvent(source, profile)?.id ?? null);
   const achievedEvent = events?.find((e) => e.id === achievedAt) ?? null;
   const adjustable = achievedEvent != null && achievedEvent.scores?.courseSpeedFactor != null && RELIABLE.has(achievedEvent.scores.courseSpeedConfidence);
   const modeParam = params.get('mode');
@@ -74,7 +78,9 @@ export function WhereCouldIPlacePage() {
   // current form) is never treated as if it had been run at a reference course.
   const mode: PlacementMode = modeParam === 'raw' ? 'raw' : modeParam === 'adjusted' || adjustable ? 'adjusted' : 'raw';
   const adjustedUnavailable =
-    achievedAt == null
+    externalCourse != null
+      ? COURSE_NOT_MODELLED_MESSAGE
+      : achievedAt == null
       ? 'Course adjustment requires a source event: choose where this time was achieved.'
       : events && !adjustable
         ? `Course adjustment unavailable at ${achievedEvent?.name ?? 'this event'} — ${LIMITED_MATCHED.toLowerCase()}.`
@@ -132,10 +138,12 @@ export function WhereCouldIPlacePage() {
             </label>
             <select
               id={achievedId}
-              value={achievedAt ?? 'none'}
+              value={externalCourse != null ? 'external' : (achievedAt ?? 'none')}
+              disabled={externalCourse != null}
               onChange={(e) => update({ from: e.target.value, mode: null })}
-              className="min-h-11 w-full rounded-full border border-line bg-surface px-4 text-base focus:border-brand-700 focus:outline-none"
+              className="min-h-11 w-full rounded-full border border-line bg-surface px-4 text-base focus:border-brand-700 focus:outline-none disabled:bg-canvas disabled:text-muted"
             >
+              {externalCourse != null && <option value="external">{externalCourse} (not modelled by 5K Compass)</option>}
               <option value="none">Not specified</option>
               {events?.map((e) => (
                 <option key={e.id} value={e.id}>
@@ -159,13 +167,32 @@ export function WhereCouldIPlacePage() {
           {mode === 'raw' && adjustedUnavailable && <p className="mt-1 text-xs text-subtle">{adjustedUnavailable}</p>}
           {needsSource && (
             <div className="mt-3 rounded-2xl border border-caution bg-caution-bg p-3 text-sm" role="note" aria-label="Course adjustment needs a source event">
-              <p className="font-bold">Course adjustment requires a source event</p>
-              <p className="mt-1 text-xs text-muted">
-                {source === 'current'
-                  ? 'Current form is an estimate of your fitness, not a run at a known course, so it cannot be course-adjusted on its own.'
-                  : 'This time has no known course.'}{' '}
-                Choose where it was achieved above{sourcePresets.length > 0 ? ', or use a time with a known course:' : ', or switch to Raw time.'}
-              </p>
+              {externalCourse != null ? (
+                <>
+                  <p className="font-bold">Course adjustment unavailable</p>
+                  <p className="mt-1 text-xs text-muted">
+                    {COURSE_NOT_MODELLED_MESSAGE} ({externalCourse}) It still counts as a 5K performance: compare it as a raw time
+                    {sourcePresets.length > 0 ? ', or use a time with a known course:' : '.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => update({ mode: 'raw' })}
+                    className="mt-2 inline-flex min-h-10 items-center rounded-full border border-line bg-surface px-3 text-xs font-semibold hover:bg-zinc-50"
+                  >
+                    Compare as raw time
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="font-bold">Course adjustment requires a source event</p>
+                  <p className="mt-1 text-xs text-muted">
+                    {source === 'current'
+                      ? 'Current form is an estimate of your fitness, not a run at a known course, so it cannot be course-adjusted on its own.'
+                      : 'This time has no known course.'}{' '}
+                    Choose where it was achieved above{sourcePresets.length > 0 ? ', or use a time with a known course:' : ', or switch to Raw time.'}
+                  </p>
+                </>
+              )}
               {sourcePresets.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-2">
                   {sourcePresets.map((p) => (
@@ -205,11 +232,15 @@ export function WhereCouldIPlacePage() {
           Historical placements
         </h2>
         {needsSource && timeSeconds != null ? (
-          <EmptyState
-            icon={Medal}
-            title="Choose where this time was achieved"
-            description="Course-adjusted placements need the event where the time was run. Pick it under “Achieved at”, use Recent best or Lifetime PB, or switch to Raw time."
-          />
+          externalCourse != null ? (
+            <EmptyState icon={Medal} title="Course adjustment unavailable" description={`${COURSE_NOT_MODELLED_MESSAGE} Switch to Raw time to compare it unchanged.`} />
+          ) : (
+            <EmptyState
+              icon={Medal}
+              title="Choose where this time was achieved"
+              description="Course-adjusted placements need the event where the time was run. Pick it under “Achieved at”, use Recent best or Lifetime PB, or switch to Raw time."
+            />
+          )
         ) : awaitingTime ? (
           <EmptyState
             icon={Medal}

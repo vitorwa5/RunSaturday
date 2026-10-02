@@ -2,7 +2,7 @@
  * Presentation mappings: how values are labelled and toned in the UI.
  * No scoring maths lives here, only display thresholds and wording.
  */
-import { ordinal, type PerformanceSource, type ConfidenceLevel, type CourseType, type FacilityStatus, type HistoricalFrequency, type Recommendation, type Surface } from '@runsaturday/shared';
+import { ordinal, type PerformanceSource, type PerformanceType, type ConfidenceLevel, type CourseType, type FacilityStatus, type HistoricalFrequency, type Recommendation, type Surface } from '@runsaturday/shared';
 
 export type Tone = 'positive' | 'caution' | 'problem' | 'info' | 'neutral';
 
@@ -136,6 +136,12 @@ export function formatDeltaSeconds(delta: number): string {
   const text = `${Math.floor(abs / 60)}:${String(abs % 60).padStart(2, '0')}`;
   return delta === 0 ? `±${text}` : `${delta > 0 ? '+' : '−'}${text}`;
 }
+
+export const PERFORMANCE_TYPE_LABEL: Record<PerformanceType, string> = {
+  parkrun: 'parkrun',
+  road_race: 'Road race',
+  other_race: 'Other 5K race',
+};
 
 export const PERFORMANCE_SOURCE_LABEL: Record<PerformanceSource, string> = {
   manual: 'Manual',

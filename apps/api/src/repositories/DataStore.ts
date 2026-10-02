@@ -14,6 +14,7 @@ import type {
   PbBreakdown,
   PerformanceSource,
   PerformanceSummary,
+  PerformanceType,
 } from '@runsaturday/shared';
 import type { CourseFactorResult, PerformanceInput } from '../analytics/courseSpeed';
 import type { CompetitionOccurrenceInput } from '../analytics/competition';
@@ -64,8 +65,13 @@ export interface UserRecord extends StoredUser {
 export interface PerformanceRecord {
   id: string;
   userId: string;
-  eventId: string;
-  eventName: string;
+  /** Exactly one of eventId (known internal event) and externalEventName is set. */
+  eventId: string | null;
+  /** The internal event's name (null for an external course). */
+  eventName: string | null;
+  externalEventName: string | null;
+  performanceType: PerformanceType;
+  distanceMeters: number;
   date: string;
   finishTimeSeconds: number;
   source: PerformanceSource;
@@ -74,15 +80,18 @@ export interface PerformanceRecord {
 }
 
 export interface NewPerformance {
-  eventId: string;
+  eventId: string | null;
+  externalEventName: string | null;
+  performanceType: PerformanceType;
+  distanceMeters: number;
   date: string;
   finishTimeSeconds: number;
   source: PerformanceSource;
 }
 
-export type PerformancePatch = Pick<NewPerformance, 'eventId' | 'date' | 'finishTimeSeconds'>;
+export type PerformancePatch = Omit<NewPerformance, 'source'>;
 
-/** Thrown by stores when (userId, eventId, date) already has a performance. */
+/** Thrown by stores when the user already has a performance with the same duplicate key. */
 export class DuplicatePerformanceError extends Error {
   constructor() {
     super('Duplicate performance');
@@ -121,7 +130,10 @@ export interface DataStore {
   /** Newest first (date, then id). */
   listUserPerformances(userId: string, filter?: { eventId?: string }): Promise<PerformanceRecord[]>;
   getUserPerformance(userId: string, id: string): Promise<PerformanceRecord | null>;
-  /** Throws DuplicatePerformanceError when the user already has one at that event on that date. */
+  /**
+   * Throws DuplicatePerformanceError when the user already has one with the same duplicate key
+   * (same location, date and distance; see domain/performanceKey.ts).
+   */
   createUserPerformance(userId: string, input: NewPerformance): Promise<PerformanceRecord>;
   /** Null when the user has no such performance. Throws DuplicatePerformanceError like create. */
   updateUserPerformance(userId: string, id: string, patch: PerformancePatch): Promise<PerformanceRecord | null>;

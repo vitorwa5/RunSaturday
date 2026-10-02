@@ -1,4 +1,4 @@
-import type { EventSummary, PerformanceSummary, UserPerformance, UserPerformancesResponse, UserProfile } from '@runsaturday/shared';
+import type { EventSummary, PlacementResponse, PerformanceSummary, UserPerformance, UserPerformancesResponse, UserProfile } from '@runsaturday/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MemoryDataStore } from '../repositories/memory/MemoryDataStore';
 import { buildTestApp } from './helpers';
@@ -157,4 +157,104 @@ describe('personal performances API', () => {
     expect(all.performances.every((p) => !('userId' in p))).toBe(true);
     expect((await app.inject('/api/profile/performances/someone-elses-id')).statusCode).toBe(404);
   });
+
+  describe('Phase 4A.1: parkrun and other 5K races', () => {
+    it('records an internal parkrun performance as a modelled 5000 m parkrun', async () => {
+      app = await buildTestApp();
+      const res = await post({ eventId: 'demo-heath-common-5k', date: '2026-09-19', time: '21:05' });
+      expect(res.json<UserPerformance>()).toMatchObject({
+        eventId: 'demo-heath-common-5k',
+        eventName: 'Heath Common 5K',
+        externalEventName: null,
+        courseModelled: true,
+        performanceType: 'parkrun',
+        distanceMeters: 5000,
+      });
+    });
+
+    it('records an external 5K road race by name, without inventing an event', async () => {
+      app = await buildTestApp();
+      const eventsBefore = (await app.inject('/api/events')).json<EventSummary[]>().length;
+      const res = await post({ externalEventName: '  Warrington   5K ', performanceType: 'road_race', date: '2026-06-13', time: '19:25' });
+      expect(res.statusCode).toBe(201);
+      expect(res.json<UserPerformance>()).toMatchObject({
+        eventId: null,
+        eventName: 'Warrington 5K',
+        externalEventName: 'Warrington 5K',
+        courseModelled: false,
+        performanceType: 'road_race',
+        distanceMeters: 5000,
+        finishTimeSeconds: 1165,
+      });
+      expect((await app.inject('/api/events')).json<EventSummary[]>()).toHaveLength(eventsBefore);
+      // Defaults to "other race" when no type is given for an external name.
+      expect((await post({ externalEventName: 'Leigh Harriers 5K', date: '2026-05-02', time: '20:10' })).json<UserPerformance>().performanceType).toBe('other_race');
+      expect((await summary()).uniqueEvents).toBe(6);
+    });
+
+    it('lets an external race set the overall 5K PB while the parkrun PB stays separate and course-adjustable', async () => {
+      app = await buildTestApp();
+      await post({ externalEventName: 'Warrington 5K', performanceType: 'road_race', date: '2026-09-12', time: '18:40' });
+      const p = await profile();
+      expect(p.performance.lifetimePb).toMatchObject({ eventName: 'Warrington 5K', courseModelled: false, finishTimeSeconds: 1120 });
+      expect(p.performance.parkrunPb).toMatchObject({ eventId: 'demo-riverside-5k', courseModelled: true, finishTimeSeconds: 1138 });
+      // Valid for raw time, but never offered as a course-adjustment source.
+      expect([p.lifetimePbSeconds, p.lifetimePbEvent]).toEqual([1120, null]);
+      expect([p.recentPbSeconds, p.recentPbEvent]).toEqual([1120, null]);
+    });
+
+    it('works in Raw Time mode and cannot silently become course-adjusted', async () => {
+      app = await buildTestApp();
+      await post({ externalEventName: 'Warrington 5K', performanceType: 'road_race', date: '2026-09-12', time: '18:40' });
+      const p = await profile();
+      // Raw time: the external PB is placed unchanged.
+      const raw = (await app.inject(`/api/placement?time=${p.lifetimePbSeconds}&mode=raw&maxTravel=90`)).json<PlacementResponse>();
+      expect(raw.mode).toBe('raw');
+      expect(raw.results.length).toBeGreaterThan(0);
+      expect(raw.results.every((r) => r.analysedSeconds === 1120 && r.adjustment == null)).toBe(true);
+      // No source event exists for it, so auto mode is labelled raw and adjusted mode is refused.
+      const auto = (await app.inject(`/api/placement?time=${p.lifetimePbSeconds}`)).json<PlacementResponse>();
+      expect(auto.modeNote).toMatch(/^Raw time comparison — course adjustment unavailable/);
+      expect((await app.inject(`/api/placement?time=${p.lifetimePbSeconds}&mode=adjusted`)).statusCode).toBe(400);
+    });
+
+    it('handles duplicate external performances deterministically (name case and spacing ignored)', async () => {
+      app = await buildTestApp();
+      expect((await post({ externalEventName: 'Warrington 5K', date: '2026-06-13', time: '19:25' })).statusCode).toBe(201);
+      const dup = await post({ externalEventName: ' warrington   5k ', date: '2026-06-13', time: '19:40' });
+      expect(dup.statusCode).toBe(409);
+      expect(dup.json().error.message).toMatch(/^You already have a performance at warrington 5k on 13 Jun\. Edit that one instead\.$/);
+      expect((await post({ externalEventName: 'Warrington 5K', date: '2026-06-20', time: '19:25' })).statusCode).toBe(201);
+      expect((await post({ externalEventName: 'Leigh 5K', date: '2026-06-13', time: '19:25' })).statusCode).toBe(201);
+      expect((await post({ eventId: 'demo-heath-common-5k', date: '2026-06-13', time: '19:25' })).statusCode).toBe(201);
+      // Editing another performance onto the same race and date is also a duplicate.
+      const leigh = (await list()).performances.find((x) => x.eventName === 'Leigh 5K')!;
+      expect((await patch(leigh.id, { externalEventName: 'WARRINGTON 5K', date: '2026-06-13', time: '19:25' })).statusCode).toBe(409);
+    });
+
+    it('requires exactly one location, a sensible race name, and 5000 m', async () => {
+      app = await buildTestApp();
+      const base = { date: '2026-06-13', time: '19:25' };
+      for (const body of [{ ...base }, { ...base, eventId: 'demo-riverside-5k', externalEventName: 'Warrington 5K' }, { ...base, eventId: '', externalEventName: '   ' }]) {
+        const res = await post(body);
+        expect(res.statusCode).toBe(400);
+        expect(res.json().error.code).toBe('invalid_location');
+      }
+      expect((await post({ ...base, externalEventName: 'W' })).json().error.code).toBe('invalid_event_name');
+      expect((await post({ ...base, externalEventName: 'x'.repeat(101) })).json().error.code).toBe('invalid_event_name');
+      expect((await post({ ...base, externalEventName: 'Warrington 10K', distanceMeters: 10000 })).json().error).toEqual({
+        code: 'unsupported_distance',
+        message: 'Only 5K performances can be recorded at the moment.',
+      });
+      expect((await post({ ...base, eventId: 'demo-riverside-5k', performanceType: 'marathon' })).statusCode).toBe(400);
+    });
+
+    it('can move a performance between an external race and a known event', async () => {
+      app = await buildTestApp();
+      const created = (await post({ externalEventName: 'Warrington 5K', date: '2026-06-13', time: '19:25' })).json<UserPerformance>();
+      const moved = (await patch(created.id, { eventId: 'demo-heath-common-5k', date: '2026-06-13', time: '19:25' })).json<UserPerformance>();
+      expect(moved).toMatchObject({ id: created.id, eventId: 'demo-heath-common-5k', externalEventName: null, courseModelled: true, performanceType: 'parkrun' });
+    });
+  });
 });
+

@@ -1,4 +1,4 @@
-import { formatFinishTime, type UserProfile } from '@runsaturday/shared';
+import { COURSE_NOT_MODELLED_MESSAGE, formatFinishTime, type UserPerformance, type UserProfile } from '@runsaturday/shared';
 import { Columns3, Medal, Target, Timer } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
@@ -21,11 +21,29 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
  * The performance the outlook is based on: the recent best where it was run, else the lifetime
  * PB where it was run (both course-adjustable), else current form unadjusted.
  */
-function outlookBasis(profile: UserProfile | undefined): { seconds: number; source?: { id: string; name: string }; label: string } | null {
-  if (profile?.recentPbSeconds != null && profile.recentPbEvent) return { seconds: profile.recentPbSeconds, source: profile.recentPbEvent, label: 'recent best' };
-  if (profile?.lifetimePbSeconds != null && profile.lifetimePbEvent) return { seconds: profile.lifetimePbSeconds, source: profile.lifetimePbEvent, label: 'lifetime PB' };
-  if (profile?.current5kEstimateSeconds != null) return { seconds: profile.current5kEstimateSeconds, label: 'current form' };
-  return null;
+interface OutlookBasis {
+  seconds: number;
+  label: string;
+  /** Known (modelled) event where it was run: enables course adjustment. */
+  source?: { id: string; name: string };
+  /** Set when it was run at a course 5K Compass does not model: raw time only. */
+  externalCourse?: string;
+}
+
+function outlookBasis(profile: UserProfile | undefined): OutlookBasis | null {
+  const from = (p: UserPerformance | null | undefined, label: string): OutlookBasis | null =>
+    p
+      ? {
+          seconds: p.finishTimeSeconds,
+          label,
+          ...(p.eventId != null ? { source: { id: p.eventId, name: p.eventName } } : { externalCourse: p.eventName }),
+        }
+      : null;
+  return (
+    from(profile?.performance.recentBest, 'recent best') ??
+    from(profile?.performance.lifetimePb, 'lifetime PB') ??
+    (profile?.current5kEstimateSeconds != null ? { seconds: profile.current5kEstimateSeconds, label: 'current form' } : null)
+  );
 }
 
 /**
@@ -110,7 +128,9 @@ export function OutlookCard({ profile, eventId }: { profile: UserProfile | undef
             <span className="block max-w-48 text-xs font-semibold text-subtle">{adjustment.reason}</span>
           ) : (
             <span className="block max-w-48 text-xs text-subtle">
-              Course adjustment requires a source event. Your current form is an estimate, not a run at a known course.
+              {basis.externalCourse != null
+                ? `${COURSE_NOT_MODELLED_MESSAGE} (${basis.externalCourse})`
+                : 'Course adjustment requires a source event. Your current form is an estimate, not a run at a known course.'}
             </span>
           )}
         </Row>

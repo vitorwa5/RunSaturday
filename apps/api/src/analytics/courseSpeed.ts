@@ -24,6 +24,9 @@
  *    MIN_COMPARISONS comparisons (re-checked until stable) and must sit in the largest
  *    connected component of the comparison graph. Others get no factor (Limited data);
  *    there is NO fallback to elevation.
+ * DISTANCE. Factors are 5K-specific: fitted from 5K results at the modelled 5K events only.
+ *    They must never be applied to another distance; a future 10K/half/marathon needs its own
+ *    distance-specific factors (UserPerformance.distanceMeters is not an input here).
  * 4. UNCERTAINTY. A RUNNER-CLUSTER BOOTSTRAP refits the whole model BOOTSTRAP_REPLICATES
  *    times on athletes resampled with replacement (all of an athlete's comparisons move
  *    together), using deterministic seeds. Each event keeps its replicate log-factors, so a

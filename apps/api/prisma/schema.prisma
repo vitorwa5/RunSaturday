@@ -32,6 +32,14 @@ enum PerformanceSource {
   STRAVA
 }
 
+/// What kind of event a performance was (Phase 4A.1). The product is 5K/parkrun-focused, but a
+/// performance is not assumed to be a parkrun.
+enum PerformanceType {
+  PARKRUN
+  ROAD_RACE
+  OTHER_RACE
+}
+
 enum Surface {
   TARMAC
   TRAIL
@@ -220,14 +228,22 @@ model User {
 /// latest run, per-event PBs and visit counts are all derived from these rows.
 /// Personal data: every read and write is scoped by userId.
 model UserPerformance {
-  id      String @id @default(cuid())
-  userId  String
-  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String  @id @default(cuid())
+  userId            String
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Where it happened: EITHER a known internal event (eventId) OR a free-text name for a course
+  /// 5K Compass does not model (externalEventName). Exactly one is set (CHECK constraint in the
+  /// migration); no Event row is ever created just to hold an external race.
   /// Restrict: removing an event must never silently delete someone's history.
-  eventId String
-  event   Event  @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  eventId           String?
+  event             Event?  @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  externalEventName String?
 
   date              DateTime          @db.Date
+  /// Architectural preparation only: every performance is 5000 m for now. Course Speed Factors
+  /// are 5K-specific and must never be applied to other distances.
+  distanceMeters    Int               @default(5000)
+  performanceType   PerformanceType   @default(PARKRUN)
   finishTimeSeconds Int
   source            PerformanceSource @default(MANUAL)
   /// Identifier from an external source (future imports), for de-duplication.
@@ -238,8 +254,15 @@ model UserPerformance {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  /// One performance per user, event and date.
-  @@unique([userId, eventId, date])
+  /// Deterministic duplicate key computed by the app (services/performanceKey.ts):
+  ///   internal: "event:<eventId>|<date>|<distanceMeters>"
+  ///   external: "external:<normalised name>|<date>|<distanceMeters>"
+  /// Unique per user. It never relies on how SQL treats NULLs in unique indexes.
+  duplicateKey String
+
+  /// One performance per user, location, date and distance.
+  @@unique([userId, duplicateKey])
+  /// Import idempotency: one row per external result per source (NULL for manual entries).
   @@unique([userId, source, externalResultId])
   @@index([userId, date])
   @@index([eventId])

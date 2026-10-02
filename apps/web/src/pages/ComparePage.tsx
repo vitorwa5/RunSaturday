@@ -140,7 +140,7 @@ export function ComparePage() {
             <>
               {data.timeSeconds != null && data.mode === 'raw' && (
                 <p className="rounded-2xl bg-caution-bg px-3 py-2 text-xs text-caution" role="note">
-                  <strong>{RAW_FALLBACK_LABEL}.</strong> {formatFinishTime(data.timeSeconds)} has no known source event, so placement rows compare it unchanged.
+                  <strong>{RAW_FALLBACK_LABEL}.</strong> {formatFinishTime(data.timeSeconds)} has no known source event at a course 5K Compass models, so placement rows compare it unchanged.
                   Choose Recent best or Lifetime PB (run at a known course) for course-adjusted equivalents.
                 </p>
               )}

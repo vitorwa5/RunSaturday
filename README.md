@@ -154,7 +154,12 @@ Errors always use the shape `{ "error": { "code", "message" } }` with a human-re
 - **Result**: the **canonical** record of each position and finish time (seconds), optional pseudonymous `athleteKey` (never a name), optional age grade.
 - **User**: home location, travel limit, preferred goal, and the current 5K **estimate** (not a performance).
 - **UserEvent**: favourite events.
-- **UserPerformance** (Phase 4A): the user's own 5K performances: event, date, finish time, `source` (`MANUAL` now; `CSV`, `PARKRUN_API`, `GARMIN`, `STRAVA` reserved), optional `externalResultId`, `verified`. One per user, event and date. Events are delete-restricted, so removing an event never silently deletes someone's history.
+- **UserPerformance** (Phase 4A, generalised in 4A.1): the user's own performances.
+  - **Where:** *either* a known internal `eventId` *or* an `externalEventName` for a course 5K Compass does not model. Exactly one is set, enforced by a database CHECK constraint. No Event row is ever created for an external race.
+  - **What:** `date`, `finishTimeSeconds`, `distanceMeters` (5000 for everything today) and `performanceType` (`PARKRUN`, `ROAD_RACE`, `OTHER_RACE`).
+  - **Origin:** `source` (`MANUAL` now; `CSV`, `PARKRUN_API`, `GARMIN`, `STRAVA` reserved), optional `externalResultId`, and `verified`.
+  - **Duplicates:** a deterministic `duplicateKey` is unique per user (see below).
+  - **Event deletion:** events are delete-restricted, so removing an event never silently deletes someone's history.
 - **EventScore**: immutable score **snapshots**: PB / difficulty / competition / gem scores, confidences, component values (JSON), sample size, `calculatedAt`.
   - Each snapshot is identified by **`(eventId, calculationVersion, windowDays, asOfDate)`** (unique).
   - So 30/60/90/365-day (and later all-time, `windowDays = 0`) scores coexist, and earlier snapshots stay available to reproduce past calculations and draw trend charts.
@@ -169,11 +174,12 @@ Errors always use the shape `{ "error": { "code", "message" } }` with a human-re
 
 | Value | Derivation |
 | --- | --- |
-| Lifetime PB (+ its event) | fastest performance; equal times → the earlier date |
-| Recent best (+ its event) | fastest performance dated within `RECENT_PERFORMANCE_WINDOW_DAYS` (90, `config/analysis.ts`) up to today |
+| Overall 5K PB ("Lifetime PB") | fastest 5000 m performance of any type, parkrun or another race; equal times → the earlier date |
+| parkrun PB | fastest 5000 m performance of type `PARKRUN` (may be the same performance; never invented) |
+| Recent best | fastest 5000 m performance dated within `RECENT_PERFORMANCE_WINDOW_DAYS` (90, `config/analysis.ts`) up to today |
 | Latest performance | most recent date |
-| Event history | per event: count, PB and latest |
-| Totals / visited | performance count; distinct events; "visited" = has a performance |
+| Event history | per internal event: count, PB and latest |
+| Totals / visited | performance count; distinct places (internal events plus distinct external names); "visited" = has a performance at that internal event |
 
 - **Field status:**
   - **Canonical:** `UserPerformance`; `User.current5kEstimateSeconds` (an estimate of current fitness, kept separate until the Runner Form Model in Phase 4B); `UserEvent.favourite`.
@@ -185,6 +191,9 @@ Errors always use the shape `{ "error": { "code", "message" } }` with a human-re
   - The time is `MM:SS` (minutes may exceed 59) or `HH:MM:SS`, from 12:00 (below the 5K world record) to 9:59:59 (a typo guard). There are no elite or slow cut-offs.
   - A second performance at the same event on the same date returns 409.
   - Only `MANUAL` performances can be edited or deleted; imported ones return 403.
+- **External courses (Phase 4A.1):** a performance with only `externalEventName` is a valid personal performance. It counts towards the overall 5K PB and recent best, and can be used in Raw time mode. It is **never** a course-adjustment source: the API gives it no source event, and the UI says "Course adjustment unavailable — this performance was recorded at a course not currently modelled by 5K Compass." The Add performance form offers just *parkrun* (choose an event) or *Other 5K race* (enter its name). No other distances are offered.
+- **Duplicates (Phase 4A.1):** `duplicateKey` is `event:<eventId>|<date>|<distanceMeters>` for internal events, and `external:<name, lower-cased, whitespace collapsed>|<date>|<distanceMeters>` for external races (`domain/performanceKey.ts`). It has a unique index per user, so duplicates never depend on how SQL treats NULLs. Importer idempotency stays on the unique `(userId, source, externalResultId)` index.
+- **Migration 4A.1** is additive. It adds the columns, backfills existing rows to `distanceMeters = 5000`, `PARKRUN` and their `event:` key, makes `eventId` nullable, adds the CHECK constraints, and swaps the old `(userId, eventId, date)` unique index for the key. Ids and data are unchanged; I verified the 43 existing rows column for column.
 - **Privacy:** every store method takes the owning `userId` and filters by it; another user's id is simply "not found". Until authentication exists, routes act as the demo user.
 - **Where Could I Place?, Compare and the outlook** use the derived lifetime PB and recent best, together with the event where each was run, so course-adjusted mode needs no manual "Achieved at" for them. Typed times still need one.
 
@@ -326,6 +335,8 @@ Course Speed Factors are stored in `CourseFactorSnapshot` (Phase 3B). The recalc
 - two modes, *Course adjusted* (the default when the source event's factor is reliable) and *Raw time*.
 
 In the API, `mode=auto` (the default) falls back to raw time only with a `modeNote`. `mode=adjusted` never falls back silently. Events that can't be adjusted are listed under `unavailable`, never placed with the unadjusted time. Compare accepts the same `source`.
+
+**Distances.** Course Speed Factor V1 is **5K-specific**: it is fitted from 5K results at the modelled 5K events, and `distanceMeters` plays no part in it. A future 10K, half marathon or marathon must get its **own, distance-specific factors**. 5K factors must never be reused for other distances, and a performance's `distanceMeters` must match the factor's distance before any course adjustment.
 
 ### PB Score V1 (`pb_v1`, Phase 3B)
 

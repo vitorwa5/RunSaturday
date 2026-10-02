@@ -35,10 +35,32 @@ function BestCard({ label, performance, preset, emptyText }: { label: string; pe
       <p className="mt-1 text-2xl font-bold tabular-nums">{formatFinishTime(performance.finishTimeSeconds)}</p>
       <p className="truncate text-xs text-muted">{performance.eventName}</p>
       <p className="text-xs text-subtle">{formatDateWithYear(performance.date)}</p>
+      {!performance.courseModelled && <p className="text-[11px] text-subtle">Course not modelled</p>}
       <p className="mt-1.5 inline-flex items-center gap-0.5 text-xs font-semibold text-brand-700">
         Where could I place? <ChevronRight className="size-3.5" aria-hidden />
       </p>
     </Link>
+  );
+}
+
+/** The latest run; opens its event when it was at a course 5K Compass models. */
+function LastRun({ latest }: { latest: UserPerformance }) {
+  const body = (
+    <div className="min-w-0">
+      <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">Last run</p>
+      <p className="truncate text-sm font-semibold">
+        {latest.eventName} · <span className="tabular-nums">{formatFinishTime(latest.finishTimeSeconds)}</span> · {formatDateWithYear(latest.date)}
+      </p>
+    </div>
+  );
+  const box = 'flex items-center justify-between gap-2 rounded-2xl border border-line bg-surface p-3';
+  return latest.eventId != null ? (
+    <Link to={`/event/${latest.eventId}`} className={`${box} hover:bg-zinc-50`}>
+      {body}
+      <ChevronRight className="size-4 shrink-0 text-subtle" aria-hidden />
+    </Link>
+  ) : (
+    <div className={box}>{body}</div>
   );
 }
 
@@ -136,27 +158,24 @@ export function ProfilePage() {
               <BestCard label="Lifetime PB" performance={summary!.lifetimePb} preset="pb" emptyText="No performances yet" />
               <BestCard label="Recent best" performance={summary!.recentBest} preset="recent" emptyText={`Nothing in the last ${summary!.recentWindowDays} days`} />
             </div>
-            {summary!.latest && (
-              <Link
-                to={`/event/${summary!.latest.eventId}`}
-                className="flex items-center justify-between gap-2 rounded-2xl border border-line bg-surface p-3 hover:bg-zinc-50"
-              >
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">Last run</p>
-                  <p className="truncate text-sm font-semibold">
-                    {summary!.latest.eventName} · <span className="tabular-nums">{formatFinishTime(summary!.latest.finishTimeSeconds)}</span> ·{' '}
-                    {formatDateWithYear(summary!.latest.date)}
-                  </p>
-                </div>
-                <ChevronRight className="size-4 shrink-0 text-subtle" aria-hidden />
-              </Link>
+            {summary!.parkrunPb && summary!.lifetimePb && summary!.parkrunPb.id !== summary!.lifetimePb.id && (
+              <p className="rounded-2xl border border-line bg-surface px-3 py-2 text-sm">
+                <span className="text-muted">parkrun PB</span>{' '}
+                <strong className="tabular-nums">{formatFinishTime(summary!.parkrunPb.finishTimeSeconds)}</strong>
+                <span className="text-muted">
+                  {' '}
+                  · {summary!.parkrunPb.eventName} · {formatDateWithYear(summary!.parkrunPb.date)}
+                </span>
+              </p>
             )}
+            {summary!.latest && <LastRun latest={summary!.latest} />}
             <div className="grid grid-cols-2 gap-2">
               <Stat label="Performances" value={summary!.totalPerformances} />
               <Stat label="Different events" value={summary!.uniqueEvents} />
             </div>
             <p className="text-xs text-muted">
-              PBs, recent best (last {summary!.recentWindowDays} days) and visits are worked out from your recorded performances.
+              Lifetime PB is your fastest 5K at any race; recent best covers the last {summary!.recentWindowDays} days. Both, and your visits, are
+              worked out from your recorded performances.
             </p>
           </section>
 
