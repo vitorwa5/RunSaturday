@@ -1,6 +1,6 @@
 import { formatFinishTime, RUNNER_TIME_SOURCES, type RunnerTimeSourceId, type UserProfile } from '@runsaturday/shared';
 import { useId, useState, type FormEvent } from 'react';
-import { PROFILE_TIME_FIELD, validateManualTime } from '../../lib/runnerTime';
+import { resolveRunnerTime, validateManualTime } from '../../lib/runnerTime';
 import { Button } from '../ui/Button';
 import { ChoiceChips } from '../ui/ChoiceChips';
 
@@ -21,8 +21,10 @@ export function RunnerTimePicker({ profile, source, manualSeconds, onSourceChang
 
   const options = RUNNER_TIME_SOURCES.map((s) => {
     if (s.id === 'manual') return { value: s.id, label: s.label };
-    const seconds = profile?.[PROFILE_TIME_FIELD[s.id]];
-    return { value: s.id, label: seconds != null ? `${s.label} ${formatFinishTime(seconds)}` : s.label, disabled: profile != null && seconds == null };
+    const seconds = resolveRunnerTime(s.id, profile, null);
+    // Current Form is a course-neutral estimate, shown with "≈".
+    const time = seconds != null ? `${s.id === 'current' ? '≈ ' : ''}${formatFinishTime(seconds)}` : null;
+    return { value: s.id, label: time != null ? `${s.label} ${time}` : s.label, disabled: profile != null && seconds == null };
   });
 
   const submit = (e: FormEvent) => {

@@ -18,6 +18,7 @@ import type {
   HistoryWindowId,
   PlannerResponse,
   UserProfile,
+  RunnerForm,
   PerformanceInput,
   PerformanceSummary,
   UserPerformance,
@@ -26,8 +27,12 @@ import type {
 import { plannerApiQuery, type PlannerSelection } from '../lib/plannerParams';
 import { apiGet, apiSend } from './client';
 
+/** "current_form": the server uses the user's own Current Form (course-neutral) instead of a time. */
+export type PlacementBasis = 'time' | 'current_form';
+
 export interface PlacementQuery {
   timeSeconds: number;
+  basis?: PlacementBasis;
   window: HistoryWindowId;
   target: PlacementTargetId;
   maxTravel?: number;
@@ -58,16 +63,29 @@ export const api = {
   placement: (q: PlacementQuery, signal?: AbortSignal) =>
     apiGet<PlacementResponse>(
       '/placement',
-      { time: q.timeSeconds, window: q.window, target: q.target, maxTravel: q.maxTravel, mode: q.mode, source: q.source },
+      q.basis === 'current_form'
+        ? { basis: 'current_form', window: q.window, target: q.target, maxTravel: q.maxTravel, mode: q.mode }
+        : { time: q.timeSeconds, window: q.window, target: q.target, maxTravel: q.maxTravel, mode: q.mode, source: q.source },
       signal,
     ),
-  eventPlacement: (id: string, timeSeconds: number, source?: string, signal?: AbortSignal) =>
-    apiGet<EventPlacement>(`/events/${encodeURIComponent(id)}/placement`, { time: timeSeconds, source }, signal),
+  eventPlacement: (id: string, q: { timeSeconds?: number; source?: string; basis?: PlacementBasis }, signal?: AbortSignal) =>
+    apiGet<EventPlacement>(
+      `/events/${encodeURIComponent(id)}/placement`,
+      q.basis === 'current_form' ? { basis: 'current_form' } : { time: q.timeSeconds, source: q.source },
+      signal,
+    ),
   pbFinder: (
     q: { maxTravel?: number; sort: PbFinderSortId } & Pick<PlannerFilters, 'surface' | 'elevation' | 'confidence' | 'visited'>,
     signal?: AbortSignal,
   ) => apiGet<PbFinderResponse>('/pb-finder', q, signal),
   hiddenGems: (q: { mode: HiddenGemModeId; maxTravel?: number }, signal?: AbortSignal) => apiGet<HiddenGemsResponse>('/hidden-gems', q, signal),
-  compare: (q: { ids: string[]; timeSeconds?: number; source?: string }, signal?: AbortSignal) =>
-    apiGet<CompareResponse>('/compare', { ids: q.ids.join(','), time: q.timeSeconds, source: q.timeSeconds != null ? q.source : undefined }, signal),
+  compare: (q: { ids: string[]; timeSeconds?: number; source?: string; basis?: PlacementBasis }, signal?: AbortSignal) =>
+    apiGet<CompareResponse>(
+      '/compare',
+      q.basis === 'current_form'
+        ? { ids: q.ids.join(','), basis: 'current_form' }
+        : { ids: q.ids.join(','), time: q.timeSeconds, source: q.timeSeconds != null ? q.source : undefined },
+      signal,
+    ),
+  currentForm: (signal?: AbortSignal) => apiGet<RunnerForm>('/profile/current-form', {}, signal),
 };

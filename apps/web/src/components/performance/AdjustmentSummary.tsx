@@ -15,15 +15,19 @@ export function AdjustmentSummary({ adjustment }: { adjustment: CourseAdjustment
       </p>
     );
   }
-  const same = adjustment.sourceEventId === adjustment.targetEventId;
+  const fromForm = adjustment.sourceKind === 'current_form';
+  const same = !fromForm && adjustment.sourceEventId === adjustment.targetEventId;
   const delta = adjustment.deltaSeconds ?? 0;
   return (
     <div className="rounded-2xl bg-canvas p-3">
       <dl className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
         <div className="min-w-0">
-          <dt className="text-[11px] font-semibold tracking-wide text-muted uppercase">Performance</dt>
-          <dd className="text-lg font-bold tabular-nums">{formatFinishTime(adjustment.sourceSeconds)}</dd>
-          <dd className="truncate text-xs text-subtle">Achieved at {adjustment.sourceEventName}</dd>
+          <dt className="text-[11px] font-semibold tracking-wide text-muted uppercase">{fromForm ? 'Current Form' : 'Performance'}</dt>
+          <dd className="text-lg font-bold tabular-nums">
+            {fromForm && '≈ '}
+            {formatFinishTime(adjustment.sourceSeconds)}
+          </dd>
+          <dd className="truncate text-xs text-subtle">{fromForm ? 'Course-neutral estimate' : `Achieved at ${adjustment.sourceEventName}`}</dd>
         </div>
         <ArrowRight className="mb-5 size-4 text-subtle" aria-hidden />
         <div className="min-w-0">

@@ -174,13 +174,14 @@ test.describe('Event page', () => {
     await expect(page.getByRole('button', { name: /Save/ })).toBeDisabled();
 
     const outlook = page.getByRole('region', { name: 'Your outlook' });
-    await expect(outlook.getByText('19:40', { exact: true })).toBeVisible();
+    // Current Form (course-neutral) converted to this course: an equivalent, never a predicted finish.
+    await expect(outlook.getByText('Current Form', { exact: true })).toBeVisible();
+    await expect(outlook.getByText('≈ 20:18', { exact: true })).toBeVisible();
     await expect(outlook.getByText('Typical historical position')).toBeVisible();
     await expect(outlook.getByText(/\d+ of \d+ events/)).toBeVisible();
-    // Recent best converted with Course Speed Factors: an equivalent, never a predicted finish.
     await expect(outlook.getByText('Equivalent 5K here')).toBeVisible();
-    await expect(outlook.getByText(/^≈ \d{2}:\d{2}$/)).toBeVisible();
-    await expect(outlook.getByText(/^Adjusted from 19:32 at Riverside 5K \(\+\d:\d{2}\)$/)).toBeVisible();
+    await expect(outlook.getByText('From your course-neutral Current Form')).toBeVisible();
+    await expect(outlook.getByText('Equivalent here is based on your current course-normalised form.')).toBeVisible();
     await expect(page.getByText(/predicted finish/i)).toHaveCount(1); // only the "not a predicted finish time" note
     await expect(outlook.getByText(/not a predicted finish time/)).toBeVisible();
     await expect(outlook.getByRole('link', { name: 'Where else could I place?' })).toBeVisible();
@@ -239,7 +240,7 @@ test.describe('Where Could I Place?', () => {
     await page.getByRole('region', { name: 'Saturday tools' }).getByRole('link', { name: 'Where Could I Place?' }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Where Could I Place?' })).toBeVisible();
     // Defaults to current form from the profile.
-    await expect(page.getByRole('radio', { name: 'Current form (estimate) 19:40' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('radio', { name: 'Current Form ≈ 20:18' })).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByRole('article').first()).toBeVisible();
 
     await page.getByRole('radio', { name: 'Enter a time' }).click();
@@ -475,15 +476,15 @@ test.describe('Course Speed & PB Score V1 (Phase 3B)', () => {
     await expectNoHorizontalScroll(page);
   });
 
-  test('Course adjusted with event-less current form asks for a source event instead of showing raw results', async ({ page }) => {
-    await page.goto('/where-could-i-place?src=current');
+  test('Course adjusted with a typed time and no source event asks for one instead of showing raw results', async ({ page }) => {
+    await page.goto('/where-could-i-place?src=manual&time=1260');
     const modes = page.getByRole('radiogroup', { name: 'Compare as' });
     await expect(page.getByText('Raw time comparison — course adjustment unavailable', { exact: true })).toBeVisible();
     await modes.getByRole('radio', { name: 'Course adjusted' }).click();
     await expect(page).toHaveURL(/mode=adjusted/);
     await expect(modes.getByRole('radio', { name: 'Course adjusted' })).toHaveAttribute('aria-checked', 'true');
     const prompt = page.getByRole('note', { name: 'Course adjustment needs a source event' });
-    await expect(prompt.getByText(/Current form is an estimate of your fitness/)).toBeVisible();
+    await expect(prompt.getByText(/This time has no known course/)).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Choose where this time was achieved' })).toBeVisible();
     // No raw-time results while the UI is in Course adjusted mode.
     await expect(page.getByRole('article')).toHaveCount(0);
@@ -542,7 +543,9 @@ test.describe('Personal performance history (Phase 4A)', () => {
     await expect(summary.getByRole('link', { name: /^Recent best 19:32 at Riverside 5K/ })).toBeVisible();
     await expect(summary.getByText('Last run')).toBeVisible();
     await expect(summary.getByText('Different events')).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Current form' }).getByText(/estimate of your fitness \(demo value\), not a recorded performance/)).toBeVisible();
+    await expect(summary.getByRole('link', { name: /^parkrun PB 18:58 at Riverside 5K/ })).toBeVisible();
+    await expect(summary.getByRole('link', { name: 'Current Form about 20:18, High confidence: how is it calculated?' })).toBeVisible();
+    await expect(summary.getByText(/modelled, course-neutral estimate of your present ability/)).toBeVisible();
 
     const recent = page.getByRole('list', { name: 'Recent performances' });
     await expect(recent.getByRole('listitem')).toHaveCount(8);
@@ -731,3 +734,79 @@ test.describe('Personal performance history (Phase 4A)', () => {
   });
 });
 
+
+test.describe('Runner Form V1 (Phase 4B)', () => {
+  test('Profile → Current Form explanation', async ({ page }) => {
+    await page.goto('/profile');
+    await page.getByRole('link', { name: 'Current Form about 20:18, High confidence: how is it calculated?' }).click();
+    await expect(page).toHaveURL(/\/profile\/current-form$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'How is my Current Form calculated?' })).toBeVisible();
+    const summary = page.getByRole('region', { name: 'Current Form summary' });
+    await expect(summary.getByText('≈ 20:18')).toBeVisible();
+    await expect(summary.getByText('13 recent performances')).toBeVisible();
+    await expect(summary.getByText('2 different events')).toBeVisible();
+    await expect(summary.getByText('High confidence')).toBeVisible();
+    await expect(summary.getByText('Stable', { exact: true })).toBeVisible();
+    const used = page.getByRole('list', { name: 'Recent runs used' });
+    await expect(used.getByRole('listitem')).toHaveCount(13);
+    await expect(used.getByRole('listitem').first()).toContainText(/\d{2}:\d{2} equivalent/);
+    await expect(used.getByText(/reduced influence/).first()).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Performances not included' }).getByText(/history, not current form/).first()).toBeVisible();
+    await expect(page.getByText(/not the chance of running this time/)).toBeVisible();
+    await expect(page.getByText(/not a prediction of a finish time/)).toBeVisible();
+    await expect(page.getByText(/you will (run|finish)|beat your PB in/i)).toHaveCount(0);
+    await expectNoHorizontalScroll(page);
+  });
+
+  test('Profile → Where Could I Place? uses Current Form by default, then switch to Overall 5K PB and parkrun PB', async ({ page }) => {
+    await page.goto('/profile/current-form');
+    await page.getByRole('link', { name: 'Where could I place with this?' }).click();
+    await expect(page).toHaveURL(/\/where-could-i-place\?src=current$/);
+    await expect(page.getByRole('radio', { name: 'Current Form ≈ 20:18' })).toHaveAttribute('aria-checked', 'true');
+    // Current Form is course-neutral: no source event is invented.
+    await expect(page.getByLabel('Achieved at')).toBeDisabled();
+    await expect(page.getByLabel('Achieved at')).toContainText('Current Form (course-neutral, no single event)');
+    await expect(page.getByRole('radiogroup', { name: 'Compare as' }).getByRole('radio', { name: 'Course adjusted' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByText(/your Current Form ≈ 20:18, converted to each course/)).toBeVisible();
+    const first = page.getByRole('article').first();
+    await expect(first.getByText('Course-neutral estimate')).toBeVisible();
+    await expect(first.getByText('Equivalent here')).toBeVisible();
+    await expectNoHorizontalScroll(page);
+
+    await page.getByRole('radio', { name: 'Overall 5K PB 18:58' }).click();
+    await expect(page.getByLabel('Achieved at')).toHaveValue('demo-riverside-5k');
+    await expect(page.getByText(/Historically, 18:58 at Riverside 5K, converted to each course/)).toBeVisible();
+    await page.getByRole('radio', { name: 'parkrun PB 18:58' }).click();
+    await expect(page).toHaveURL(/src=parkrun/);
+    await expect(page.getByText(/Historically, 18:58 at Riverside 5K, converted to each course/)).toBeVisible();
+  });
+
+  test('Event Page → Current Form outlook', async ({ page }) => {
+    await page.goto('/event/demo-forest-trail-5k');
+    const outlook = page.getByRole('region', { name: 'Your outlook' });
+    await expect(outlook.getByText('≈ 20:18', { exact: true })).toBeVisible();
+    // A slower course: the equivalent here is slower than the course-neutral form.
+    const equivalent = outlook.getByText(/^≈ (2[1-9]):\d{2}$/);
+    await expect(equivalent).toBeVisible();
+    await expect(outlook.getByText('Equivalent here is based on your current course-normalised form.')).toBeVisible();
+    await expect(outlook.getByText(/Adjusted from/)).toHaveCount(0);
+    await expectNoHorizontalScroll(page);
+  });
+
+  test('Compare uses Current Form by default, without inventing a source event', async ({ page }) => {
+    await page.goto('/compare?ids=demo-riverside-5k,demo-forest-trail-5k');
+    await expect(page.getByRole('radiogroup', { name: 'Runner time' }).getByRole('radio', { name: 'Current Form ≈ 20:18' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('rowheader', { name: 'Equivalent here' })).toBeVisible();
+    await expect(page.getByText('from Current Form').first()).toBeVisible();
+    await expect(page.getByText(/Placement rows use your Current Form ≈ 20:18, a course-neutral estimate/)).toBeVisible();
+    await expectNoHorizontalScroll(page);
+    await page.getByRole('radiogroup', { name: 'Runner time' }).getByRole('radio', { name: /^Overall 5K PB 18:58/ }).click();
+    await expect(page).toHaveURL(/time=1138&from=demo-riverside-5k/);
+    await expect(page.getByText(/Placement rows convert 18:58 at Riverside 5K/)).toBeVisible();
+  });
+
+  test('Saturday Planner names Current Form as the ability reference', async ({ page }) => {
+    await page.goto('/saturday');
+    await expect(page.getByRole('note', { name: 'Your ability reference' })).toContainText('Your personalised reference is your Current Form ≈ 20:18 (high confidence)');
+  });
+});

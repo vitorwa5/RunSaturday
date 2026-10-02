@@ -1,17 +1,38 @@
 import type { UserPerformance, UserProfile } from '@runsaturday/shared';
 import { describe, expect, it } from 'vitest';
 import { formatFrequency, formatPlacementRange } from '../lib/display';
-import { MANUAL_TIME_ERROR, parseIdList, resolveRunnerTime, validateManualTime } from '../lib/runnerTime';
+import { currentFormSeconds, defaultRunnerTimeSource, MANUAL_TIME_ERROR, parseIdList, resolveRunnerTime, validateManualTime } from '../lib/runnerTime';
 
-const profile = { current5kEstimateSeconds: 1180, recentPbSeconds: 1172, lifetimePbSeconds: 1138 } as UserProfile;
+const perf = (id: string, seconds: number, performanceType: 'parkrun' | 'road_race' = 'parkrun') =>
+  ({ id, eventId: performanceType === 'parkrun' ? `ev-${id}` : null, eventName: id, finishTimeSeconds: seconds, performanceType, courseModelled: performanceType === 'parkrun' }) as UserPerformance;
+const formOf = (status: 'estimate' | 'indicative' | 'unavailable', formSeconds: number | null) => ({ status, formSeconds, indicativeSeconds: status === 'indicative' ? 1200 : null });
+const profile = {
+  currentForm: formOf('estimate', 1218),
+  performance: { recentBest: perf('recent', 1172), lifetimePb: perf('overall', 1120, 'road_race'), parkrunPb: perf('parkrun', 1138) },
+} as unknown as UserProfile;
 
 describe('runner time', () => {
-  it('resolves profile sources and manual input', () => {
-    expect(resolveRunnerTime('current', profile, null)).toBe(1180);
+  it('resolves Current Form, recorded bests and manual input separately', () => {
+    expect(resolveRunnerTime('current', profile, null)).toBe(1218);
     expect(resolveRunnerTime('recent', profile, null)).toBe(1172);
-    expect(resolveRunnerTime('pb', profile, null)).toBe(1138);
+    expect(resolveRunnerTime('pb', profile, null)).toBe(1120);
+    expect(resolveRunnerTime('parkrun', profile, null)).toBe(1138);
     expect(resolveRunnerTime('manual', profile, 1170)).toBe(1170);
     expect(resolveRunnerTime('current', undefined, null)).toBeNull();
+  });
+
+  it('never treats an indicative or unavailable form as Current Form', () => {
+    const indicative = { ...profile, currentForm: formOf('indicative', null) } as unknown as UserProfile;
+    expect(currentFormSeconds(indicative)).toBeNull();
+    expect(resolveRunnerTime('current', indicative, null)).toBeNull();
+  });
+
+  it('defaults forward-looking tools to Current Form, else the next supported reference', () => {
+    expect(defaultRunnerTimeSource(profile)).toBe('current');
+    const noForm = { ...profile, currentForm: formOf('unavailable', null) } as unknown as UserProfile;
+    expect(defaultRunnerTimeSource(noForm)).toBe('recent');
+    const nothing = { currentForm: formOf('unavailable', null), performance: { recentBest: null, lifetimePb: null, parkrunPb: null } } as unknown as UserProfile;
+    expect(defaultRunnerTimeSource(nothing)).toBe('manual');
   });
 
   it('validates manual times', () => {

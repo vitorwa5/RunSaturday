@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useEventPlacement } from '../../hooks/queries';
 import { formatDeltaSeconds, formatFrequency, formatPlacementRange, RAW_FALLBACK_LABEL } from '../../lib/display';
+import { currentFormSeconds } from '../../lib/runnerTime';
 import { ConfidenceBadge } from '../ui/ConfidenceBadge';
 import { DemoBadge } from '../ui/DemoBadge';
 import { Skeleton } from '../ui/LoadingState';
@@ -18,10 +19,11 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /**
- * The performance the outlook is based on: the recent best where it was run, else the lifetime
- * PB where it was run (both course-adjustable), else current form unadjusted.
+ * What the outlook is based on: Current Form (course-neutral, converted on the server) when there
+ * is an estimate; otherwise the recent best, then the Overall 5K PB, each from where it was run.
  */
 interface OutlookBasis {
+  kind: 'form' | 'performance';
   seconds: number;
   label: string;
   /** Known (modelled) event where it was run: enables course adjustment. */
@@ -34,16 +36,15 @@ function outlookBasis(profile: UserProfile | undefined): OutlookBasis | null {
   const from = (p: UserPerformance | null | undefined, label: string): OutlookBasis | null =>
     p
       ? {
+          kind: 'performance',
           seconds: p.finishTimeSeconds,
           label,
           ...(p.eventId != null ? { source: { id: p.eventId, name: p.eventName } } : { externalCourse: p.eventName }),
         }
       : null;
-  return (
-    from(profile?.performance.recentBest, 'recent best') ??
-    from(profile?.performance.lifetimePb, 'overall 5K PB') ??
-    (profile?.current5kEstimateSeconds != null ? { seconds: profile.current5kEstimateSeconds, label: 'current form' } : null)
-  );
+  const form = currentFormSeconds(profile);
+  if (form != null) return { kind: 'form', seconds: form, label: 'Current Form' };
+  return from(profile?.performance.recentBest, 'recent best') ?? from(profile?.performance.lifetimePb, 'overall 5K PB');
 }
 
 /**
@@ -52,9 +53,12 @@ function outlookBasis(profile: UserProfile | undefined): OutlookBasis | null {
  * predicted finish time.
  */
 export function OutlookCard({ profile, eventId }: { profile: UserProfile | undefined; eventId: string }) {
-  const form = profile?.current5kEstimateSeconds;
+  const form = currentFormSeconds(profile);
   const basis = outlookBasis(profile);
-  const { data: placement, isPending, isError } = useEventPlacement(eventId, basis?.seconds, basis?.source?.id);
+  const { data: placement, isPending, isError } = useEventPlacement(
+    eventId,
+    basis == null ? null : basis.kind === 'form' ? { basis: 'current_form' } : { timeSeconds: basis.seconds, source: basis.source?.id },
+  );
   const stats = placement?.stats;
   const enough = placement != null && placement.confidence !== 'insufficient';
   const adjustment = placement?.adjustment ?? null;
@@ -64,7 +68,7 @@ export function OutlookCard({ profile, eventId }: { profile: UserProfile | undef
   if (basis == null) {
     placementRows = (
       <Row label="Historical placement">
-        <span className="text-xs text-subtle">Set your current form</span>
+        <span className="text-xs text-subtle">Add a performance</span>
       </Row>
     );
   } else if (isPending) {
@@ -107,19 +111,27 @@ export function OutlookCard({ profile, eventId }: { profile: UserProfile | undef
 
       <dl className="mt-3 divide-y divide-line text-sm">
         <div className="flex items-baseline justify-between gap-3 pb-2">
-          <dt className="text-muted">Current form (estimate)</dt>
-          <dd className="text-lg font-bold tabular-nums">{form != null ? formatFinishTime(form) : 'Not set'}</dd>
+          <dt className="text-muted">Current Form</dt>
+          <dd className="text-right">
+            {form != null ? (
+              <span className="text-lg font-bold tabular-nums">≈ {formatFinishTime(form)}</span>
+            ) : (
+              <span className="text-xs font-semibold text-subtle">Unavailable</span>
+            )}
+          </dd>
         </div>
         <Row label="Equivalent 5K here">
           {basis == null ? (
-            <span className="text-xs text-subtle">Set your current form</span>
+            <span className="text-xs text-subtle">Add a performance</span>
           ) : isPending ? (
             <Skeleton className="ml-auto h-4 w-16" />
           ) : adjusted ? (
             <>
               <span className="text-lg font-extrabold tabular-nums">≈ {formatFinishTime(adjustment.equivalentSeconds!)}</span>
               <span className="block text-xs text-subtle">
-                {adjustment.sourceEventId === eventId
+                {adjustment.sourceKind === 'current_form'
+                  ? 'From your course-neutral Current Form'
+                  : adjustment.sourceEventId === eventId
                   ? `Your ${basis.label} here`
                   : `Adjusted from ${formatFinishTime(adjustment.sourceSeconds)} at ${adjustment.sourceEventName} (${formatDeltaSeconds(adjustment.deltaSeconds ?? 0)})`}
               </span>
@@ -130,7 +142,7 @@ export function OutlookCard({ profile, eventId }: { profile: UserProfile | undef
             <span className="block max-w-48 text-xs text-subtle">
               {basis.externalCourse != null
                 ? `${COURSE_NOT_MODELLED_MESSAGE} (${basis.externalCourse})`
-                : 'Course adjustment requires a source event. Your current form is an estimate, not a run at a known course.'}
+                : 'Course adjustment requires a source event.'}
             </span>
           )}
         </Row>
@@ -146,12 +158,16 @@ export function OutlookCard({ profile, eventId }: { profile: UserProfile | undef
         <div className="mt-1 flex flex-wrap items-center gap-2">
           <ConfidenceBadge level={placement.confidence} sampleSize={placement.sampleSize} compact />
           <span className="text-xs text-subtle">last 90 days</span>
-          {adjusted && adjustment.sourceEventId !== eventId && (
+          {adjusted && (adjustment.sourceKind === 'current_form' || adjustment.sourceEventId !== eventId) && (
             <span className="text-xs text-subtle">
               · adjustment confidence <ConfidenceBadge level={adjustment.confidence} compact />
             </span>
           )}
         </div>
+      )}
+      {basis?.kind === 'form' && adjusted && <p className="mt-2 text-xs text-muted">Equivalent here is based on your current course-normalised form.</p>}
+      {basis != null && basis.kind !== 'form' && profile && (
+        <p className="mt-2 text-xs text-muted">Current Form unavailable: {profile.currentForm.limitedReason ?? 'not enough recent performances.'} Using your {basis.label}.</p>
       )}
       <p className="mt-2 text-xs text-subtle">
         {enough && placement

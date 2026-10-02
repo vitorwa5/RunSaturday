@@ -27,7 +27,7 @@ import { LoadingState } from '../components/ui/LoadingState';
 import { PageHeader } from '../components/ui/PageHeader';
 import { useEvents, usePlacement, useProfile } from '../hooks/queries';
 import { LIMITED_MATCHED, RAW_FALLBACK_LABEL } from '../lib/display';
-import { profileExternalCourse, profileSourceEvent, resolveRunnerTime } from '../lib/runnerTime';
+import { currentFormSeconds, defaultRunnerTimeSource, profileExternalCourse, profileSourceEvent, resolveRunnerTime } from '../lib/runnerTime';
 
 const MODE_HELP: Record<PlacementMode, string> = {
   adjusted:
@@ -36,6 +36,9 @@ const MODE_HELP: Record<PlacementMode, string> = {
 };
 
 const RELIABLE = new Set(['high', 'medium']);
+
+const FORM_HELP =
+  'Your Current Form is a course-neutral estimate of your present ability. It is converted to an equivalent at each course using that course’s Speed Factor, then compared with past results. Equivalents are not predicted finish times.';
 
 const oneOf = <T extends string>(value: string | null, ids: readonly T[], fallback: T): T =>
   value != null && (ids as readonly string[]).includes(value) ? (value as T) : fallback;
@@ -53,7 +56,10 @@ export function WhereCouldIPlacePage() {
   const [params, setParams] = useSearchParams();
   const { data: profile } = useProfile();
 
-  const source = oneOf<RunnerTimeSourceId>(params.get('src'), RUNNER_TIME_SOURCES.map((s) => s.id), 'current');
+  // Forward-looking default: Current Form when there is one, else the next supported reference.
+  const source = oneOf<RunnerTimeSourceId>(params.get('src'), RUNNER_TIME_SOURCES.map((s) => s.id), profile ? defaultRunnerTimeSource(profile) : 'current');
+  /** Current Form is already course-neutral: the server converts it (form × target factor). */
+  const isForm = source === 'current';
   const manualRaw = Number(params.get('time'));
   const manualSeconds = Number.isInteger(manualRaw) && manualRaw > 0 ? manualRaw : null;
   const target = oneOf<PlacementTargetId>(params.get('target'), PLACEMENT_TARGETS.map((t) => t.id), DEFAULT_PLACEMENT_TARGET);
@@ -69,16 +75,17 @@ export function WhereCouldIPlacePage() {
   // A preset run at a course 5K Compass does not model can never be course-adjusted, and is never
   // re-attributed to a modelled event.
   const externalCourse = profileExternalCourse(source, profile);
-  const achievedAt = externalCourse != null || fromParam === 'none' ? null : (fromParam ?? profileSourceEvent(source, profile)?.id ?? null);
+  const achievedAt = isForm || externalCourse != null || fromParam === 'none' ? null : (fromParam ?? profileSourceEvent(source, profile)?.id ?? null);
   const achievedEvent = events?.find((e) => e.id === achievedAt) ?? null;
   const adjustable = achievedEvent != null && achievedEvent.scores?.courseSpeedFactor != null && RELIABLE.has(achievedEvent.scores.courseSpeedConfidence);
   const modeParam = params.get('mode');
   // An explicit choice wins. Otherwise (auto): course adjusted whenever a reliable source event is
   // known, else raw time, clearly labelled as a fallback. An event-less time (e.g. an estimated
   // current form) is never treated as if it had been run at a reference course.
-  const mode: PlacementMode = modeParam === 'raw' ? 'raw' : modeParam === 'adjusted' || adjustable ? 'adjusted' : 'raw';
-  const adjustedUnavailable =
-    externalCourse != null
+  const mode: PlacementMode = modeParam === 'raw' ? 'raw' : modeParam === 'adjusted' || adjustable || isForm ? 'adjusted' : 'raw';
+  const adjustedUnavailable = isForm
+    ? null
+    : externalCourse != null
       ? COURSE_NOT_MODELLED_MESSAGE
       : achievedAt == null
       ? 'Course adjustment requires a source event: choose where this time was achieved.'
@@ -88,7 +95,8 @@ export function WhereCouldIPlacePage() {
   /** Auto mode fell back to raw time: always labelled as such. */
   const autoFallback = modeParam == null && mode === 'raw' && adjustedUnavailable != null;
   /** Course adjusted chosen, but the time has no known source event: ask instead of showing raw results. */
-  const needsSource = mode === 'adjusted' && achievedAt == null;
+  const needsSource = mode === 'adjusted' && achievedAt == null && !isForm;
+  const formMissing = profile != null && currentFormSeconds(profile) == null;
   const sourcePresets = (['recent', 'pb'] as const)
     .map((id) => ({ id, event: profileSourceEvent(id, profile), seconds: resolveRunnerTime(id, profile, null) }))
     .filter((p) => p.event != null && p.seconds != null && !(p.id === source && fromParam == null));
@@ -102,7 +110,8 @@ export function WhereCouldIPlacePage() {
     target,
     maxTravel,
     mode,
-    source: achievedAt ?? undefined,
+    basis: isForm ? 'current_form' : undefined,
+    source: isForm ? undefined : (achievedAt ?? undefined),
   });
 
   const update = (patch: Record<string, string | null>) => {
@@ -132,17 +141,23 @@ export function WhereCouldIPlacePage() {
             onSourceChange={(s) => update({ src: s, from: null, ...(s !== 'manual' ? { time: null } : {}) })}
             onManualSubmit={(seconds) => update({ src: 'manual', time: String(seconds) })}
           />
+          {formMissing && (
+            <p className="mt-2 text-xs text-muted" role="note">
+              {`Current Form unavailable: ${profile!.currentForm.limitedReason ?? 'not enough recent performances at modelled courses.'}`} Your PBs are history, not current form.
+            </p>
+          )}
           <div className="mt-3">
             <label htmlFor={achievedId} className="mb-1.5 block text-sm font-semibold">
               Achieved at
             </label>
             <select
               id={achievedId}
-              value={externalCourse != null ? 'external' : (achievedAt ?? 'none')}
-              disabled={externalCourse != null}
+              value={isForm ? 'form' : externalCourse != null ? 'external' : (achievedAt ?? 'none')}
+              disabled={isForm || externalCourse != null}
               onChange={(e) => update({ from: e.target.value, mode: null })}
               className="min-h-11 w-full rounded-full border border-line bg-surface px-4 text-base focus:border-brand-700 focus:outline-none disabled:bg-canvas disabled:text-muted"
             >
+              {isForm && <option value="form">Current Form (course-neutral, no single event)</option>}
               {externalCourse != null && <option value="external">{externalCourse} (not modelled by 5K Compass)</option>}
               <option value="none">Not specified</option>
               {events?.map((e) => (
@@ -163,7 +178,7 @@ export function WhereCouldIPlacePage() {
             value={mode}
             onChange={(m) => update({ mode: m })}
           />
-          <p className="mt-2 text-xs text-muted">{MODE_HELP[mode]}</p>
+          <p className="mt-2 text-xs text-muted">{isForm && mode === 'adjusted' ? FORM_HELP : MODE_HELP[mode]}</p>
           {mode === 'raw' && adjustedUnavailable && <p className="mt-1 text-xs text-subtle">{adjustedUnavailable}</p>}
           {needsSource && (
             <div className="mt-3 rounded-2xl border border-caution bg-caution-bg p-3 text-sm" role="note" aria-label="Course adjustment needs a source event">
@@ -186,9 +201,7 @@ export function WhereCouldIPlacePage() {
                 <>
                   <p className="font-bold">Course adjustment requires a source event</p>
                   <p className="mt-1 text-xs text-muted">
-                    {source === 'current'
-                      ? 'Current form is an estimate of your fitness, not a run at a known course, so it cannot be course-adjusted on its own.'
-                      : 'This time has no known course.'}{' '}
+                    This time has no known course.{' '}
                     Choose where it was achieved above{sourcePresets.length > 0 ? ', or use a time with a known course:' : ', or switch to Raw time.'}
                   </p>
                 </>
@@ -270,7 +283,12 @@ export function WhereCouldIPlacePage() {
             )}
             <div className="flex items-start justify-between gap-3">
               <p className="text-sm text-muted" aria-live="polite">
-                Historically, <strong className="font-bold text-ink">{formatFinishTime(data.timeSeconds)}</strong>
+                Historically, {data.formReference && 'your Current Form '}
+                <strong className="font-bold text-ink">
+                  {data.formReference && '≈ '}
+                  {formatFinishTime(data.timeSeconds)}
+                </strong>
+                {data.mode === 'adjusted' && data.formReference && ', converted to each course,'}
                 {data.mode === 'adjusted' && data.source && (
                   <>
                     {' '}
@@ -285,7 +303,7 @@ export function WhereCouldIPlacePage() {
               </p>
               {data.results.length >= 2 && (
                 <ButtonLink
-                  to={`/compare?ids=${data.results.slice(0, 3).map((r) => r.event.id).join(',')}&time=${data.timeSeconds}${
+                  to={`/compare?ids=${data.results.slice(0, 3).map((r) => r.event.id).join(',')}&time=${data.formReference ? 'form' : data.timeSeconds}${
                     data.mode === 'adjusted' && data.source ? `&from=${data.source.eventId}` : ''
                   }`}
                   variant="ghost"

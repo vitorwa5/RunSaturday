@@ -1,7 +1,7 @@
 /** TanStack Query hooks: the only way pages obtain server data. */
 import type { PerformanceInput, Goal, HiddenGemModeId, HistoryWindowId, PbFinderSortId, PlacementTargetId, PlannerFilters } from '@runsaturday/shared';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type PlacementQuery } from '../api/endpoints';
+import { api, type PlacementBasis, type PlacementQuery } from '../api/endpoints';
 import { serializePlannerParams, type PlannerSelection } from '../lib/plannerParams';
 
 export const queryKeys = {
@@ -62,13 +62,18 @@ export const usePlacement = (q: Omit<PlacementQuery, 'timeSeconds'> & { timeSeco
     placeholderData: keepPreviousData,
   });
 
-/** `source`: where the time was achieved; the API then course-adjusts it when the data allow. */
-export const useEventPlacement = (id: string, timeSeconds: number | null | undefined, source?: string) =>
+/**
+ * basis "current_form": the server converts the user's Current Form to this course. Otherwise
+ * `source` is where the time was achieved; the API course-adjusts it when the data allow.
+ */
+export const useEventPlacement = (id: string, q: { timeSeconds?: number | null; source?: string; basis?: PlacementBasis } | null) =>
   useQuery({
-    queryKey: ['event', id, 'placement', timeSeconds, source ?? null] as const,
-    queryFn: ({ signal }) => api.eventPlacement(id, timeSeconds!, source, signal),
-    enabled: timeSeconds != null,
+    queryKey: ['event', id, 'placement', q] as const,
+    queryFn: ({ signal }) => api.eventPlacement(id, { timeSeconds: q!.timeSeconds ?? undefined, source: q!.source, basis: q!.basis }, signal),
+    enabled: q != null && (q.basis === 'current_form' || q.timeSeconds != null),
   });
+
+export const useCurrentForm = () => useQuery({ queryKey: ['current-form'] as const, queryFn: ({ signal }) => api.currentForm(signal) });
 
 export const usePbFinder = (q: { maxTravel?: number; sort: PbFinderSortId } & Pick<PlannerFilters, 'surface' | 'elevation' | 'confidence' | 'visited'>) =>
   useQuery({ queryKey: ['pb-finder', q] as const, queryFn: ({ signal }) => api.pbFinder(q, signal), placeholderData: keepPreviousData });
@@ -76,7 +81,7 @@ export const usePbFinder = (q: { maxTravel?: number; sort: PbFinderSortId } & Pi
 export const useHiddenGems = (q: { mode: HiddenGemModeId; maxTravel?: number }) =>
   useQuery({ queryKey: ['hidden-gems', q] as const, queryFn: ({ signal }) => api.hiddenGems(q, signal), placeholderData: keepPreviousData });
 
-export const useCompare = (q: { ids: string[]; timeSeconds?: number; source?: string }) =>
+export const useCompare = (q: { ids: string[]; timeSeconds?: number; source?: string; basis?: PlacementBasis }) =>
   useQuery({
     queryKey: ['compare', q] as const,
     queryFn: ({ signal }) => api.compare(q, signal),

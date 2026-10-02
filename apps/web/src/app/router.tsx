@@ -1,5 +1,6 @@
 import { createBrowserRouter } from 'react-router';
 import { ComparePage } from '../pages/ComparePage';
+import { CurrentFormPage } from '../pages/CurrentFormPage';
 import { EventPage } from '../pages/EventPage';
 import { ExplorePage } from '../pages/ExplorePage';
 import { HiddenGemsPage } from '../pages/HiddenGemsPage';
@@ -23,6 +24,7 @@ export const router = createBrowserRouter([
       { path: '/saturday', element: <SaturdayPage /> },
       { path: '/map', element: <MapPage /> },
       { path: '/profile', element: <ProfilePage /> },
+      { path: '/profile/current-form', element: <CurrentFormPage /> },
       { path: '/profile/performances', element: <PerformancesPage /> },
       { path: '/profile/performances/new', element: <PerformanceFormPage /> },
       { path: '/profile/performances/:id/edit', element: <PerformanceFormPage /> },

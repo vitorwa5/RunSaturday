@@ -1,9 +1,10 @@
-import { formatDateWithYear, formatFinishTime, GOALS, type UserPerformance } from '@runsaturday/shared';
+import { formatDateWithYear, formatFinishTime, GOALS, type UserPerformance, type UserProfile } from '@runsaturday/shared';
 import { ChevronRight, Heart, Link2, MapPin, Plus, ShieldCheck, Timer } from 'lucide-react';
 import { useId } from 'react';
 import { Link } from 'react-router';
 import { PerformanceList } from '../components/profile/PerformanceList';
-import { PERFORMANCE_TYPE_LABEL } from '../lib/display';
+import { CONFIDENCE_SHORT, formatAgo, PERFORMANCE_TYPE_LABEL, TREND_LABEL } from '../lib/display';
+import { ConfidenceBadge } from '../components/ui/ConfidenceBadge';
 import { ButtonLink } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { DefinitionList } from '../components/ui/DefinitionList';
@@ -26,7 +27,7 @@ function BestCard({
 }: {
   label: string;
   performance: UserPerformance | null;
-  preset: 'pb' | 'recent';
+  preset: 'pb' | 'recent' | 'parkrun';
   emptyText: string;
   hint?: string;
 }) {
@@ -75,6 +76,43 @@ function LastRun({ latest }: { latest: UserPerformance }) {
     </Link>
   ) : (
     <div className={box}>{body}</div>
+  );
+}
+
+const ago = (date: string, today: string) => `${formatDateWithYear(date)} · ${formatAgo(date, today)}`;
+
+/** Current Form: a modelled estimate, visibly different from the recorded bests. */
+function CurrentFormCard({ profile }: { profile: UserProfile }) {
+  const form = profile.currentForm;
+  return (
+    <Link
+      to="/profile/current-form"
+      aria-label={
+        form.status === 'estimate'
+          ? `Current Form about ${formatFinishTime(form.formSeconds!)}, ${CONFIDENCE_SHORT[form.confidence.level]} confidence: how is it calculated?`
+          : 'Current Form unavailable: how is it calculated?'
+      }
+      className="block rounded-2xl border border-brand-700/30 bg-brand-50 p-3 hover:bg-brand-100"
+    >
+      <p className="text-[11px] font-semibold tracking-wide text-brand-800 uppercase">Current Form</p>
+      {form.status === 'estimate' ? (
+        <>
+          <p className="mt-1 text-2xl font-bold tabular-nums">≈ {formatFinishTime(form.formSeconds!)}</p>
+          <p className="mt-1 flex flex-wrap items-center gap-1">
+            <ConfidenceBadge level={form.confidence.level} compact />
+          </p>
+          <p className="mt-1 text-xs text-muted">{TREND_LABEL[form.trend.direction]}</p>
+        </>
+      ) : (
+        <>
+          <p className="mt-1 text-sm font-semibold text-muted">Unavailable</p>
+          {form.indicativeSeconds != null && <p className="text-xs text-muted">≈ {formatFinishTime(form.indicativeSeconds)} from one run (indicative)</p>}
+        </>
+      )}
+      <p className="mt-1.5 inline-flex items-center gap-0.5 text-xs font-semibold text-brand-700">
+        How is it calculated? <ChevronRight className="size-3.5" aria-hidden />
+      </p>
+    </Link>
   );
 }
 
@@ -169,7 +207,20 @@ export function ProfilePage() {
               <span id="performance-summary">Performance summary</span>
             </SectionHeading>
             <div className="grid grid-cols-2 gap-2">
-              <BestCard label="Overall 5K PB" performance={summary!.lifetimePb} preset="pb" emptyText="No performances yet" />
+              <BestCard
+                label="Overall 5K PB"
+                performance={summary!.lifetimePb}
+                preset="pb"
+                emptyText="No performances yet"
+                hint={summary!.lifetimePb ? ago(summary!.lifetimePb.date, summary!.asOfDate) : undefined}
+              />
+              <BestCard
+                label="parkrun PB"
+                performance={summary!.parkrunPb}
+                preset="parkrun"
+                emptyText="No parkrun performances yet"
+                hint={summary!.parkrunPb ? ago(summary!.parkrunPb.date, summary!.asOfDate) : undefined}
+              />
               <BestCard
                 label="Recent best"
                 performance={summary!.recentBest}
@@ -177,14 +228,15 @@ export function ProfilePage() {
                 emptyText={`Nothing in the last ${summary!.recentWindowDays} days`}
                 hint={`Last ${summary!.recentWindowDays} days`}
               />
+              <CurrentFormCard profile={profile} />
             </div>
-            {summary!.parkrunPb && summary!.lifetimePb && summary!.parkrunPb.id !== summary!.lifetimePb.id && (
+            {profile.currentFormGapToOverallPbSeconds != null && (
               <p className="rounded-2xl border border-line bg-surface px-3 py-2 text-sm">
-                <span className="text-muted">parkrun PB</span>{' '}
-                <strong className="tabular-nums">{formatFinishTime(summary!.parkrunPb.finishTimeSeconds)}</strong>
+                <span className="text-muted">Gap from Current Form to Overall 5K PB</span>{' '}
+                <strong className="tabular-nums">{formatFinishTime(Math.abs(profile.currentFormGapToOverallPbSeconds))}</strong>
                 <span className="text-muted">
                   {' '}
-                  · {summary!.parkrunPb.eventName} · {formatDateWithYear(summary!.parkrunPb.date)}
+                  ({profile.currentFormGapToOverallPbSeconds >= 0 ? 'Current Form is slower' : 'Current Form is faster'})
                 </span>
               </p>
             )}
@@ -194,21 +246,8 @@ export function ProfilePage() {
               <Stat label="Different events" value={summary!.uniqueEvents} />
             </div>
             <p className="text-xs text-muted">
-              Overall 5K PB is your fastest 5K at any race, parkrun or otherwise; recent best covers the last {summary!.recentWindowDays} days. Both, and your visits, are
-              worked out from your recorded performances.
-            </p>
-          </section>
-
-          <section aria-labelledby="current-form" className="rounded-2xl border border-line bg-surface p-3">
-            <div className="flex items-baseline justify-between gap-2">
-              <h2 id="current-form" className="text-sm font-semibold">
-                Current form
-              </h2>
-              <p className="text-lg font-bold tabular-nums">{profile.current5kEstimateSeconds != null ? formatFinishTime(profile.current5kEstimateSeconds) : 'Not set'}</p>
-            </div>
-            <p className="mt-1 text-xs text-muted">
-              An estimate of your fitness{profile.isDemo ? ' (demo value)' : ''}, not a recorded performance. It is kept separate from your PBs until a form
-              model arrives.
+              Overall 5K PB (any race) and parkrun PB are achievements you have recorded; Recent best is your best in the last {summary!.recentWindowDays} days.
+              Current Form is different: a modelled, course-neutral estimate of your present ability from several recent runs, not a recorded result.
             </p>
           </section>
 

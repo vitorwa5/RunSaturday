@@ -2,7 +2,7 @@
  * Presentation mappings: how values are labelled and toned in the UI.
  * No scoring maths lives here, only display thresholds and wording.
  */
-import { ordinal, type PerformanceSource, type PerformanceType, type ConfidenceLevel, type CourseType, type FacilityStatus, type HistoricalFrequency, type Recommendation, type Surface } from '@runsaturday/shared';
+import { ordinal, type FormTrendDirection, type PerformanceSource, type PerformanceType, type ConfidenceLevel, type CourseType, type FacilityStatus, type HistoricalFrequency, type Recommendation, type Surface } from '@runsaturday/shared';
 
 export type Tone = 'positive' | 'caution' | 'problem' | 'info' | 'neutral';
 
@@ -149,4 +149,25 @@ export const PERFORMANCE_SOURCE_LABEL: Record<PerformanceSource, string> = {
   parkrun_api: 'parkrun',
   garmin: 'Garmin',
   strava: 'Strava',
+};
+
+/** "6 days ago", "3 weeks ago", "7 months ago", "7 years ago" (age of a date relative to today). */
+export function formatAgo(isoDate: string, todayIso: string): string {
+  const days = Math.round((Date.parse(`${todayIso}T00:00:00Z`) - Date.parse(`${isoDate}T00:00:00Z`)) / 86_400_000);
+  const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'} ago`;
+  if (days <= 0) return 'today';
+  if (days < 14) return unit(days, 'day');
+  if (days < 60) return unit(Math.floor(days / 7), 'week');
+  if (days < 365) return unit(Math.floor(days / 30.44), 'month');
+  // Whole calendar years, so exactly one year ago reads "1 year ago".
+  const [y1, m1, d1] = isoDate.split('-').map(Number) as [number, number, number];
+  const [y2, m2, d2] = todayIso.split('-').map(Number) as [number, number, number];
+  return unit(Math.max(1, y2 - y1 - (m2 < m1 || (m2 === m1 && d2 < d1) ? 1 : 0)), 'year');
+}
+
+export const TREND_LABEL: Record<FormTrendDirection, string> = {
+  improving: 'Improving',
+  stable: 'Stable',
+  declining: 'Declining',
+  limited: 'Trend: limited data',
 };

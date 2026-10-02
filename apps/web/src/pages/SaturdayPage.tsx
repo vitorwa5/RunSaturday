@@ -10,7 +10,7 @@ import {
 } from '@runsaturday/shared';
 import { Columns3, Flag, Home, Info, RotateCcw, SearchX } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { RecommendationCard } from '../components/events/RecommendationCard';
 import { ToolLinks } from '../components/navigation/ToolLinks';
 import { FilterPanel } from '../components/ui/FilterPanel';
@@ -187,6 +187,14 @@ export function SaturdayPage() {
         <SectionHeading>
           <span id="results-heading">Your Saturday options</span>
         </SectionHeading>
+        {data && (
+          <p className="mb-3 rounded-2xl border border-line bg-surface px-3 py-2 text-xs text-muted" role="note" aria-label="Your ability reference">
+            {data.ability.note}{' '}
+            <Link to="/profile/current-form" className="font-semibold text-brand-700">
+              About Current Form
+            </Link>
+          </p>
+        )}
         {isPending ? (
           <LoadingState variant="card" label="Ranking events" />
         ) : isError ? (

@@ -57,7 +57,9 @@ const EQUIVALENT_ROW: MetricRow = {
     return (
       <>
         ≈ {formatFinishTime(a.equivalentSeconds)}
-        <span className="block text-xs font-normal text-subtle">{a.sourceEventId === a.targetEventId ? 'Where it was run' : formatDeltaSeconds(a.deltaSeconds ?? 0)}</span>
+        <span className="block text-xs font-normal text-subtle">
+          {a.sourceKind === 'current_form' ? 'from Current Form' : a.sourceEventId === a.targetEventId ? 'Where it was run' : formatDeltaSeconds(a.deltaSeconds ?? 0)}
+        </span>
       </>
     );
   },

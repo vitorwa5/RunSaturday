@@ -89,10 +89,11 @@ npm run dev          # API on :3001, web on http://localhost:5173
 | `npm test` | Vitest across all workspaces |
 | `npm run build` | API bundle (`apps/api/dist`) + web build (`apps/web/dist`) |
 | `npm run check` | typecheck + test + build |
-| `npm run test:e2e` | Playwright at 360 px and 430 px (starts its own demo servers) |
+| `npm run test:e2e` | Playwright at 360, 390 and 430 px (starts its own demo servers) |
 | `npm run db:up` / `db:down` | start/stop the Docker database |
 | `npm run db:migrate` / `db:seed` / `db:reset` | Prisma migrations / DEMO seed / full reset |
-| `npm run analytics:recalculate` | recalculate Competition V1 and Difficulty V1 snapshots (`-- --as-of=YYYY-MM-DD` optional); the seed runs it too |
+| `npm run analytics:recalculate` | recalculate Course Speed, Difficulty, Competition and PB Score snapshots (`-- --as-of=YYYY-MM-DD` optional); the seed runs it too |
+| `npm run runner-form:recalculate` | recalculate Current Form (`runner_form_v1`) snapshots for every user; run it after `analytics:recalculate` (the seed runs both) |
 
 Database integration tests run only when you point them at a seeded database:
 
@@ -130,6 +131,7 @@ Web (optional, `apps/web/.env`): `VITE_API_BASE_URL` (default `/api`) and `VITE_
 | `GET /api/recommendations/best-pick?goal=&maxTravel=` | best pick plus 3 alternatives, with highlights and reasons |
 | `GET /api/planner?date=&goal=&maxTravel=&surface=&elevation=&participants=&visited=&course=&confidence=` | Saturday Planner: ranked results, counts, and caveats |
 | `GET /api/profile` | current (demo) user profile; PBs, recent best, visit counts and `performance` summary are derived from UserPerformance |
+| `GET /api/profile/current-form` | Current Form (`runner_form_v1`) with its full breakdown: inputs, weights, exclusions, confidence, trend |
 | `GET /api/profile/performance-summary` | derived values: lifetime PB, recent best (90 days), latest, totals, per-event count/PB/latest |
 | `GET /api/profile/performances?eventId=&limit=` | the user's performances, newest first |
 | `GET /api/profile/performances/:id` | one of the user's performances |
@@ -182,7 +184,7 @@ Errors always use the shape `{ "error": { "code", "message" } }` with a human-re
 | Totals / visited | performance count; distinct places (internal events plus distinct external names); "visited" = has a performance at that internal event |
 
 - **Field status:**
-  - **Canonical:** `UserPerformance`; `User.current5kEstimateSeconds` (an estimate of current fitness, kept separate until the Runner Form Model in Phase 4B); `UserEvent.favourite`.
+  - **Canonical:** `UserPerformance`; `UserEvent.favourite`. `User.current5kEstimateSeconds` became transitional in Phase 4B (Current Form now comes from `RunnerFormSnapshot`).
   - **Transitional, no longer read or written:** `User.lifetimePbSeconds`, `recentPbSeconds`, `lifetimePbEventId` and `recentPbEventId`; `UserEvent.visited`, `visitCount` and `personalBestSeconds`. They were kept so the migration is non-destructive and will be dropped in a later migration.
 - **Migration:** the legacy single values have no dates, so SQL cannot turn them into performances. Instead the demo user's legacy history becomes a dated history (`demo/demoUserPerformances.ts`): each event keeps its visit count and PB (Riverside 34 runs/18:58, Victoria Park 6/19:36, Lakeside 2/19:09, Forest Trail 1/22:22). The lifetime PB (18:58 at Riverside) sits about 30 weeks ago and the recent best (19:32 at Riverside) 2 weeks ago. The other runs are deterministic and slower, so the derived values reproduce the old ones.
 - **Validation (server):**
@@ -196,6 +198,68 @@ Errors always use the shape `{ "error": { "code", "message" } }` with a human-re
 - **Migration 4A.1** is additive. It adds the columns, backfills existing rows to `distanceMeters = 5000`, `PARKRUN` and their `event:` key, makes `eventId` nullable, adds the CHECK constraints, and swaps the old `(userId, eventId, date)` unique index for the key. Ids and data are unchanged; I verified the 43 existing rows column for column.
 - **Privacy:** every store method takes the owning `userId` and filters by it; another user's id is simply "not found". Until authentication exists, routes act as the demo user.
 - **Where Could I Place?, Compare and the outlook** use the derived lifetime PB and recent best, together with the event where each was run, so course-adjusted mode needs no manual "Achieved at" for them. Typed times still need one.
+
+### Runner Form V1 (`runner_form_v1`, Phase 4B): Current Form
+
+Four separate concepts, never mixed:
+
+| Concept | Meaning |
+| --- | --- |
+| **Overall 5K PB** | best recorded 5000 m performance ever (any race): an achievement |
+| **parkrun PB** | best recorded 5000 m parkrun: an achievement |
+| **Recent best** | best recorded 5000 m performance in the last 90 days |
+| **Current Form** | a *modelled* estimate of present 5K ability from several recent runs, course-neutral |
+
+**Method** (`analytics/runnerForm.ts`; all parameters in `RUNNER_FORM_V1`):
+
+1. **Eligibility.** 5000 m performances from the last **180 days**, at a known event whose Course Speed Factor is at least Medium confidence. Everything else is listed as excluded, with a reason:
+   - other distances;
+   - performances older than 180 days (an old PB is history, not current ability);
+   - external courses 5K Compass does not model (never assumed neutral, factor 1.000);
+   - events with no factor, or a Low/Limited factor.
+2. **Course normalisation.** `neutral = actual ÷ course factor`: the time at the analysed-cohort reference course. The model works in log space.
+3. **Weights.**
+   - *Recency:* `0.5^(age / 45 days)`, a smooth exponential half-life of 45 days. 45 days ago counts ½ and 90 days ago ¼.
+   - *Course-factor confidence:* High 1.0, Medium 0.75.
+4. **Robust centre.** An asymmetric weighted Huber M-estimate in log space, iterated to convergence.
+   - It starts at the weighted median, with scale = max(1%, 1.4826 × weighted MAD).
+   - **Slow results** beyond 1.5 scale units are down-weighted in proportion (k/u). A jog or a bad day keeps reduced influence and is never deleted.
+   - **Fast results** are tolerated twice as far (3 units), so a genuine new best counts in full. Only an implausible outlier, such as a mistyped time, is down-weighted.
+   - Current Form is `exp(centre)`. It is never the single fastest run.
+5. **Minimum data.**
+   - No eligible runs: unavailable.
+   - One run: *indicative* (its neutral value for reference only, no Current Form).
+   - Two or three runs: an estimate capped at Low confidence.
+6. **Confidence** (0–100, then High ≥ 75 / Medium ≥ 55 / Low ≥ 35 / Limited data), a weighted sum of six parts:
+
+   | Part | Weight | Full marks |
+   | --- | --- | --- |
+   | Amount: effective number of weighted runs | 30% | 8 |
+   | Recency of the latest run | 20% | ≤ 14 days old; 0 at 120 days |
+   | Consistency: robust spread | 20% | ≤ 1.5%; 0 at 6% |
+   | Course-factor confidence | 15% | — |
+   | Different events | 10% | 3 events |
+   | Time coverage | 5% | 42 days |
+
+   If the latest run is over 90 days old, the level is capped at Low. Confidence describes the evidence, never the chance of running the time.
+7. **Trend.** A weighted least-squares slope of log-neutral time against date, weighted by course weight × robust weight so an outlier cannot create a trend.
+   - It needs at least 4 runs spanning at least 28 days; otherwise *Limited data*.
+   - It is *Improving* or *Declining* only when the change is at least 1.5% per 90 days **and** |slope / standard error| ≥ 2. Otherwise it is *Stable*.
+8. **Snapshots.** Current Form is stored in `RunnerFormSnapshot`, unique per (user, distance, version, asOfDate). It is recalculated:
+   - when the user's performances change;
+   - lazily, once per day;
+   - by `npm run runner-form:recalculate` (run it after new course factors).
+
+   The API reads the snapshot and never recomputes per request.
+
+**Using Current Form.** It is already course-neutral, so converting it to an event is `equivalent = form × f_target`. It is never divided by a source factor, and no source event is invented.
+- **Where Could I Place?, Compare and the Event outlook:** these default to Current Form (`basis=current_form`, read on the server from the user's own snapshot). Overall 5K PB, parkrun PB, recent best and typed times stay selectable, and Raw time mode is kept.
+- **Hidden Gems:** uses Current Form converted per course.
+- **Saturday Planner:** names Current Form as the ability reference. Its rankings don't depend on ability.
+- **When Current Form is unavailable:** every tool says so and falls back transparently. An old PB is never used as current ability.
+- **Profile:** shows the descriptive *gap* between Current Form and the Overall 5K PB. There are no readiness or improvement predictions.
+
+**Scope and future.** V1 is 5000 m only. A future 10K, half or marathon form must be its own distance-specific model with distance-specific course factors; a 5K Current Form is never reused for them. Current Form is the foundation for later features (PB gap, form trend, PB-attempt recommendations, adaptive training plans), none of which are implemented yet.
 
 ### Source of truth: Result vs EventOccurrence
 

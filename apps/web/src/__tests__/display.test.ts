@@ -69,3 +69,15 @@ describe('course speed and PB display', () => {
     expect(formatDeltaSeconds(0)).toBe('±0:00');
   });
 });
+
+describe('Current Form display helpers', () => {
+  it('describes how long ago a performance was', async () => {
+    const { formatAgo } = await import('../lib/display');
+    expect(formatAgo('2026-10-01', '2026-10-01')).toBe('today');
+    expect(formatAgo('2026-09-25', '2026-10-01')).toBe('6 days ago');
+    expect(formatAgo('2026-09-10', '2026-10-01')).toBe('3 weeks ago');
+    expect(formatAgo('2026-03-07', '2026-10-01')).toBe('6 months ago');
+    expect(formatAgo('2019-09-01', '2026-10-01')).toBe('7 years ago');
+    expect(formatAgo('2025-10-01', '2026-10-01')).toBe('1 year ago');
+  });
+});
