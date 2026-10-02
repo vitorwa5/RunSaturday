@@ -29,7 +29,7 @@ describe('bestPick (Phase 1 placeholder ranking)', () => {
     expect(res.pick?.event.id).toBe('established');
     const limited = res.alternatives[0]!;
     expect(limited.event.id).toBe('new');
-    expect(limited.reasons).toContainEqual({ text: 'Limited data: only 3 recent events', tone: 'caution' });
+    expect(limited.reasons).toContainEqual({ text: 'PB Score unavailable: limited matched-runner data', tone: 'caution' });
   });
 
   it('ranks Place goal by lowest competition', () => {

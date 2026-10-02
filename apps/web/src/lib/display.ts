@@ -2,7 +2,7 @@
  * Presentation mappings: how values are labelled and toned in the UI.
  * No scoring maths lives here, only display thresholds and wording.
  */
-import { ordinal, type ConfidenceLevel, type CourseType, type FacilityStatus, type DataSource, type HistoricalFrequency, type Recommendation, type Surface } from '@runsaturday/shared';
+import { ordinal, type ConfidenceLevel, type CourseType, type FacilityStatus, type HistoricalFrequency, type Recommendation, type Surface } from '@runsaturday/shared';
 
 export type Tone = 'positive' | 'caution' | 'problem' | 'info' | 'neutral';
 
@@ -101,6 +101,26 @@ export function formatFrequency(f: HistoricalFrequency): string {
   return `${f.count} of ${f.of} ${f.of === 1 ? 'event' : 'events'}`;
 }
 
-/** PB Score label: stays "Demo PB Score" for demo data until the real model (Phase 3B). */
-export const pbLabel = (source: DataSource, short = false) =>
-  source === 'demo' ? (short ? 'Demo PB' : 'Demo PB Score') : short ? 'PB' : 'PB Score';
+/** PB Score label (pb_v1, calculated from course factors for demo and imported data alike). */
+export const pbLabel = (short = false) => (short ? 'PB' : 'PB Score');
+
+export const PB_UNAVAILABLE = 'PB Score unavailable';
+export const LIMITED_MATCHED = 'Limited matched-runner data';
+
+/** Course Speed Factor, three decimals ("0.969"). */
+export const formatFactor = (f: number | null | undefined) => (f == null ? '—' : f.toFixed(3));
+
+/** "3.1% faster than average" / "5.5% slower than average" / "about average". */
+export function factorPhrase(f: number | null | undefined): string {
+  if (f == null) return LIMITED_MATCHED;
+  const pct = Math.abs(f - 1) * 100;
+  if (pct < 0.25) return 'about average';
+  return `${pct.toFixed(1)}% ${f < 1 ? 'faster' : 'slower'} than average`;
+}
+
+/** Signed seconds as "+1:12" / "−0:20" / "±0:00". */
+export function formatDeltaSeconds(delta: number): string {
+  const abs = Math.abs(delta);
+  const text = `${Math.floor(abs / 60)}:${String(abs % 60).padStart(2, '0')}`;
+  return delta === 0 ? `±${text}` : `${delta > 0 ? '+' : '−'}${text}`;
+}

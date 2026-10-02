@@ -126,10 +126,11 @@ export function explain(e: EventSummary, goal: Goal, maxTravelMinutes: number | 
     );
   }
 
-  if (hasLimitedData(e)) add(`Limited data: only ${s?.sampleSize ?? 0} recent events`, 'caution');
-  else if (s?.pbConfidence === 'high') add(`High data confidence (${s.sampleSize} events in ${s.windowDays} days)`);
-  else if (s?.pbConfidence === 'medium') add(`Medium data confidence (${s.sampleSize} events in ${s.windowDays} days)`);
-  else if (s?.pbConfidence === 'low') add(`Low data confidence (${s.sampleSize} events)`, 'caution');
+  // PB Score confidence is the Course Speed Factor's: it rests on matched runners, not event counts.
+  if (hasLimitedData(e)) add('PB Score unavailable: limited matched-runner data', 'caution');
+  else if (s?.pbConfidence === 'high') add('High confidence (course speed from many matched runners)');
+  else if (s?.pbConfidence === 'medium') add('Medium confidence (course speed from matched runners)');
+  else if (s?.pbConfidence === 'low') add('Low confidence (few matched runners)', 'caution');
 
   return reasons;
 }

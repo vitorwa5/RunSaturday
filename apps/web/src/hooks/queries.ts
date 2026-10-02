@@ -1,7 +1,7 @@
 /** TanStack Query hooks: the only way pages obtain server data. */
 import type { Goal, HiddenGemModeId, HistoryWindowId, PbFinderSortId, PlacementTargetId, PlannerFilters } from '@runsaturday/shared';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { api } from '../api/endpoints';
+import { api, type PlacementQuery } from '../api/endpoints';
 import { serializePlannerParams, type PlannerSelection } from '../lib/plannerParams';
 
 export const queryKeys = {
@@ -54,7 +54,7 @@ export const useEventAnalytics = (id: string, window: HistoryWindowId, enabled =
     placeholderData: (previous) => (previous?.eventId === id ? previous : undefined),
   });
 
-export const usePlacement = (q: { timeSeconds: number | null; window: HistoryWindowId; target: PlacementTargetId; maxTravel?: number }) =>
+export const usePlacement = (q: Omit<PlacementQuery, 'timeSeconds'> & { timeSeconds: number | null }) =>
   useQuery({
     queryKey: ['placement', q] as const,
     queryFn: ({ signal }) => api.placement({ ...q, timeSeconds: q.timeSeconds! }, signal),
@@ -62,10 +62,11 @@ export const usePlacement = (q: { timeSeconds: number | null; window: HistoryWin
     placeholderData: keepPreviousData,
   });
 
-export const useEventPlacement = (id: string, timeSeconds: number | null | undefined) =>
+/** `source`: where the time was achieved; the API then course-adjusts it when the data allow. */
+export const useEventPlacement = (id: string, timeSeconds: number | null | undefined, source?: string) =>
   useQuery({
-    queryKey: ['event', id, 'placement', timeSeconds] as const,
-    queryFn: ({ signal }) => api.eventPlacement(id, timeSeconds!, signal),
+    queryKey: ['event', id, 'placement', timeSeconds, source ?? null] as const,
+    queryFn: ({ signal }) => api.eventPlacement(id, timeSeconds!, source, signal),
     enabled: timeSeconds != null,
   });
 
@@ -75,7 +76,7 @@ export const usePbFinder = (q: { maxTravel?: number; sort: PbFinderSortId } & Pi
 export const useHiddenGems = (q: { mode: HiddenGemModeId; maxTravel?: number }) =>
   useQuery({ queryKey: ['hidden-gems', q] as const, queryFn: ({ signal }) => api.hiddenGems(q, signal), placeholderData: keepPreviousData });
 
-export const useCompare = (q: { ids: string[]; timeSeconds?: number }) =>
+export const useCompare = (q: { ids: string[]; timeSeconds?: number; source?: string }) =>
   useQuery({
     queryKey: ['compare', q] as const,
     queryFn: ({ signal }) => api.compare(q, signal),

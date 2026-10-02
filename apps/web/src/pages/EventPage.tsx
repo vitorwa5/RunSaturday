@@ -27,7 +27,7 @@ import { PageHeader, SectionHeading } from '../components/ui/PageHeader';
 import { ReservedFeature } from '../components/ui/ReservedFeature';
 import { Tabs, type TabDef } from '../components/ui/Tabs';
 import { useEvent, useEventHistory, useProfile } from '../hooks/queries';
-import { COURSE_TYPE_LABEL, formatCount, formatMeters, SURFACE_LABEL } from '../lib/display';
+import { COURSE_TYPE_LABEL, factorPhrase, formatCount, formatDeltaSeconds, formatFactor, formatMeters, LIMITED_MATCHED, SURFACE_LABEL } from '../lib/display';
 
 type TabId = 'overview' | 'results' | 'course' | 'info';
 const TABS: TabDef<TabId>[] = [
@@ -120,11 +120,21 @@ function CourseTab({ event }: { event: EventDetail }) {
       <div className="space-y-2">
         <ReservedFeature icon={MapPin} title="Course map" description="The route, start and finish on a map." />
         <ReservedFeature icon={Mountain} title="Elevation profile" description="Where the climbs and descents are." />
-        <ReservedFeature
-          icon={Timer}
-          title="Estimated course adjustment"
-          description="Roughly how many seconds faster or slower than a neutral 5K. Always an estimate."
-        />
+        <div className="flex items-start gap-3 rounded-2xl border border-line bg-surface p-3">
+          <Timer className="mt-0.5 size-5 text-brand-700" aria-hidden />
+          <div className="text-sm">
+            <p className="font-semibold">Course speed</p>
+            {event.scores?.courseSpeedFactor != null ? (
+              <p className="text-muted">
+                <strong className="text-ink tabular-nums">{formatFactor(event.scores.courseSpeedFactor)}</strong> · {factorPhrase(event.scores.courseSpeedFactor)}, from
+                runners who also ran other events. About {formatDeltaSeconds(Math.round(1200 * (event.scores.courseSpeedFactor - 1)))} on a 20:00 run at an
+                average course.
+              </p>
+            ) : (
+              <p className="text-muted">Course adjustment unavailable — {LIMITED_MATCHED.toLowerCase()}.</p>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -266,7 +276,7 @@ export function EventPage() {
       <p className="flex items-center gap-1.5 text-xs text-subtle">
         <Route className="size-3.5" aria-hidden />
         {event.scores
-          ? `Competition ${event.scores.versions.competition ?? 'n/a'} · Difficulty ${event.scores.versions.difficulty ?? 'n/a'} · ${event.source === 'demo' ? 'Demo PB Score' : 'PB Score'} ${event.scores.versions.pb}`
+          ? `Course speed ${event.scores.versions.courseSpeed ?? 'n/a'} · Competition ${event.scores.versions.competition ?? 'n/a'} · Difficulty ${event.scores.versions.difficulty ?? 'n/a'} · PB Score ${event.scores.versions.pb}`
           : 'Scores not yet calculated.'}
       </p>
     </div>

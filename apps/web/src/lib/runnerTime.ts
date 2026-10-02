@@ -7,6 +7,13 @@ export const PROFILE_TIME_FIELD = {
   pb: 'lifetimePbSeconds',
 } as const satisfies Record<Exclude<RunnerTimeSourceId, 'manual'>, keyof UserProfile>;
 
+/** Where each profile time was achieved (current form is an estimate, not a run at one event). */
+export function profileSourceEvent(source: RunnerTimeSourceId, profile: UserProfile | undefined): { id: string; name: string } | null {
+  if (source === 'recent') return profile?.recentPbEvent ?? null;
+  if (source === 'pb') return profile?.lifetimePbEvent ?? null;
+  return null;
+}
+
 /** The time for a source, or null when the profile has none / manual time is invalid. */
 export function resolveRunnerTime(source: RunnerTimeSourceId, profile: UserProfile | undefined, manualSeconds: number | null): number | null {
   if (source === 'manual') return manualSeconds;

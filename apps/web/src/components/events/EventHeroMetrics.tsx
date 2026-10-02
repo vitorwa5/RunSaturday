@@ -1,13 +1,17 @@
 import type { EventDetail } from '@runsaturday/shared';
-import { Mountain, Users } from 'lucide-react';
+import { Gauge, Mountain, Users } from 'lucide-react';
 import {
   competitionBand,
   difficultyBand,
   formatCount,
   formatDifficulty,
+  factorPhrase,
+  formatFactor,
   formatScore,
+  LIMITED_MATCHED,
   opportunityBand,
   pbLabel,
+  PB_UNAVAILABLE,
   type Band,
 } from '../../lib/display';
 import { ConfidenceBadge } from '../ui/ConfidenceBadge';
@@ -30,7 +34,11 @@ export function EventHeroMetrics({ event }: { event: EventDetail }) {
   return (
     <section aria-label="Key metrics" className="overflow-hidden rounded-3xl border border-line bg-surface">
       <dl className="grid grid-cols-3 divide-x divide-line">
-        <Primary label={pbLabel(event.source)} value={formatScore(s?.pbScore)} scale="out of 100" band={opportunityBand(s?.pbScore)} />
+        {s?.pbScore != null ? (
+          <Primary label={pbLabel()} value={formatScore(s.pbScore)} scale="out of 100" band={opportunityBand(s.pbScore)} />
+        ) : (
+          <Primary label={pbLabel()} value="—" scale={PB_UNAVAILABLE} band={{ label: LIMITED_MATCHED, tone: 'neutral' }} />
+        )}
         <Primary label="Difficulty" value={formatDifficulty(s?.difficultyScore)} scale="out of 10" band={difficultyBand(s?.difficultyScore)} />
         <Primary label="Competition" value={formatScore(s?.competitionScore)} scale="out of 100" band={competitionBand(s?.competitionScore)} />
       </dl>
@@ -55,10 +63,24 @@ export function EventHeroMetrics({ event }: { event: EventDetail }) {
             )}
           </dd>
         </div>
-        <div>
-          <dt className="sr-only">Data confidence</dt>
+        <div className="flex items-center gap-1.5">
+          <Gauge className="size-4 text-subtle" aria-hidden />
+          <dt className="sr-only">Course Speed Factor</dt>
           <dd>
-            <ConfidenceBadge level={s?.pbConfidence ?? 'insufficient'} sampleSize={s?.sampleSize} windowDays={s?.windowDays} />
+            {s?.courseSpeedFactor != null ? (
+              <>
+                <strong className="font-bold tabular-nums">{formatFactor(s.courseSpeedFactor)}</strong>{' '}
+                <span className="text-muted">course speed · {factorPhrase(s.courseSpeedFactor)}</span>
+              </>
+            ) : (
+              <span className="text-muted">Course speed: {LIMITED_MATCHED.toLowerCase()}</span>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt className="sr-only">PB Score confidence</dt>
+          <dd>
+            <ConfidenceBadge level={s?.pbConfidence ?? 'insufficient'} />
           </dd>
         </div>
       </dl>

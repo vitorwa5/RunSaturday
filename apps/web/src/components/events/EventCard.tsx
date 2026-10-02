@@ -28,7 +28,7 @@ export function EventCard({ event }: { event: EventSummary }) {
           <TravelBadge travel={event.travel} />
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
-          <ScoreBadge label={pbLabel(event.source, true)} score={event.scores?.pbScore} />
+          <ScoreBadge label={pbLabel(true)} score={event.scores?.pbScore} />
           <ScoreBadge label="Comp" score={event.scores?.competitionScore} kind="competition" />
           <ConfidenceBadge level={event.scores?.pbConfidence ?? 'insufficient'} compact />
         </div>

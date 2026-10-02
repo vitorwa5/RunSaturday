@@ -114,7 +114,7 @@ export function PbFinderPage() {
                   </strong>{' '}
                   within {data.maxTravelMinutes} min · sorted by {sortLabel.toLowerCase().replace(/\bpb\b/g, 'PB')}
                 </p>
-                <p className="mt-0.5 text-xs text-subtle">Using demo PB Scores</p>
+                <p className="mt-0.5 text-xs text-subtle">PB Score V1: 75% observed course speed, 25% structural ease</p>
               </div>
               {data.results.length >= 2 && (
                 <ButtonLink to={`/compare?ids=${data.results.slice(0, 3).map((r) => r.event.id).join(',')}`} variant="ghost" className="min-h-9 shrink-0 px-2">
@@ -128,8 +128,8 @@ export function PbFinderPage() {
                 <li key={r.event.id}>
                   <RecommendationCard
                     recommendation={r}
-                    metricLabel={r.event.source === 'demo' ? 'Demo PB Score' : 'PB Score'}
-                    secondary={['difficulty', 'elevation', 'surface']}
+                    metricLabel="PB Score"
+                    secondary={['course_speed', 'difficulty', 'elevation', 'surface']}
                   />
                 </li>
               ))}

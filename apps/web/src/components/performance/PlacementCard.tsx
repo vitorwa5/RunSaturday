@@ -1,4 +1,4 @@
-import { formatShortDate, ordinal, PLACEMENT_TARGETS, type EventPlacement, type PlacementTargetId } from '@runsaturday/shared';
+import { formatFinishTime, formatShortDate, ordinal, PLACEMENT_TARGETS, type EventPlacement, type PlacementTargetId } from '@runsaturday/shared';
 import { Car, ChevronDown } from 'lucide-react';
 import { useId, useState } from 'react';
 import { formatFrequency, formatPlacementRange, formatScore } from '../../lib/display';
@@ -6,6 +6,7 @@ import { AlertBanner } from '../ui/AlertBanner';
 import { Button, ButtonLink } from '../ui/Button';
 import { ConfidenceBadge } from '../ui/ConfidenceBadge';
 import { DemoBadge } from '../ui/DemoBadge';
+import { AdjustmentSummary } from './AdjustmentSummary';
 
 /** One event's historical placement for a runner time. Leads with typical position and target frequency. */
 export function PlacementCard({ placement, target }: { placement: EventPlacement; target: PlacementTargetId }) {
@@ -13,8 +14,12 @@ export function PlacementCard({ placement, target }: { placement: EventPlacement
   const [showHistory, setShowHistory] = useState(false);
   const historyId = useId();
   const targetLabel = PLACEMENT_TARGETS.find((t) => t.id === target)!.label;
+  // 1st / Top 3 / Top 10 are always shown in the strip; the selected target is highlighted there.
+  const targetInStrip = target === 'podium' || target === 'top10';
   if (!stats) return null;
   const limited = confidence === 'insufficient';
+  const adjusted = placement.adjustment?.available === true;
+  const timeLabel = adjusted ? `≈ ${formatFinishTime(placement.analysedSeconds)}` : formatFinishTime(placement.analysedSeconds);
 
   return (
     <article aria-label={event.name} className="rounded-3xl border border-line bg-surface p-4 shadow-[0_1px_4px_rgba(24,24,27,0.05)]">
@@ -33,25 +38,57 @@ export function PlacementCard({ placement, target }: { placement: EventPlacement
         {event.source === 'demo' && <DemoBadge />}
       </header>
 
+      {placement.adjustment && (
+        <div className="mt-3">
+          <AdjustmentSummary adjustment={placement.adjustment} />
+        </div>
+      )}
+
       <dl className="mt-3 grid grid-cols-2 gap-3">
         <div>
           <dt className="text-xs font-semibold tracking-wide text-muted uppercase">Typical position</dt>
           <dd className="mt-0.5 text-2xl font-extrabold tracking-tight tabular-nums">{formatPlacementRange(stats.typicalRange)}</dd>
         </div>
-        <div>
-          <dt className="text-xs font-semibold tracking-wide text-muted uppercase">{targetLabel} historically</dt>
-          <dd className="mt-0.5 text-2xl font-extrabold tracking-tight tabular-nums">
-            {placement.target ? `${placement.target.count} / ${placement.target.of}` : '—'}
-          </dd>
-          <dd className="text-xs text-subtle">events</dd>
-        </div>
+        {targetInStrip ? (
+          <div>
+            <dt className="text-xs font-semibold tracking-wide text-muted uppercase">Median position</dt>
+            <dd className="mt-0.5 text-2xl font-extrabold tracking-tight tabular-nums">{formatPlacementRange(stats.medianPlacement)}</dd>
+          </div>
+        ) : (
+          <div>
+            <dt className="text-xs font-semibold tracking-wide text-muted uppercase">{targetLabel} historically</dt>
+            <dd className="mt-0.5 text-2xl font-extrabold tracking-tight tabular-nums">
+              {placement.target ? `${placement.target.count} / ${placement.target.of}` : '—'}
+            </dd>
+            <dd className="text-xs text-subtle">events</dd>
+          </div>
+        )}
+      </dl>
+
+      <dl className="mt-3 grid grid-cols-3 gap-2 rounded-2xl border border-line p-2 text-center text-xs" aria-label="Historical frequency">
+        {(
+          [
+            ['1st', stats.frequencies.first, false],
+            ['Top 3', stats.frequencies.top3, target === 'podium'],
+            ['Top 10', stats.frequencies.top10, target === 'top10'],
+          ] as const
+        ).map(([label, f, selected]) => (
+          <div key={label} className={selected ? 'rounded-xl bg-brand-50 py-1' : 'py-1'}>
+            <dt className={selected ? 'font-semibold text-brand-800' : 'text-muted'}>{label} historically</dt>
+            <dd className="text-base font-extrabold tabular-nums">
+              {f.count} / {f.of}
+            </dd>
+          </div>
+        ))}
       </dl>
 
       <dl className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-line pt-3 text-xs">
-        <div className="flex gap-1">
-          <dt className="text-muted">Median</dt>
-          <dd className="font-bold">{formatPlacementRange(stats.medianPlacement)}</dd>
-        </div>
+        {!targetInStrip && (
+          <div className="flex gap-1">
+            <dt className="text-muted">Median</dt>
+            <dd className="font-bold">{formatPlacementRange(stats.medianPlacement)}</dd>
+          </div>
+        )}
         <div className="flex gap-1">
           <dt className="text-muted">Best</dt>
           <dd className="font-bold">{ordinal(stats.bestPlacement)}</dd>
@@ -86,7 +123,7 @@ export function PlacementCard({ placement, target }: { placement: EventPlacement
         </Button>
       </div>
       <div id={historyId} hidden={!showHistory} className="mt-3 rounded-2xl bg-canvas p-3">
-        <h4 className="mb-2 text-sm font-semibold">Historically, this time would have placed</h4>
+        <h4 className="mb-2 text-sm font-semibold">Historically, {timeLabel} would have placed</h4>
         <ul className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm tabular-nums">
           {history.map((h) => (
             <li key={h.date} className="flex justify-between gap-2">

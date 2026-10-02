@@ -12,7 +12,7 @@ import { ErrorState } from '../components/ui/ErrorState';
 import { LoadingState } from '../components/ui/LoadingState';
 import { PageHeader } from '../components/ui/PageHeader';
 import { useCompare, useEvents, useProfile } from '../hooks/queries';
-import { parseIdList, PROFILE_TIME_FIELD } from '../lib/runnerTime';
+import { parseIdList, profileSourceEvent, PROFILE_TIME_FIELD } from '../lib/runnerTime';
 
 const TIME_CHOICES = [
   { id: 'current', label: 'Current form' },
@@ -20,15 +20,18 @@ const TIME_CHOICES = [
   { id: 'pb', label: 'Lifetime PB' },
 ] as const;
 
-function timeOptions(profile: UserProfile | undefined, timeSeconds: number | undefined) {
+/** Option value "seconds" or "seconds@eventId" (where the time was achieved, for course adjustment). */
+const timeValue = (seconds: number, from: string | null | undefined) => (from ? `${seconds}@${from}` : String(seconds));
+
+function timeOptions(profile: UserProfile | undefined, timeSeconds: number | undefined, from: string | null) {
   const options: { value: string; label: string }[] = [];
   for (const c of TIME_CHOICES) {
     const s = profile?.[PROFILE_TIME_FIELD[c.id]];
-    if (s != null) options.push({ value: String(s), label: `${c.label} ${formatFinishTime(s)}` });
+    if (s != null) options.push({ value: timeValue(s, profileSourceEvent(c.id, profile)?.id), label: `${c.label} ${formatFinishTime(s)}` });
   }
   // A time passed in the URL (e.g. from Where Could I Place?) that is not a profile time.
-  if (timeSeconds != null && !options.some((o) => o.value === String(timeSeconds))) {
-    options.unshift({ value: String(timeSeconds), label: formatFinishTime(timeSeconds) });
+  if (timeSeconds != null && !options.some((o) => o.value === timeValue(timeSeconds, from))) {
+    options.unshift({ value: timeValue(timeSeconds, from), label: formatFinishTime(timeSeconds) });
   }
   options.push({ value: 'off', label: 'No time' });
   return options;
@@ -48,23 +51,30 @@ export function ComparePage() {
       : Number.isInteger(timeRaw) && timeRaw > 0
         ? timeRaw
         : (profile?.current5kEstimateSeconds ?? undefined);
+  // Where the time was achieved (only with an explicit time): enables course-adjusted placement.
+  const from = timeParam != null && timeParam !== 'off' ? params.get('from') : null;
   const [pickerOpen, setPickerOpen] = useState(ids.length < COMPARE_MIN_EVENTS);
 
   const { data: events } = useEvents();
   // Wait for the profile before the first comparison so the default time is applied once.
-  const { data, isPending, isError, error, refetch, isPlaceholderData } = useCompare({ ids: profile || timeParam ? ids : [], timeSeconds });
+  const { data, isPending, isError, error, refetch, isPlaceholderData } = useCompare({ ids: profile || timeParam ? ids : [], timeSeconds, source: from ?? undefined });
 
   // Built by hand so shared links keep readable commas (?ids=a,b) rather than %2C.
-  const go = (nextIds: string[], nextTime: number | 'off' | undefined) => {
+  const go = (nextIds: string[], nextTime: number | 'off' | undefined, nextFrom: string | null = null) => {
     const parts = [
       nextIds.length > 0 ? `ids=${nextIds.map(encodeURIComponent).join(',')}` : null,
       nextTime != null ? `time=${nextTime}` : null,
+      nextTime != null && nextTime !== 'off' && nextFrom ? `from=${encodeURIComponent(nextFrom)}` : null,
     ].filter(Boolean);
     navigate({ search: parts.length ? `?${parts.join('&')}` : '' }, { replace: true, preventScrollReset: true });
   };
-  const setIds = (next: string[]) => go(next, timeParam === 'off' ? 'off' : timeParam != null ? timeSeconds : undefined);
+  const setIds = (next: string[]) => go(next, timeParam === 'off' ? 'off' : timeParam != null ? timeSeconds : undefined, from);
   const toggle = (id: string) => setIds(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id].slice(0, COMPARE_MAX_EVENTS));
-  const setTime = (value: string) => go(ids, value === 'off' ? 'off' : Number(value));
+  const setTime = (value: string) => {
+    if (value === 'off') return go(ids, 'off');
+    const [seconds, eventId] = value.split('@');
+    go(ids, Number(seconds), eventId ?? null);
+  };
   const nameOf = (id: string) => events?.find((e) => e.id === id)?.name ?? id;
 
   return (
@@ -97,7 +107,7 @@ export function ComparePage() {
 
       <section aria-label="Runner time" className="space-y-2">
         <p className="text-sm font-bold">Compare historical placement for</p>
-        <ChoiceChips label="Runner time" scroll options={timeOptions(profile, timeSeconds)} value={timeSeconds != null ? String(timeSeconds) : 'off'} onChange={setTime} />
+        <ChoiceChips label="Runner time" scroll options={timeOptions(profile, timeSeconds, from)} value={timeSeconds != null ? timeValue(timeSeconds, from) : 'off'} onChange={setTime} />
       </section>
 
       {ids.length < COMPARE_MIN_EVENTS ? (
@@ -130,8 +140,14 @@ export function ComparePage() {
               <CompareTable data={data} />
               <p className="text-xs text-subtle">
                 “Best” marks the most favourable value where one is clearly better. Competition and field size are not marked: what suits you depends on your goal.
-                Competition (competition_v1) is relative to the events analysed over 90 days; Difficulty (difficulty_v1) is a structural course rating; PB Scores are demo values.
-                {data.timeSeconds != null && ` Placement rows show where ${formatFinishTime(data.timeSeconds)} would historically have placed in the last 90 days.`} Travel times are estimates.
+                Course speed (course_speed_v1) compares the same runners across events; 1.000 is the average and lower is faster. PB Score (pb_v1) is 75% course
+                speed and 25% structural ease. Competition (competition_v1) is relative to the events analysed over 90 days; Difficulty (difficulty_v1) is a
+                structural course rating.
+                {data.timeSeconds != null &&
+                  (data.mode === 'adjusted' && data.source
+                    ? ` Placement rows convert ${formatFinishTime(data.timeSeconds)} at ${data.source.name} to an equivalent at each course, then show where it would historically have placed in the last 90 days. Equivalents are not predicted finish times.`
+                    : ` Placement rows show where ${formatFinishTime(data.timeSeconds)} would historically have placed in the last 90 days.`)}{' '}
+                Travel times are estimates.
               </p>
             </>
           ) : (

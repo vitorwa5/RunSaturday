@@ -34,3 +34,14 @@ describe('placement formatting', () => {
     expect(formatFrequency({ count: 1, of: 1 })).toBe('1 of 1 event');
   });
 });
+
+describe('profile source events', () => {
+  it('carries where recent best and lifetime PB were run; current form has none', async () => {
+    const { profileSourceEvent } = await import('../lib/runnerTime');
+    const withEvents = { ...profile, recentPbEvent: { id: 'r', name: 'R' }, lifetimePbEvent: { id: 'l', name: 'L' } } as UserProfile;
+    expect(profileSourceEvent('recent', withEvents)).toEqual({ id: 'r', name: 'R' });
+    expect(profileSourceEvent('pb', withEvents)).toEqual({ id: 'l', name: 'L' });
+    expect(profileSourceEvent('current', withEvents)).toBeNull();
+    expect(profileSourceEvent('manual', withEvents)).toBeNull();
+  });
+});

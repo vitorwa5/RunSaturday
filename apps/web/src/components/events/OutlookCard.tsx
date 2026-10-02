@@ -1,9 +1,9 @@
 import { formatFinishTime, type UserProfile } from '@runsaturday/shared';
-import { Clock3, Columns3, Medal, Target, Timer } from 'lucide-react';
+import { Columns3, Medal, Target, Timer } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useEventPlacement } from '../../hooks/queries';
-import { formatFrequency, formatPlacementRange } from '../../lib/display';
+import { formatDeltaSeconds, formatFrequency, formatPlacementRange } from '../../lib/display';
 import { ConfidenceBadge } from '../ui/ConfidenceBadge';
 import { DemoBadge } from '../ui/DemoBadge';
 import { Skeleton } from '../ui/LoadingState';
@@ -17,26 +17,33 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-const NotYet = () => (
-  <span className="inline-flex items-center gap-1 text-xs font-semibold text-subtle">
-    <Clock3 className="size-3.5" aria-hidden />
-    Not available yet
-  </span>
-);
+/**
+ * The performance the outlook is based on: the recent best where it was run, else the lifetime
+ * PB where it was run (both course-adjustable), else current form unadjusted.
+ */
+function outlookBasis(profile: UserProfile | undefined): { seconds: number; source?: { id: string; name: string }; label: string } | null {
+  if (profile?.recentPbSeconds != null && profile.recentPbEvent) return { seconds: profile.recentPbSeconds, source: profile.recentPbEvent, label: 'recent best' };
+  if (profile?.lifetimePbSeconds != null && profile.lifetimePbEvent) return { seconds: profile.lifetimePbSeconds, source: profile.lifetimePbEvent, label: 'lifetime PB' };
+  if (profile?.current5kEstimateSeconds != null) return { seconds: profile.current5kEstimateSeconds, label: 'current form' };
+  return null;
+}
 
 /**
- * "Your outlook": how the runner's current form would historically have placed here (real
- * placement engine, last 90 days). Expected time stays unavailable until a course-adjustment
- * model exists.
+ * "Your outlook": the runner's performance converted to an equivalent here with Course Speed
+ * Factor V1, and how that equivalent would historically have placed (last 90 days). Never a
+ * predicted finish time.
  */
 export function OutlookCard({ profile, eventId }: { profile: UserProfile | undefined; eventId: string }) {
   const form = profile?.current5kEstimateSeconds;
-  const { data: placement, isPending, isError } = useEventPlacement(eventId, form);
+  const basis = outlookBasis(profile);
+  const { data: placement, isPending, isError } = useEventPlacement(eventId, basis?.seconds, basis?.source?.id);
   const stats = placement?.stats;
   const enough = placement != null && placement.confidence !== 'insufficient';
+  const adjustment = placement?.adjustment ?? null;
+  const adjusted = adjustment?.available === true && adjustment.equivalentSeconds != null;
 
   let placementRows: ReactNode;
-  if (form == null) {
+  if (basis == null) {
     placementRows = (
       <Row label="Historical placement">
         <span className="text-xs text-subtle">Set your current form</span>
@@ -85,27 +92,55 @@ export function OutlookCard({ profile, eventId }: { profile: UserProfile | undef
           <dt className="text-muted">Your current 5K form</dt>
           <dd className="text-lg font-bold tabular-nums">{form != null ? formatFinishTime(form) : 'Not set'}</dd>
         </div>
-        {placementRows}
-        <Row label="Expected 5K here">
-          <NotYet />
+        <Row label="Equivalent 5K here">
+          {basis == null ? (
+            <span className="text-xs text-subtle">Set your current form</span>
+          ) : isPending ? (
+            <Skeleton className="ml-auto h-4 w-16" />
+          ) : adjusted ? (
+            <>
+              <span className="text-lg font-extrabold tabular-nums">≈ {formatFinishTime(adjustment.equivalentSeconds!)}</span>
+              <span className="block text-xs text-subtle">
+                {adjustment.sourceEventId === eventId
+                  ? `Your ${basis.label} here`
+                  : `Adjusted from ${formatFinishTime(adjustment.sourceSeconds)} at ${adjustment.sourceEventName} (${formatDeltaSeconds(adjustment.deltaSeconds ?? 0)})`}
+              </span>
+            </>
+          ) : adjustment ? (
+            <span className="block max-w-48 text-xs font-semibold text-subtle">{adjustment.reason}</span>
+          ) : (
+            <span className="block max-w-48 text-xs text-subtle">Not course-adjusted: add where your best was run to your profile</span>
+          )}
         </Row>
+        {placementRows}
       </dl>
 
       {placement && stats && (
         <div className="mt-1 flex flex-wrap items-center gap-2">
           <ConfidenceBadge level={placement.confidence} sampleSize={placement.sampleSize} compact />
           <span className="text-xs text-subtle">last 90 days</span>
+          {adjusted && adjustment.sourceEventId !== eventId && (
+            <span className="text-xs text-subtle">
+              · adjustment confidence <ConfidenceBadge level={adjustment.confidence} compact />
+            </span>
+          )}
         </div>
       )}
       <p className="mt-2 text-xs text-subtle">
-        {enough && form != null
-          ? `Historically, ${formatFinishTime(form)} would have placed like this here. Past fields only, not a prediction of who turns up.`
+        {enough && placement
+          ? `Historically, ${adjusted ? '≈ ' : ''}${formatFinishTime(placement.analysedSeconds)} would have placed like this here. ${
+              adjusted ? 'An equivalent performance from past results, not a predicted finish time.' : 'Past fields only, not a prediction of who turns up.'
+            }`
           : 'Based on past results only, never a prediction of who turns up.'}
       </p>
 
       <nav aria-label="Related tools" className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
         {[
-          { to: `/where-could-i-place?src=current`, label: 'Where else could I place?', icon: Medal },
+          {
+            to: basis?.label === 'recent best' ? '/where-could-i-place?src=recent' : basis?.label === 'lifetime PB' ? '/where-could-i-place?src=pb' : '/where-could-i-place?src=current',
+            label: 'Where else could I place?',
+            icon: Medal,
+          },
           { to: '/pb-finder', label: 'PB Finder', icon: Timer },
           { to: `/compare?ids=${eventId}`, label: 'Compare', icon: Columns3 },
         ].map(({ to, label, icon: Icon }) => (

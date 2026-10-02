@@ -18,7 +18,7 @@ test.describe('Home', () => {
     await expect(page.getByText('DEMO DATA')).toBeVisible();
 
     const pick = bestPick(page);
-    await expect(pick.getByRole('heading', { name: 'Riverside 5K' })).toBeVisible();
+    await expect(pick.getByRole('heading', { name: 'Dockside Promenade 5K' })).toBeVisible();
     await expect(pick.getByText('PB opportunity')).toBeVisible();
     await expect(pick.getByText('Fast · Flat · Tarmac')).toBeVisible();
     await expect(pick.getByText('Demo recommendation · ranked using PB Score')).toBeVisible();
@@ -29,7 +29,7 @@ test.describe('Home', () => {
     await expect(pick.getByText('Recommended because')).toBeHidden();
     await why.click();
     await expect(why).toHaveAttribute('aria-expanded', 'true');
-    await expect(pick.getByRole('listitem').filter({ hasText: 'High PB Score (92/100)' })).toBeVisible();
+    await expect(pick.getByRole('listitem').filter({ hasText: 'High PB Score (100/100)' })).toBeVisible();
     await why.click();
     await expect(pick.getByText('Recommended because')).toBeHidden();
     await expectNoHorizontalScroll(page);
@@ -38,12 +38,12 @@ test.describe('Home', () => {
   test('changing the goal recalculates the pick and options', async ({ page }) => {
     await page.goto('/');
     const pick = bestPick(page);
-    await expect(pick.getByRole('heading', { name: 'Riverside 5K' })).toBeVisible();
+    await expect(pick.getByRole('heading', { name: 'Dockside Promenade 5K' })).toBeVisible();
 
     await page.getByRole('radio', { name: /Quiet/ }).click();
     await expect(page.getByRole('radio', { name: /Quiet/ })).toHaveAttribute('aria-checked', 'true');
     await expect(pick.getByText('Average runners', { exact: true })).toBeVisible();
-    await expect(pick.getByRole('heading', { name: 'Riverside 5K' })).toBeHidden();
+    await expect(pick.getByRole('heading', { name: 'Dockside Promenade 5K' })).toBeHidden();
 
     await page.getByRole('radio', { name: /Challenge/ }).click();
     await expect(page.getByRole('heading', { name: "Challenge isn't available yet" })).toBeVisible();
@@ -70,9 +70,9 @@ test.describe('Saturday Planner', () => {
     await expect(page.getByRole('radio', { name: 'Current location · Later' })).toBeDisabled();
 
     const first = page.getByRole('article').first();
-    await expect(first).toHaveAccessibleName('Rank 1: Riverside 5K');
+    await expect(first).toHaveAccessibleName('Rank 1: Dockside Promenade 5K');
     await first.getByRole('button', { name: 'Why this?' }).click();
-    await expect(first.getByText('Within your travel limit (about 6 of 45 min, estimated)')).toBeVisible();
+    await expect(first.getByText('Within your travel limit (about 45 of 45 min, estimated)')).toBeVisible();
     await expect(page.getByText(/not driving directions/)).toBeVisible();
     await expectNoHorizontalScroll(page);
   });
@@ -168,15 +168,20 @@ test.describe('Event page', () => {
     await page.goto('/event/demo-heath-common-5k');
     await expect(page.getByRole('heading', { level: 1, name: 'Heath Common 5K' })).toBeVisible();
     const metrics = page.getByRole('region', { name: 'Key metrics' });
-    for (const label of ['Demo PB Score', 'Difficulty', 'Competition']) await expect(metrics.getByText(label, { exact: true })).toBeVisible();
+    for (const label of ['PB Score', 'Difficulty', 'Competition']) await expect(metrics.getByText(label, { exact: true })).toBeVisible();
+    await expect(metrics.getByText(/course speed · \d\.\d% slower than average/)).toBeVisible();
     await expect(page.getByRole('button', { name: /Save/ })).toBeDisabled();
 
     const outlook = page.getByRole('region', { name: 'Your outlook' });
     await expect(outlook.getByText('19:40', { exact: true })).toBeVisible();
     await expect(outlook.getByText('Typical historical position')).toBeVisible();
     await expect(outlook.getByText(/\d+ of \d+ events/)).toBeVisible();
-    // Expected time still needs a course-adjustment model.
-    await expect(outlook.getByText('Not available yet')).toHaveCount(1);
+    // Recent best converted with Course Speed Factors: an equivalent, never a predicted finish.
+    await expect(outlook.getByText('Equivalent 5K here')).toBeVisible();
+    await expect(outlook.getByText(/^≈ \d{2}:\d{2}$/)).toBeVisible();
+    await expect(outlook.getByText(/^Adjusted from 19:32 at Riverside 5K \(\+\d:\d{2}\)$/)).toBeVisible();
+    await expect(page.getByText(/predicted finish/i)).toHaveCount(1); // only the "not a predicted finish time" note
+    await expect(outlook.getByText(/not a predicted finish time/)).toBeVisible();
     await expect(outlook.getByRole('link', { name: 'Where else could I place?' })).toBeVisible();
     await expect(page.getByText(/you will finish/i)).toHaveCount(0);
 
@@ -190,7 +195,7 @@ test.describe('Event page', () => {
     await page.getByRole('tab', { name: 'Results' }).click();
     const periods = page.getByRole('radiogroup', { name: 'Time period' });
     await expect(periods.getByRole('radio', { name: '90d' })).toHaveAttribute('aria-checked', 'true');
-    await expect(page.getByText(/Based on 13 events in the last 90 days/)).toBeVisible();
+    await expect(page.getByText(/Based on 1[2-3] events in the last 90 days/)).toBeVisible();
 
     await periods.getByRole('radio', { name: '30d' }).click();
     await expect(page.getByText(/events? in the last 30 days/)).toBeVisible();
@@ -204,8 +209,10 @@ test.describe('Event page', () => {
   test('course and info tabs never invent data', async ({ page }) => {
     await page.goto('/event/demo-heath-common-5k');
     await page.getByRole('tab', { name: 'Course' }).click();
-    await expect(page.getByText('Estimated course adjustment')).toBeVisible();
-    await expect(page.getByText('Coming in a later phase')).toHaveCount(3);
+    // Course speed is now measured (no estimate from elevation); map and profile are still to come.
+    await expect(page.getByText('Course speed', { exact: true })).toBeVisible();
+    await expect(page.getByText(/slower than average, from runners who also ran other events/)).toBeVisible();
+    await expect(page.getByText('Coming in a later phase')).toHaveCount(2);
 
     await page.getByRole('tab', { name: 'Info' }).click();
     await expect(page.getByRole('tab', { name: 'Info' })).toHaveAttribute('aria-selected', 'true');
@@ -251,7 +258,7 @@ test.describe('Where Could I Place?', () => {
     await expect(page.getByText(/chance|probability|you will finish/i)).toHaveCount(0);
 
     await first.getByRole('button', { name: 'History' }).click();
-    await expect(first.getByText('Historically, this time would have placed')).toBeVisible();
+    await expect(first.getByText('Historically, 21:00 would have placed')).toBeVisible();
     await expectNoHorizontalScroll(page);
 
     await first.getByRole('link', { name: 'View event' }).click();
@@ -282,15 +289,17 @@ test.describe('PB Finder', () => {
     await page.goto('/');
     await page.getByRole('region', { name: 'Saturday tools' }).getByRole('link', { name: 'PB Finder' }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'PB Finder' })).toBeVisible();
-    await expect(page.getByText('Using demo PB Scores')).toBeVisible();
+    await expect(page.getByText('PB Score V1: 75% observed course speed, 25% structural ease')).toBeVisible();
+    await expect(page.getByText(/demo PB/i)).toHaveCount(0);
     const first = page.getByRole('article').first();
-    await expect(first).toHaveAccessibleName('Rank 1: Riverside 5K');
-    await expect(first.getByText('Demo PB Score')).toBeVisible();
+    await expect(first).toHaveAccessibleName('Rank 1: Dockside Promenade 5K');
+    await expect(first.getByText('PB Score', { exact: true })).toBeVisible();
+    await expect(first.getByText(/^0\.9\d{2} \(\d\.\d% faster than average\)$/)).toBeVisible();
     await first.getByRole('button', { name: 'Why this?' }).click();
-    await expect(first.getByText('High PB Score (92/100)')).toBeVisible();
+    await expect(first.getByText('High PB Score (100/100)')).toBeVisible();
     await expectNoHorizontalScroll(page);
     await first.getByRole('link', { name: 'View event' }).click();
-    await expect(page).toHaveURL(/\/event\/demo-riverside-5k$/);
+    await expect(page).toHaveURL(/\/event\/demo-dockside-promenade-5k$/);
   });
 
   test('sorting and filters update results', async ({ page }) => {
@@ -380,7 +389,7 @@ test.describe('Core analytics (Phase 3A)', () => {
     await page.goto('/event/demo-victoria-park-5k');
     const metrics = page.getByRole('region', { name: 'Key metrics' });
     await expect(metrics.getByText('4.9')).toBeVisible(); // Difficulty V1
-    await expect(page.getByText(/Competition competition_v1 · Difficulty difficulty_v1 · Demo PB Score demo_v0/)).toBeVisible();
+    await expect(page.getByText(/Course speed course_speed_v1 · Competition competition_v1 · Difficulty difficulty_v1 · PB Score pb_v1/)).toBeVisible();
 
     const explainer = page.getByRole('region', { name: 'How the scores are calculated' });
     const toggle = explainer.getByRole('button', { name: /How it's calculated/ });
@@ -402,13 +411,82 @@ test.describe('Core analytics (Phase 3A)', () => {
     await expectNoHorizontalScroll(page);
   });
 
-  test('PB stays labelled as demo across tools', async ({ page }) => {
+});
+
+test.describe('Course Speed & PB Score V1 (Phase 3B)', () => {
+  test('PB Score V1 replaces the demo PB label across tools', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('region', { name: 'Your best pick' }).getByText('Demo PB opportunity')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Your best pick' }).getByText('PB opportunity', { exact: true })).toBeVisible();
+    await expect(page.getByText(/Demo PB/)).toHaveCount(0);
     await page.goto('/saturday');
-    await expect(page.getByRole('article').first().getByText('Demo PB opportunity')).toBeVisible();
+    await expect(page.getByRole('article').first().getByText('PB opportunity', { exact: true })).toBeVisible();
     await page.goto('/compare?ids=demo-riverside-5k,demo-lakeside-5k');
-    await expect(page.getByRole('rowheader', { name: 'Demo PB Score' })).toBeVisible();
+    await expect(page.getByRole('rowheader', { name: 'PB Score' })).toBeVisible();
+    await expect(page.getByText(/Demo PB|PB Scores are demo/)).toHaveCount(0);
     await expect(page.getByText(/Competition \(competition_v1\) is relative/)).toBeVisible();
+  });
+
+  test('Event page explains the Course Speed Factor and the PB Score breakdown', async ({ page }) => {
+    await page.goto('/event/demo-forest-trail-5k');
+    const explainer = page.getByRole('region', { name: 'How the scores are calculated' });
+    await explainer.getByRole('button', { name: /How it's calculated/ }).click();
+    await expect(explainer.getByRole('heading', { name: 'Course Speed Factor' })).toBeVisible();
+    await expect(explainer.getByText(/^1\.0\d{2}$/)).toBeVisible();
+    for (const label of ['Matched runners', 'One-to-one comparisons', 'Typical gap between runs', 'Typical disagreement with the model', 'Stability (runner bootstrap)']) {
+      await expect(explainer.getByText(label, { exact: true })).toBeVisible();
+    }
+    await expect(explainer.getByText(/not\s+any runner's finish time/)).toBeVisible();
+    await expect(explainer.getByRole('heading', { name: 'PB Score' })).toBeVisible();
+    await expect(explainer.getByText('Observed course speed · 75%')).toBeVisible();
+    await expect(explainer.getByText('Structural suitability · 25%')).toBeVisible();
+    await expect(explainer.getByText(/Competition is not part of PB Score/)).toBeVisible();
+    await expect(explainer.getByText(/90% (confidence|prediction) interval/i)).toHaveCount(0);
+    await expectNoHorizontalScroll(page);
+  });
+
+  test('Where Could I Place? defaults to course adjusted for a time with a known source event', async ({ page }) => {
+    await page.goto('/where-could-i-place?src=recent&travel=90&window=all');
+    await expect(page.getByRole('radio', { name: 'Recent best 19:32' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByLabel('Achieved at')).toHaveValue('demo-riverside-5k');
+    const modes = page.getByRole('radiogroup', { name: 'Compare as' });
+    await expect(modes.getByRole('radio', { name: 'Course adjusted' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByText(/at Riverside 5K, converted to each course/)).toBeVisible();
+
+    const forest = page.getByRole('article', { name: 'Forest Trail 5K' });
+    await expect(forest.getByText('Equivalent here')).toBeVisible();
+    await expect(forest.getByText(/^≈ \d{2}:\d{2}$/)).toBeVisible();
+    await expect(forest.getByText(/^Course adjustment \+\d:\d{2}$/)).toBeVisible();
+    await expect(forest.getByText('Achieved at Riverside 5K')).toBeVisible();
+    await expect(forest.getByText('Adjustment confidence')).toBeVisible();
+    for (const label of ['1st historically', 'Top 3 historically', 'Top 10 historically']) await expect(forest.getByText(label)).toBeVisible();
+    const adjustedPosition = await forest.getByText('Typical position').locator('xpath=following-sibling::dd').textContent();
+
+    await modes.getByRole('radio', { name: 'Raw time' }).click();
+    await expect(page).toHaveURL(/mode=raw/);
+    await expect(page.getByText(/exact same time is compared/)).toBeVisible();
+    await expect(forest.getByText('Equivalent here')).toHaveCount(0);
+    await expect(page.getByText(/Historically, 19:32 would have placed like this at/)).toBeVisible();
+    // Raw time flatters the slower course: it places differently from the adjusted equivalent.
+    await expect(forest.getByText('Typical position').locator('xpath=following-sibling::dd')).not.toHaveText(adjustedPosition!);
+    await expectNoHorizontalScroll(page);
+  });
+
+  test('Where Could I Place? lets the runner say where a typed time was achieved', async ({ page }) => {
+    await page.goto('/where-could-i-place?src=manual&time=1260');
+    const modes = page.getByRole('radiogroup', { name: 'Compare as' });
+    await expect(modes.getByRole('radio', { name: 'Raw time' })).toHaveAttribute('aria-checked', 'true');
+    await expect(modes.getByRole('radio', { name: 'Course adjusted' })).toBeDisabled();
+    await expect(page.getByText('Choose where the time was achieved to adjust it for each course.')).toBeVisible();
+
+    await page.getByLabel('Achieved at').selectOption('demo-moorland-edge-5k');
+    await expect(page).toHaveURL(/from=demo-moorland-edge-5k/);
+    await expect(modes.getByRole('radio', { name: 'Course adjusted' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByText(/Historically, 21:00 at Moorland Edge 5K, converted to each course/)).toBeVisible();
+    await expect(page.getByText(/^Course adjustment −\d:\d{2}$/).first()).toBeVisible();
+
+    await page.getByRole('link', { name: 'Compare events' }).click();
+    await expect(page).toHaveURL(/\/compare\?ids=.+&time=1260&from=demo-moorland-edge-5k/);
+    await expect(page.getByRole('rowheader', { name: 'Equivalent here' })).toBeVisible();
+    await expect(page.getByRole('rowheader', { name: 'Course speed' })).toBeVisible();
   });
 });

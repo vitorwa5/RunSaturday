@@ -4,12 +4,15 @@ import {
   HISTORY_WINDOWS,
   type CompetitionBreakdown,
   type ConfidenceAssessment,
+  type CourseSpeedBreakdown,
   type DifficultyBreakdown,
+  type PbBreakdown,
   type HistoryWindowId,
 } from '@runsaturday/shared';
 import { Calculator, ChevronDown } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
 import { useEventAnalytics } from '../../hooks/queries';
+import { factorPhrase, formatFactor, LIMITED_MATCHED, PB_UNAVAILABLE } from '../../lib/display';
 import { ChoiceChips } from '../ui/ChoiceChips';
 import { ConfidenceBadge } from '../ui/ConfidenceBadge';
 import { ErrorState } from '../ui/ErrorState';
@@ -111,7 +114,76 @@ function DifficultyPanel({ b }: { b: DifficultyBreakdown }) {
   );
 }
 
-/** Expandable, fully transparent breakdown of Competition V1 and Difficulty V1. */
+function Fact({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex justify-between gap-3 py-1.5">
+      <dt className="text-muted">{label}</dt>
+      <dd className="text-right font-semibold tabular-nums">{value}</dd>
+    </div>
+  );
+}
+
+function CourseSpeedPanel({ b }: { b: CourseSpeedBreakdown }) {
+  if (b.factor == null) {
+    return (
+      <div>
+        <p className="text-sm font-bold">Course adjustment unavailable — {LIMITED_MATCHED.toLowerCase()}</p>
+        <p className="mt-0.5 text-xs text-muted">{b.limitedReason}</p>
+        <p className="mt-1 text-xs text-subtle">No estimate from elevation or surface is used instead.</p>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <p className="text-sm">
+        <strong className="text-lg tabular-nums">{formatFactor(b.factor)}</strong>
+        <span className="ml-2 text-xs text-muted">{factorPhrase(b.factor)}</span>
+        <span className="ml-2 text-xs text-subtle">{b.version}</span>
+      </p>
+      <dl className="mt-2 divide-y divide-line text-xs">
+        <Fact label="Matched runners" value={b.matchedRunners.toLocaleString('en-GB')} />
+        <Fact label="One-to-one comparisons" value={b.comparisons.toLocaleString('en-GB')} />
+        <Fact label="Compared directly with" value={`${b.connectedEvents} ${b.connectedEvents === 1 ? 'event' : 'events'}`} />
+        <Fact label="Typical gap between runs" value={b.medianGapDays != null ? `${b.medianGapDays} days` : '—'} />
+        <Fact label="Typical disagreement with the model" value={b.dispersion != null ? `${(b.dispersion * 100).toFixed(1)}%` : '—'} />
+        <Fact
+          label="Stability (runner bootstrap)"
+          value={b.bootstrapHalfWidth != null ? `±${(b.bootstrapHalfWidth * 100).toFixed(1)}%` : '—'}
+        />
+      </dl>
+      <p className="mt-1 text-[11px] text-subtle">
+        Stability is the 5th–95th percentile spread of the factor when the analysis is repeated on resampled runners. It describes the course comparison, not
+        any runner's finish time.
+      </p>
+      <ConfidenceDetail confidence={b.confidence} />
+    </div>
+  );
+}
+
+function PbPanel({ b }: { b: PbBreakdown }) {
+  return (
+    <div>
+      <p className="text-sm">
+        <strong className="text-lg tabular-nums">{b.value == null ? PB_UNAVAILABLE : `${b.value}/100`}</strong>
+        <span className="ml-2 text-xs text-subtle">{b.version}</span>
+      </p>
+      {b.value == null ? (
+        <p className="mt-0.5 text-xs text-muted">
+          {LIMITED_MATCHED}. {b.limitedReason}
+        </p>
+      ) : (
+        <p className="mt-0.5 text-xs text-muted">Ranked against {b.cohortSize} events with a Course Speed Factor. Competition is not part of PB Score.</p>
+      )}
+      <ul className="mt-3 space-y-2.5">
+        {b.components.map((c) => (
+          <ComponentRow key={c.key} label={c.label} weight={c.weight} value={c.value} missingText="Unavailable" detail={c.input} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Expandable, fully transparent breakdown of Course Speed V1, PB Score V1, Competition V1 and Difficulty V1. */
 export function ScoreExplainer({ eventId }: { eventId: string }) {
   const [open, setOpen] = useState(false);
   const [window, setWindow] = useState<HistoryWindowId>(DEFAULT_HISTORY_WINDOW);
@@ -143,6 +215,19 @@ export function ScoreExplainer({ eventId }: { eventId: string }) {
         ) : (
           <div className={`space-y-6 ${isPlaceholderData ? 'opacity-60' : ''}`}>
             <div>
+              <h3 className="text-sm font-bold">Course Speed Factor</h3>
+              <p className="mt-0.5 text-xs text-muted">
+                How fast this course has been for the same runners, compared with the other analysed events (runs at both within 90 days, last 12 months).
+                1.000 is the average; below 1 is faster.
+              </p>
+              <div className="mt-3">{data.courseSpeed ? <CourseSpeedPanel b={data.courseSpeed} /> : <p className="text-sm text-muted">Not calculated yet.</p>}</div>
+            </div>
+            <div className="border-t border-line pt-4">
+              <h3 className="text-sm font-bold">PB Score</h3>
+              <p className="mt-0.5 text-xs text-muted">75% observed course speed, 25% structural ease (inverse Course Difficulty).</p>
+              <div className="mt-3">{data.pb ? <PbPanel b={data.pb} /> : <p className="text-sm text-muted">Not calculated yet.</p>}</div>
+            </div>
+            <div className="border-t border-line pt-4">
               <h3 className="text-sm font-bold">Competition Score</h3>
               <p className="mt-0.5 text-xs text-muted">Historical depth of the field: winner to top 10 and the top-10% cutoff, ranked against the other analysed events.</p>
               <div className="mt-2">

@@ -1,8 +1,19 @@
-import type { CompareMetricKey, CompareResponse } from '@runsaturday/shared';
+import { formatFinishTime, type CompareMetricKey, type CompareResponse } from '@runsaturday/shared';
 import { Star } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
-import { CONFIDENCE_SHORT, formatCount, formatDifficulty, formatPlacementRange, formatScore, SURFACE_LABEL } from '../../lib/display';
+import {
+  CONFIDENCE_SHORT,
+  factorPhrase,
+  formatCount,
+  formatDeltaSeconds,
+  formatDifficulty,
+  formatFactor,
+  formatPlacementRange,
+  formatScore,
+  LIMITED_MATCHED,
+  SURFACE_LABEL,
+} from '../../lib/display';
 import { DemoBadge } from '../ui/DemoBadge';
 
 type Row = CompareResponse['events'][number];
@@ -15,15 +26,42 @@ interface MetricRow {
 }
 
 const BASE_ROWS: MetricRow[] = [
-  { label: 'Demo PB Score', best: 'pb_score', render: (r) => `${formatScore(r.event.scores?.pbScore)}/100` },
+  { label: 'PB Score', best: 'pb_score', render: (r) => (r.event.scores?.pbScore == null ? 'Unavailable' : `${formatScore(r.event.scores.pbScore)}/100`) },
+  {
+    label: 'Course speed',
+    best: 'course_speed',
+    render: (r) =>
+      r.event.scores?.courseSpeedFactor == null ? (
+        LIMITED_MATCHED
+      ) : (
+        <>
+          {formatFactor(r.event.scores.courseSpeedFactor)}
+          <span className="block text-xs font-normal text-subtle">{factorPhrase(r.event.scores.courseSpeedFactor)}</span>
+        </>
+      ),
+  },
   { label: 'Difficulty', best: 'difficulty', render: (r) => `${formatDifficulty(r.event.scores?.difficultyScore)}/10` },
   { label: 'Competition', render: (r) => (r.event.scores?.competitionScore == null ? 'Limited data' : `${formatScore(r.event.scores.competitionScore)}/100`) },
   { label: 'Avg runners', render: (r) => formatCount(r.event.averageParticipants) },
   { label: 'Elevation', best: 'elevation', render: (r) => (r.event.elevationM == null ? 'Unknown' : `${r.event.elevationM} m`) },
   { label: 'Surface', render: (r) => SURFACE_LABEL[r.event.surface] },
   { label: 'Est. travel', best: 'travel', render: (r) => (r.event.travel ? `~${r.event.travel.minutes} min` : '—') },
-  { label: 'Confidence', render: (r) => (r.event.scores ? CONFIDENCE_SHORT[r.event.scores.pbConfidence] : 'Limited data') },
+  { label: 'PB confidence', render: (r) => (r.event.scores ? CONFIDENCE_SHORT[r.event.scores.pbConfidence] : 'Limited data') },
 ];
+
+const EQUIVALENT_ROW: MetricRow = {
+  label: 'Equivalent here',
+  render: (r) => {
+    const a = r.placement?.adjustment;
+    if (!a || !a.available || a.equivalentSeconds == null) return <span className="text-xs text-subtle">Course adjustment unavailable</span>;
+    return (
+      <>
+        ≈ {formatFinishTime(a.equivalentSeconds)}
+        <span className="block text-xs font-normal text-subtle">{a.sourceEventId === a.targetEventId ? 'Where it was run' : formatDeltaSeconds(a.deltaSeconds ?? 0)}</span>
+      </>
+    );
+  },
+};
 
 const PLACEMENT_ROWS: MetricRow[] = [
   {
@@ -51,7 +89,7 @@ const PLACEMENT_ROWS: MetricRow[] = [
  * icon and text, not colour alone.
  */
 export function CompareTable({ data }: { data: CompareResponse }) {
-  const rows = [...BASE_ROWS, ...(data.timeSeconds != null ? PLACEMENT_ROWS : [])];
+  const rows = [...BASE_ROWS, ...(data.timeSeconds != null ? [...(data.mode === 'adjusted' ? [EQUIVALENT_ROW] : []), ...PLACEMENT_ROWS] : [])];
   return (
     <div className="overflow-hidden rounded-3xl border border-line bg-surface">
       <div className="overflow-x-auto" role="region" aria-label="Comparison table, scroll sideways for more events" tabIndex={0}>

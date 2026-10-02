@@ -7,6 +7,7 @@ import type {
   HiddenGemsResponse,
   PbFinderResponse,
   PbFinderSortId,
+  PlacementMode,
   PlacementResponse,
   PlacementTargetId,
   PlannerFilters,
@@ -21,6 +22,16 @@ import type {
 import { plannerApiQuery, type PlannerSelection } from '../lib/plannerParams';
 import { apiGet } from './client';
 
+export interface PlacementQuery {
+  timeSeconds: number;
+  window: HistoryWindowId;
+  target: PlacementTargetId;
+  maxTravel?: number;
+  /** Omitted = auto (course adjusted when a source event with reliable data is given). */
+  mode?: PlacementMode;
+  source?: string;
+}
+
 export const api = {
   events: (signal?: AbortSignal) => apiGet<EventSummary[]>('/events', {}, signal),
   searchEvents: (q: string, signal?: AbortSignal) => apiGet<EventSummary[]>('/events/search', { q }, signal),
@@ -34,15 +45,19 @@ export const api = {
   profile: (signal?: AbortSignal) => apiGet<UserProfile>('/profile', {}, signal),
   eventAnalytics: (id: string, window: HistoryWindowId, signal?: AbortSignal) =>
     apiGet<EventAnalyticsResponse>(`/events/${encodeURIComponent(id)}/analytics`, { window }, signal),
-  placement: (q: { timeSeconds: number; window: HistoryWindowId; target: PlacementTargetId; maxTravel?: number }, signal?: AbortSignal) =>
-    apiGet<PlacementResponse>('/placement', { time: q.timeSeconds, window: q.window, target: q.target, maxTravel: q.maxTravel }, signal),
-  eventPlacement: (id: string, timeSeconds: number, signal?: AbortSignal) =>
-    apiGet<EventPlacement>(`/events/${encodeURIComponent(id)}/placement`, { time: timeSeconds }, signal),
+  placement: (q: PlacementQuery, signal?: AbortSignal) =>
+    apiGet<PlacementResponse>(
+      '/placement',
+      { time: q.timeSeconds, window: q.window, target: q.target, maxTravel: q.maxTravel, mode: q.mode, source: q.source },
+      signal,
+    ),
+  eventPlacement: (id: string, timeSeconds: number, source?: string, signal?: AbortSignal) =>
+    apiGet<EventPlacement>(`/events/${encodeURIComponent(id)}/placement`, { time: timeSeconds, source }, signal),
   pbFinder: (
     q: { maxTravel?: number; sort: PbFinderSortId } & Pick<PlannerFilters, 'surface' | 'elevation' | 'confidence' | 'visited'>,
     signal?: AbortSignal,
   ) => apiGet<PbFinderResponse>('/pb-finder', q, signal),
   hiddenGems: (q: { mode: HiddenGemModeId; maxTravel?: number }, signal?: AbortSignal) => apiGet<HiddenGemsResponse>('/hidden-gems', q, signal),
-  compare: (q: { ids: string[]; timeSeconds?: number }, signal?: AbortSignal) =>
-    apiGet<CompareResponse>('/compare', { ids: q.ids.join(','), time: q.timeSeconds }, signal),
+  compare: (q: { ids: string[]; timeSeconds?: number; source?: string }, signal?: AbortSignal) =>
+    apiGet<CompareResponse>('/compare', { ids: q.ids.join(','), time: q.timeSeconds, source: q.timeSeconds != null ? q.source : undefined }, signal),
 };

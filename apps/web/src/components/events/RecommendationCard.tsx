@@ -1,14 +1,14 @@
 import type { Recommendation } from '@runsaturday/shared';
 import { Car } from 'lucide-react';
 import { useId, useState } from 'react';
-import { formatCount, formatDifficulty, formatMeters, formatScore, pbLabel, SURFACE_LABEL } from '../../lib/display';
+import { factorPhrase, formatCount, formatDifficulty, formatFactor, formatMeters, formatScore, LIMITED_MATCHED, pbLabel, SURFACE_LABEL } from '../../lib/display';
 import { ButtonLink } from '../ui/Button';
 import { ConfidenceBadge } from '../ui/ConfidenceBadge';
 import { DemoBadge } from '../ui/DemoBadge';
 import { RankedMetric } from './RankedMetric';
 import { WhyThisButton, WhyThisPanel } from './WhyThis';
 
-export type SecondaryMetric = 'pb_score' | 'difficulty' | 'competition_score' | 'average_participants' | 'elevation' | 'surface';
+export type SecondaryMetric = 'pb_score' | 'course_speed' | 'difficulty' | 'competition_score' | 'average_participants' | 'elevation' | 'surface';
 
 const DEFAULT_SECONDARY: SecondaryMetric[] = ['pb_score', 'difficulty', 'competition_score', 'average_participants'];
 
@@ -16,7 +16,7 @@ interface RecommendationCardProps {
   recommendation: Recommendation;
   /** Secondary metrics, in order; the ranked-by metric is never repeated. */
   secondary?: SecondaryMetric[];
-  /** Overrides the ranked-by label, e.g. "Demo PB Score". */
+  /** Overrides the ranked-by label. */
   metricLabel?: string;
 }
 
@@ -28,7 +28,11 @@ export function RecommendationCard({ recommendation, secondary: secondaryKeys = 
   const s = event.scores;
 
   const values: Record<SecondaryMetric, { label: string; value: string }> = {
-    pb_score: { label: pbLabel(event.source), value: `${formatScore(s?.pbScore)}/100` },
+    pb_score: { label: pbLabel(), value: s?.pbScore == null ? 'Unavailable' : `${formatScore(s.pbScore)}/100` },
+    course_speed: {
+      label: 'Course speed',
+      value: s?.courseSpeedFactor == null ? LIMITED_MATCHED : `${formatFactor(s.courseSpeedFactor)} (${factorPhrase(s.courseSpeedFactor)})`,
+    },
     difficulty: { label: 'Difficulty', value: `${formatDifficulty(s?.difficultyScore)}/10` },
     competition_score: { label: 'Competition', value: s?.competitionScore == null ? 'Limited data' : `${formatScore(s.competitionScore)}/100` },
     average_participants: { label: 'Avg runners', value: formatCount(event.averageParticipants) },
@@ -59,7 +63,7 @@ export function RecommendationCard({ recommendation, secondary: secondaryKeys = 
 
       <div className="mt-3 flex items-end justify-between gap-3">
         <RankedMetric
-          rankedBy={metricLabel ? { ...rankedBy, label: metricLabel } : rankedBy.key === 'pb_score' && event.source === 'demo' ? { ...rankedBy, label: `Demo ${rankedBy.label}` } : rankedBy}
+          rankedBy={metricLabel ? { ...rankedBy, label: metricLabel } : rankedBy}
           size="md"
         />
         {rankedBy.key !== 'travel_minutes' && (

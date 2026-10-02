@@ -146,13 +146,15 @@ Errors always use the shape `{ "error": { "code", "message" } }` with a human-re
 - **Event**: identity, location, course facts, and facilities (`YES / NO / UNKNOWN`, never guessed). `source` is `DEMO` or `IMPORTED`.
 - **EventOccurrence**: one per event per date (unique). `status`, `dataQuality`, plus a **derived summary cache**: participant count and winner/3rd/5th/10th times (see *Source of truth* below).
 - **Result**: the **canonical** record of each position and finish time (seconds), optional pseudonymous `athleteKey` (never a name), optional age grade.
-- **User**: home location, travel limit, lifetime PB / recent best / current estimate kept separately, preferred goal.
+- **User**: home location, travel limit, lifetime PB / recent best / current estimate kept separately (with optional links to the events where the PB and recent best were run), preferred goal.
 - **UserEvent**: visited, favourite, visit count, PB per event.
 - **EventScore**: immutable score **snapshots**: PB / difficulty / competition / gem scores, confidences, component values (JSON), sample size, `calculatedAt`.
   - Each snapshot is identified by **`(eventId, calculationVersion, windowDays, asOfDate)`** (unique).
   - So 30/60/90/365-day (and later all-time, `windowDays = 0`) scores coexist, and earlier snapshots stay available to reproduce past calculations and draw trend charts.
   - `asOfDate` is a calendar date (`DATE`): the last day of data included.
   - The API serves the latest snapshot of `ACTIVE_SCORE_VERSION` in the default 90-day window (`config/analysis.ts`).
+
+- **CourseFactorSnapshot**: Course Speed Factor V1 per event and run, keyed by `(eventId, version, windowDays, asOfDate)`. Stores the factor and log-factor, the runner-bootstrap replicate log-factors (`Float[]`, index-aligned across events of one run), matched-runner and comparison counts, median date gap, dispersion, confidence, and the breakdown JSON. It has its own table because it is not a 0–100 score and carries the bootstrap draws, so it doesn't fit `EventScore`.
 
 ### Source of truth: Result vs EventOccurrence
 
@@ -173,8 +175,10 @@ The rules:
 
 `apps/api/src/demo/` defines 10 **fictional** events around North West England, with generic names such as "Riverside 5K". Real towns are used only for plausible geography.
 
-- **Histories are generated deterministically** from the event and date, so re-seeding is stable. Placing times are derived from the generated result rows, so the two always agree.
-- **Scores are hand-written placeholders** (`calculationVersion = demo_v0`), not algorithm output.
+- **Histories are generated deterministically** from stable seeds, so re-seeding is stable. Placing times are derived from the generated result rows, so the two always agree.
+- **A shared population of pseudonymous runners** (`demo-athlete-00001`…, no names) attends the events week by week. About 45% never leave their home event; the rest occasionally visit nearby ones. This gives the matched-runner evidence the Course Speed Factor needs.
+- **Hidden simulation course effect:** each run's time = ability × slow fitness drift × the course's hidden effect (from elevation, surface and laps plus a small ±1.2% layout quirk) × that day's conditions × personal day noise, with occasional easy runs. The analytics never read the hidden effect: they have to recover it from matched runners. There is no 15:00 clamp, only a 13:00 safety floor.
+- **Only the Gem base score is hand-written** (`demo_v0`, together with average participants). PB Score, Competition, Difficulty and Course Speed are all calculated.
 - **Edge cases are included on purpose:** one event has a cancellation, and one new event has too few occurrences for confident scores ("Limited data").
 
 The UI labels this data as DEMO everywhere it appears.
@@ -185,7 +189,7 @@ Home and the Saturday Planner rank events by **one stored metric per goal**: PB 
 
 - **Planner filters** use only stored properties. When a filter is active and an event's value is unknown, the event is left out rather than guessed.
 - **Dates:** planning covers the next 4 Saturdays. Rankings don't yet change with the date.
-- **"Your outlook"** on the Event page shows the runner's current form. Expected time, historical placement and Top-10 frequency stay "Not available yet" until the placement and course-adjustment engines exist.
+- **"Your outlook"** on the Event page converts the runner's recent best (else lifetime PB) from the event where it was run into an **equivalent 5K here** ("≈ 21:16, adjusted from 19:32 at Riverside 5K"), then shows how that equivalent would historically have placed. It is never called a predicted or expected finish.
 
 ### Historical placement engine v1
 
@@ -222,9 +226,10 @@ Scores are calculated by a backend job (`npm run analytics:recalculate`, also ru
 | --- | --- | --- |
 | `competition_v1` | one per event per window (30, 60, 90, 365, 0 = all) | `competitionScore`, `competitionConfidence`, breakdown |
 | `difficulty_v1` | one per event (`windowDays` 0: structural) | `difficultyScore`, breakdown |
-| `demo_v0` | unchanged | Demo PB Score and Gem base (until Phase 3B) |
+| `pb_v1` | one per event (`windowDays` 365) | `pbScore`, `pbConfidence`, breakdown (Phase 3B) |
+| `demo_v0` | unchanged | Gem base and average participants only |
 
-No schema change was needed. In demo mode the in-memory store runs the same pure functions at startup, and a database test checks both modes give identical results.
+Course Speed Factors are stored in `CourseFactorSnapshot` (Phase 3B). The recalculation order is **course factors → Difficulty → Competition → PB Score**. In demo mode the in-memory store runs the same pure functions at startup, and a database test checks both modes give identical results.
 
 **Competition V1** (`analytics/competition.ts`), 0–100. It measures historical competitive depth, *not* course speed.
 
@@ -253,6 +258,55 @@ No schema change was needed. In demo mode the in-memory store runs the same pure
 - **Stability** is MAD ÷ median: the median absolute deviation, which one outlier can't move much. Its tolerance is 10% for cutoff times and 50% for placings, with the denominator floored at 10 places.
 - **Levels:** High 75+, Medium 55+, Low 35+. Fewer than 3 observations is always "Limited data".
 - **Used by** Competition V1 and historical placement.
+
+### Course Speed Factor V1 (`course_speed_v1`, Phase 3B)
+
+`analytics/courseSpeed.ts`. How fast a course has historically been for **the same runners**, relative to the analysed events. 1.000 is the geometric centre of the cohort; 0.969 means about 3.1% faster, 1.055 about 5.5% slower. Winner times, Competition, records and elevation are not inputs.
+
+- **Matching, without pseudo-replication.** Only results with a pseudonymous `athleteKey` from usable occurrences in the last 365 days are used. For each athlete and each event pair, candidate run pairs within 90 days are sorted by (date gap, date A, date B) and matched **one-to-one, without replacement**, so no run is used twice in a pair.
+  - Each match gives y = ln(t_B ÷ t_A), a ratio that means the same for fast and slow runners.
+  - **Date-gap weights:** ≤14 days 1.0, ≤28 0.8, ≤56 0.5, ≤90 0.25. Beyond 90 days the match is excluded (configurable in `COURSE_SPEED_V1.GAP_BANDS`).
+  - The total weight **one athlete contributes to one event pair is capped at 3** (scaled down proportionally), so regulars can't dominate.
+- **Global network fit.** y ≈ θ_B − θ_A with θ = ln(factor), fitted jointly over every comparison by iteratively reweighted least squares.
+  - **Outliers by model disagreement:** Huber weights with k = 1.345 × a robust scale (1.4826 × MAD of the residuals). A comparison is down-weighted because it disagrees with the model, never because a time is slow in absolute terms.
+  - **Anchor:** Σθ = 0, so the factors' geometric mean is exactly 1.000.
+- **Eligibility, with no fallback.** An event needs at least **20 matched runners and 40 comparisons** (re-checked until stable) and must sit in the largest connected part of the comparison network. Otherwise: "Course adjustment unavailable — limited matched-runner data". Nothing is estimated from elevation instead.
+- **Uncertainty: a runner-cluster bootstrap.** The whole fit is repeated on 200 resamples of *athletes* with replacement (all of an athlete's comparisons move together), using deterministic seeds. Replicates are index-aligned across events, so a source→target ratio interval is taken per replicate and keeps the joint estimation's correlation. It describes uncertainty in the **course comparison only**, not a runner's day-to-day variation, so it is never labelled a confidence or prediction interval for a finish time.
+- **Factor confidence** (0–100 plus High/Medium/Low/Limited data; levels 75/55/35):
+  - matched runners 25% (full marks at 60)
+  - comparisons 20% (full at 150)
+  - connectivity 15% (full at 3 directly compared events)
+  - date proximity 15% (mean gap weight)
+  - model agreement 15% (robust residual spread; 0 at 8%)
+  - recency 10%
+
+  A bootstrap half-width above 2% caps the level at Low.
+
+**Course adjustment** (`services/courseAdjustment.ts`): neutral = source ÷ f_source; **equivalent = neutral × f_target**, rounded to a whole second.
+
+- **Requirements:** both factors must be at least **Medium** confidence. The same event means no adjustment.
+- **Display:** the UI shows a labelled point estimate ("Equivalent here ≈ 20:43"), the adjustment in seconds, and the lower of the two factor confidences. The bootstrap conversion range is kept in the API as course-comparison uncertainty only.
+- **Placement:** in course-adjusted mode the equivalent time goes through the **unchanged** placement engine, one data query per distinct equivalent time.
+
+**Where Could I Place?** gains:
+
+- an "Achieved at" event: profile presets carry theirs, and a typed time can be given one;
+- two modes, *Course adjusted* (the default when the source event's factor is reliable) and *Raw time*.
+
+In the API, `mode=auto` (the default) falls back to raw time only with a `modeNote`. `mode=adjusted` never falls back silently. Events that can't be adjusted are listed under `unavailable`, never placed with the unadjusted time. Compare accepts the same `source`.
+
+### PB Score V1 (`pb_v1`, Phase 3B)
+
+`analytics/pbScore.ts`, 0–100: how favourable an event has historically been for a fast 5K, relative to the analysed cohort.
+
+`PB = 0.75 × observed course speed + 0.25 × structural suitability`
+
+- **Observed course speed** is the cohort mid-rank of the Course Speed Factor, where lower factor scores higher. It uses the same rank method as Competition (self excluded, ties shared).
+- **Structural suitability** is the same rank method on inverse Course Difficulty.
+- **Competition is never an input.** A strong field is not a fast course. Weather is not modelled.
+- **Cohort:** events with a fitted factor that isn't Limited data, and at least 3 of them. It is calculated once per snapshot, so user filters never change a PB Score.
+- **No factor, no score:** "PB Score unavailable · Limited matched-runner data". There is no fallback to the old demo value.
+- **PB confidence** is the Course Speed Factor's confidence.
 
 ### Hidden Gem V1 (`hidden_gem_v1`)
 
@@ -283,9 +337,9 @@ Phase 1 is complete (foundation and shell). Next phases follow the master specif
 
 1. data ingestion and validation, with an import-health admin view
 2. full Event page with charts
-3. Competition Score
-4. Where Could I Place? (historical placement engine)
-5. PB Score
+3. Competition Score (done, Phase 3A)
+4. Where Could I Place? (historical placement engine; course-adjusted in Phase 3B)
+5. PB Score (done, Phase 3B: PB Score V1 from Course Speed Factor V1)
 6. PB Finder
 7. Hidden Gems
 8. Map

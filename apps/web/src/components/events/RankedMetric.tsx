@@ -1,11 +1,19 @@
 import type { Recommendation } from '@runsaturday/shared';
-import { rankedByBand } from '../../lib/display';
+import { LIMITED_MATCHED, PB_UNAVAILABLE, rankedByBand } from '../../lib/display';
 import { TONE_CLASSES } from '../ui/tone';
 
 /** The metric a recommendation was ranked by, shown prominently with its scale and band. */
 export function RankedMetric({ rankedBy, size = 'lg' }: { rankedBy: Recommendation['rankedBy']; size?: 'lg' | 'md' }) {
   const band = rankedByBand(rankedBy);
   const value = rankedBy.value == null ? '—' : Math.round(rankedBy.value);
+  if (rankedBy.key === 'pb_score' && rankedBy.value == null) {
+    return (
+      <div>
+        <p className="text-xs font-semibold tracking-wide text-muted uppercase">{PB_UNAVAILABLE}</p>
+        <p className="mt-1 text-sm font-semibold text-subtle">{LIMITED_MATCHED}</p>
+      </div>
+    );
+  }
   const hint = rankedBy.direction === 'lower_is_better' && rankedBy.key === 'competition_score' ? 'lower is better for placing' : null;
   return (
     <div>
