@@ -11,7 +11,8 @@ import { createPrismaClient } from '../db/prisma';
 import { MemoryDataStore } from '../repositories/memory/MemoryDataStore';
 import { PrismaDataStore } from '../repositories/prisma/PrismaDataStore';
 import { DuplicatePerformanceError } from '../repositories/DataStore';
-import { recalculateRunnerForm } from '../services/runnerForm';
+import { refreshAllAnalytics } from '../analytics/refreshAll';
+import { computeUserRunnerForm, recalculateRunnerForm } from '../services/runnerForm';
 import { loadUser } from '../services/userPerformance';
 
 const url = process.env.TEST_DATABASE_URL;
@@ -214,6 +215,25 @@ describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
     expect(rows[0]).toMatchObject({ distanceMeters: 5000, calculationVersion: 'runner_form_v1', status: 'ESTIMATE', formSeconds: fromDb.formSeconds, confidence: fromDb.confidence.level.toUpperCase() });
     expect(await store!.getRunnerFormSnapshot('demo-user', 5000, 'runner_form_v1', today)).toEqual(fromDb);
     expect(await store!.getRunnerFormSnapshot('demo-user', 5000, 'runner_form_v1', '2000-01-01')).toBeNull();
+  });
+
+  it('canonical refresh rewrites Current Form from the factors it has just recalculated (no stale form)', { timeout: 60_000 }, async () => {
+    const asOfDate = new Date(`${today}T00:00:00Z`);
+    await refreshAllAnalytics(db!, today);
+    // Simulate stale state: a factor changed and the stored form still reflects something else.
+    await db!.courseFactorSnapshot.updateMany({ where: { eventId: 'demo-riverside-5k', asOfDate }, data: { factor: 2 } });
+    await db!.runnerFormSnapshot.updateMany({ where: { userId: 'demo-user', asOfDate }, data: { formSeconds: 1 } });
+    const stale = await db!.runnerFormSnapshot.findFirstOrThrow({ where: { userId: 'demo-user', asOfDate } });
+    expect(stale.formSeconds).toBe(1);
+
+    const { runnerForms } = await refreshAllAnalytics(db!, today);
+    expect(runnerForms.users).toBeGreaterThanOrEqual(1);
+    const factor = (await db!.courseFactorSnapshot.findFirstOrThrow({ where: { eventId: 'demo-riverside-5k', asOfDate } })).factor;
+    expect(factor).not.toBe(2); // factors recalculated first…
+    const form = (await store!.getRunnerFormSnapshot('demo-user', 5000, 'runner_form_v1', today))!;
+    expect(form.inputs.find((i) => i.eventId === 'demo-riverside-5k')!.courseFactor).toBe(factor); // …then the form, from them
+    expect(form).toEqual(await computeUserRunnerForm(store!, 'demo-user', today));
+    expect((await db!.runnerFormSnapshot.findFirstOrThrow({ where: { userId: 'demo-user', asOfDate } })).formSeconds).toBe(form.formSeconds);
   });
 
   describe('UserPerformance (personal data)', () => {

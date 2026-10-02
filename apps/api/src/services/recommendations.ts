@@ -11,13 +11,16 @@
  * - wording stays historical, never a promise about this Saturday.
  */
 import {
+  formatFinishTime,
   goalDefinition,
   type BestPickResponse,
   type EventSummary,
+  type FormReference,
   type Goal,
   type Recommendation,
   type RecommendationReason,
 } from '@runsaturday/shared';
+import type { PlaceInsight, RankingContext } from './rankingContext';
 
 type RankableGoal = Exclude<Goal, 'challenge'>;
 
@@ -68,6 +71,24 @@ const STRATEGIES: Record<RankableGoal, GoalStrategy> = {
 };
 
 const hasLimitedData = (e: EventSummary) => !e.scores || e.scores.pbConfidence === 'insufficient';
+
+/** High Finish with Current Form: share of past events where the converted form reached the top 10. */
+function placeStrategy(place: Map<string, PlaceInsight>): GoalStrategy {
+  return {
+    method: 'ranked by how often your Current Form, converted to each course, historically reached the top 10',
+    rankedBy: { key: 'historical_top10', label: 'Top 10 historically', unit: '%', direction: 'higher_is_better' },
+    metric: (e) => {
+      const p = place.get(e.id);
+      return p && p.frequency.of > 0 ? Math.round((100 * p.frequency.count) / p.frequency.of) : null;
+    },
+    highlightPriority: ['Lower competition', 'Small field', 'Close by'],
+  };
+}
+
+/** Hidden Gem with hidden_gem_v1 scores (same as the Hidden Gems tool). */
+function gemStrategy(gemScores: Map<string, number>): GoalStrategy {
+  return { ...STRATEGIES.hidden_gem, method: 'ranked using Gem Score (hidden_gem_v1)', metric: (e) => gemScores.get(e.id) ?? null };
+}
 
 /** Short tags describing an event, most relevant to the goal first (max 3). */
 export function highlights(e: EventSummary, goal: Goal): string[] {
@@ -150,12 +171,23 @@ export const CHALLENGE_UNAVAILABLE =
  * Rank already-filtered events for a goal. Events outside `maxTravelMinutes` are excluded.
  * Deterministic: ties are broken alphabetically.
  */
-export function rankEvents(goal: Goal, events: EventSummary[], maxTravelMinutes: number | null): Ranking {
+export function rankEvents(goal: Goal, events: EventSummary[], maxTravelMinutes: number | null, context?: RankingContext): Ranking {
   if (!goalDefinition(goal).available || goal === 'challenge') {
     return { goal, method: 'not available yet', results: [], unavailableMessage: CHALLENGE_UNAVAILABLE };
   }
 
-  const strategy = STRATEGIES[goal];
+  // High Finish and Hidden Gem use the runner's Current Form when the context provides it;
+  // without it, High Finish falls back (transparently) to the lowest Competition Score.
+  const place = goal === 'place' ? (context?.place ?? null) : null;
+  const strategy =
+    place != null
+      ? placeStrategy(place)
+      : goal === 'hidden_gem' && context?.gemScores
+        ? gemStrategy(context.gemScores)
+        : goal === 'place' && context
+          ? { ...STRATEGIES.place, method: `${STRATEGIES.place.method} (Current Form unavailable)` }
+          : STRATEGIES[goal];
+  const limited = (e: EventSummary) => (place ? (place.get(e.id)?.limited ?? true) : hasLimitedData(e));
   const candidates = events.filter(
     (e) =>
       (maxTravelMinutes == null || (e.travel != null && e.travel.minutes <= maxTravelMinutes)) &&
@@ -166,8 +198,9 @@ export function rankEvents(goal: Goal, events: EventSummary[], maxTravelMinutes:
   const direction = strategy.rankedBy.direction === 'lower_is_better' ? 1 : -1;
   const ranked = [...candidates].sort(
     (a, b) =>
-      Number(hasLimitedData(a)) - Number(hasLimitedData(b)) ||
+      Number(limited(a)) - Number(limited(b)) ||
       direction * (strategy.metric(a)! - strategy.metric(b)!) ||
+      (place ? place.get(a.id)!.medianHigh - place.get(b.id)!.medianHigh : 0) ||
       a.name.localeCompare(b.name),
   );
 
@@ -179,17 +212,26 @@ export function rankEvents(goal: Goal, events: EventSummary[], maxTravelMinutes:
       event: e,
       rankedBy: { ...strategy.rankedBy, value: strategy.metric(e) },
       highlights: highlights(e, goal),
-      reasons: explain(e, goal, maxTravelMinutes),
+      reasons: place ? [...placeReasons(place.get(e.id)!, context!.form!), ...explain(e, goal, maxTravelMinutes)] : explain(e, goal, maxTravelMinutes),
     })),
   };
+}
+
+function placeReasons(p: PlaceInsight, form: FormReference): RecommendationReason[] {
+  return [
+    {
+      text: `Top 10 in ${p.frequency.count} of ${p.frequency.of} recent events with your Current Form ≈ ${formatFinishTime(form.formSeconds)} (≈ ${formatFinishTime(p.equivalentSeconds)} here)`,
+      tone: p.limited ? 'caution' : 'positive',
+    },
+  ];
 }
 
 export function bestPick(
   goal: Goal,
   events: EventSummary[],
-  options: { date: string; maxTravelMinutes: number | null; alternatives?: number },
+  options: { date: string; maxTravelMinutes: number | null; alternatives?: number; context?: RankingContext },
 ): BestPickResponse {
-  const ranking = rankEvents(goal, events, options.maxTravelMinutes);
+  const ranking = rankEvents(goal, events, options.maxTravelMinutes, options.context);
   const [first, ...rest] = ranking.results;
   const base = { goal, date: options.date, method: ranking.method };
 

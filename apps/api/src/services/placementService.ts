@@ -108,7 +108,8 @@ export async function computeAdjustedPlacements(
   options: PlacementOptions & { factors: ReadonlyMap<string, CourseFactorResult> } & ({ source: AdjustmentSource } | { form: FormReference }),
 ): Promise<{ placements: EventPlacement[]; unavailable: CourseAdjustment[]; from: string | null }> {
   const from = windowFrom(options.window, options.today);
-  // A recorded performance converts via its source event's factor; Current Form is already neutral.
+  // A recorded performance converts via its source event's factor; Current Form is already on the
+  // course-reference scale (the analysed-cohort reference, not a universal neutral course).
   const adjust = (eventId: string) =>
     'form' in options
       ? adjustFromForm(options.form, { eventId }, options.factors.get(eventId))

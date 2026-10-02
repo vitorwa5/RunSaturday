@@ -19,7 +19,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /**
- * What the outlook is based on: Current Form (course-neutral, converted on the server) when there
+ * What the outlook is based on: Current Form (course-adjusted, converted on the server) when there
  * is an estimate; otherwise the recent best, then the Overall 5K PB, each from where it was run.
  */
 interface OutlookBasis {
@@ -130,7 +130,7 @@ export function OutlookCard({ profile, eventId }: { profile: UserProfile | undef
               <span className="text-lg font-extrabold tabular-nums">≈ {formatFinishTime(adjustment.equivalentSeconds!)}</span>
               <span className="block text-xs text-subtle">
                 {adjustment.sourceKind === 'current_form'
-                  ? 'From your course-neutral Current Form'
+                  ? 'From your course-adjusted Current Form'
                   : adjustment.sourceEventId === eventId
                   ? `Your ${basis.label} here`
                   : `Adjusted from ${formatFinishTime(adjustment.sourceSeconds)} at ${adjustment.sourceEventName} (${formatDeltaSeconds(adjustment.deltaSeconds ?? 0)})`}

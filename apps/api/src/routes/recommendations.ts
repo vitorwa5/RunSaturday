@@ -5,6 +5,7 @@ import { currentUser, resolveOrigin, upcomingSaturday, type RequestContext } fro
 import { parseInput } from '../http/errors';
 import { GoalParam, MaxTravel, OriginQuery } from '../http/schemas';
 import { withContext } from '../services/eventContext';
+import { rankingContext } from '../services/rankingContext';
 import { bestPick } from '../services/recommendations';
 
 const BestPickQuery = z.object({
@@ -18,9 +19,10 @@ export async function recommendationRoutes(app: FastifyInstance, ctx: RequestCon
     const { goal, maxTravel } = parseInput(BestPickQuery, request.query);
     const user = await currentUser(ctx);
     const events = withContext(await ctx.store.listActiveEvents(), resolveOrigin(origin, user), user);
-    return bestPick(goal as Goal, events, {
-      date: upcomingSaturday(ctx),
-      maxTravelMinutes: maxTravel ?? user?.defaultTravelMinutes ?? null,
-    });
+    const maxTravelMinutes = maxTravel ?? user?.defaultTravelMinutes ?? null;
+    // High Finish and Hidden Gem use Current Form (same inputs as the planner); other goals do not.
+    const context =
+      maxTravelMinutes != null ? await rankingContext(ctx.store, user, goal as Goal, events, { maxTravelMinutes, today: ctx.today() }) : undefined;
+    return bestPick(goal as Goal, events, { date: upcomingSaturday(ctx), maxTravelMinutes, context });
   });
 }

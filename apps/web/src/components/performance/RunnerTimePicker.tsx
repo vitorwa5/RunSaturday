@@ -22,7 +22,7 @@ export function RunnerTimePicker({ profile, source, manualSeconds, onSourceChang
   const options = RUNNER_TIME_SOURCES.map((s) => {
     if (s.id === 'manual') return { value: s.id, label: s.label };
     const seconds = resolveRunnerTime(s.id, profile, null);
-    // Current Form is a course-neutral estimate, shown with "≈".
+    // Current Form is a modelled estimate, shown with "≈".
     const time = seconds != null ? `${s.id === 'current' ? '≈ ' : ''}${formatFinishTime(seconds)}` : null;
     return { value: s.id, label: time != null ? `${s.label} ${time}` : s.label, disabled: profile != null && seconds == null };
   });

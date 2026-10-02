@@ -6,7 +6,7 @@
  * runner evidence the Course Speed Factor needs.
  *
  * Simulation model (fictional world, documented so it is not mistaken for real data):
- * - Each runner has a home event, a neutral ability (log-normal around the home event's
+ * - Each runner has a home event, a base ability (log-normal around the home event's
  *   `medianSeconds`/`spread`), an attendance rate, a tendency to visit other events (nearer
  *   events more likely), and a slow fitness drift.
  * - A run's time = ability × fitness drift × the course's hidden simulation speed effect
@@ -78,7 +78,7 @@ const STRUCTURE_EFFECT: Record<DemoEventDefinition['courseType'], number> = {
 };
 
 /**
- * The fictional world's hidden course speed effect (multiplier on neutral ability). Part
+ * The fictional world's hidden course speed effect (multiplier on base ability). Part
  * structural, part an unobservable layout quirk (±1.2%) so observed speed is not a pure
  * function of the structural facts. Analytics never read this.
  */

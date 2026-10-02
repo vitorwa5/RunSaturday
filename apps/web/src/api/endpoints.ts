@@ -27,7 +27,7 @@ import type {
 import { plannerApiQuery, type PlannerSelection } from '../lib/plannerParams';
 import { apiGet, apiSend } from './client';
 
-/** "current_form": the server uses the user's own Current Form (course-neutral) instead of a time. */
+/** "current_form": the server uses the user's own Current Form (course-adjusted reference) instead of a time. */
 export type PlacementBasis = 'time' | 'current_form';
 
 export interface PlacementQuery {

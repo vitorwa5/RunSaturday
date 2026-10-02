@@ -1,13 +1,14 @@
 /**
  * npm run runner-form:recalculate [-- --as-of=YYYY-MM-DD]
  * Recalculates Current Form (runner_form_v1) snapshots for every user from their performances and
- * the latest Course Speed Factors. Run it after `analytics:recalculate` so new factors are used;
- * the seed runs both. Deterministic for a given date. Defaults to today (APP_TIME_ZONE).
+ * the latest Course Speed Factors (step 2 of the canonical refresh only). `analytics:recalculate`
+ * already runs it after refreshing the factors; use this for debugging or manual reruns.
+ * Deterministic for a given date. Defaults to today (APP_TIME_ZONE).
  */
 import { calendarDateIn } from '@runsaturday/shared';
 import { createPrismaClient } from '../src/db/prisma';
 import { PrismaDataStore } from '../src/repositories/prisma/PrismaDataStore';
-import { recalculateRunnerForm } from '../src/services/runnerForm';
+import { recalculateAllRunnerForms } from '../src/analytics/refreshAll';
 
 async function main() {
   const url = process.env.DATABASE_URL;
@@ -20,8 +21,7 @@ async function main() {
   try {
     const store = new PrismaDataStore(db, 'demo_v0');
     const users = await db.user.findMany({ select: { id: true }, orderBy: { id: 'asc' } });
-    const counts = { estimate: 0, indicative: 0, unavailable: 0 };
-    for (const { id } of users) counts[(await recalculateRunnerForm(store, id, asOfDate)).status]++;
+    const counts = await recalculateAllRunnerForms(store, users.map((u) => u.id), asOfDate);
     console.log(
       `Runner Form recalculated as of ${asOfDate} for ${users.length} users: ` +
         `${counts.estimate} estimates, ${counts.indicative} indicative, ${counts.unavailable} unavailable.`,

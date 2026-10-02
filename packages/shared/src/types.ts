@@ -124,7 +124,7 @@ export interface Recommendation {
   /** The metric the pick was ranked by, so the UI never shows an unexplained number. */
   rankedBy: {
     /** Stable identifier of the metric, for display logic. */
-    key: 'pb_score' | 'competition_score' | 'gem_score' | 'travel_minutes' | 'average_participants';
+    key: 'pb_score' | 'competition_score' | 'gem_score' | 'travel_minutes' | 'average_participants' | 'historical_top10';
     label: string;
     value: number | null;
     unit?: string;
@@ -170,8 +170,11 @@ export interface PlannerResponse {
   message?: string;
   /** Honest caveats about what the ranking does and does not consider. */
   notes: string[];
-  /** The runner's personalised ability reference (Current Form), or why there is none. */
-  ability: { formReference: FormReference | null; note: string };
+  /**
+   * Whether this goal's ranking used the runner's Current Form, which one, and an honest note
+   * saying what the ranking used (goals that do not depend on ability say so).
+   */
+  ability: { usesCurrentForm: boolean; formReference: FormReference | null; note: string };
 }
 
 export interface HistorySummary {
@@ -308,8 +311,11 @@ export interface RunnerFormInput {
   ageDays: number;
   actualSeconds: number;
   courseFactor: number;
-  /** actual ÷ course factor: the time at the analysed-cohort reference course. */
-  neutralSeconds: number;
+  /**
+   * actual ÷ course factor: the equivalent on the 5K Compass course-reference scale (relative to
+   * the analysed course cohort; not a universal neutral course).
+   */
+  referenceSeconds: number;
   recencyWeight: number;
   courseWeight: number;
   /** 1 = full influence; below 1 = reduced influence (unusually slow or fast for this runner). */
@@ -329,7 +335,8 @@ export interface RunnerFormExcludedPerformance {
 
 /**
  * CURRENT FORM (runner_form_v1): an estimate of the runner's present 5K ability, expressed as a
- * course-neutral time at the analysed-cohort reference course (Course Speed Factor 1.000). It is
+ * time on the 5K Compass course-reference scale: Course Speed Factors are centred on the analysed
+ * course cohort (geometric centre 1.000), which is not a universal neutral 5K course. It is
  * not a recorded performance and not a prediction of a finish time.
  */
 export interface RunnerForm {
@@ -337,9 +344,9 @@ export interface RunnerForm {
   distanceMeters: number;
   asOfDate: string;
   status: RunnerFormStatus;
-  /** Course-neutral Current Form (status "estimate" only). */
+  /** Current Form on the course-reference scale (status "estimate" only). */
   formSeconds: number | null;
-  /** With a single eligible performance: its course-neutral value, for reference only. */
+  /** With a single eligible performance: its course-adjusted reference value, for reference only. */
   indicativeSeconds: number | null;
   /** Confidence in the estimate of underlying form, not the chance of running that time. */
   confidence: ConfidenceAssessment;
@@ -376,7 +383,7 @@ export interface UserProfile {
   /** Derived from UserPerformance (fastest in the recent window). */
   recentPbSeconds: number | null;
   /**
-   * Current Form in seconds (course-neutral, runner_form_v1) when an estimate exists, else null.
+   * Current Form in seconds (course-reference scale, runner_form_v1) when an estimate exists, else null.
    * Kept under this name for compatibility; see `currentForm` for the full model output.
    */
   current5kEstimateSeconds: number | null;
@@ -467,8 +474,9 @@ export interface PlacementStats {
 }
 
 /**
- * Converting a performance from one course to another: neutral = source ÷ f_source,
- * equivalent = neutral × f_target. An equivalent performance, never a predicted finish.
+ * Converting a performance from one course to another: reference = source ÷ f_source,
+ * equivalent = reference × f_target (the cohort reference cancels out). An equivalent
+ * performance, never a predicted finish.
  */
 export interface CourseAdjustment {
   available: boolean;
@@ -476,7 +484,7 @@ export interface CourseAdjustment {
   reason: string | null;
   /**
    * "event": a recorded performance at a known event (equivalent = source ÷ f_source × f_target).
-   * "current_form": the course-neutral Current Form (equivalent = form × f_target; never divided
+   * "current_form": Current Form, already on the course-reference scale (equivalent = form × f_target; never divided
    * by a source factor, and no source event is invented).
    */
   sourceKind: 'event' | 'current_form';

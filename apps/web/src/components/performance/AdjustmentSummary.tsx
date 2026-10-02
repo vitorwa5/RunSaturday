@@ -27,7 +27,7 @@ export function AdjustmentSummary({ adjustment }: { adjustment: CourseAdjustment
             {fromForm && '≈ '}
             {formatFinishTime(adjustment.sourceSeconds)}
           </dd>
-          <dd className="truncate text-xs text-subtle">{fromForm ? 'Course-neutral estimate' : `Achieved at ${adjustment.sourceEventName}`}</dd>
+          <dd className="truncate text-xs text-subtle">{fromForm ? 'Course-adjusted estimate' : `Achieved at ${adjustment.sourceEventName}`}</dd>
         </div>
         <ArrowRight className="mb-5 size-4 text-subtle" aria-hidden />
         <div className="min-w-0">

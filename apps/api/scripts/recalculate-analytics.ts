@@ -1,9 +1,10 @@
 /**
  * npm run analytics:recalculate [-- --as-of=YYYY-MM-DD]
- * Recalculates Competition V1 and Difficulty V1 snapshots. Defaults to today (APP_TIME_ZONE).
+ * The canonical full analytics refresh (analytics/refreshAll.ts): Course Speed Factors → Difficulty
+ * → Competition → PB Score, then every user's Runner Form. Defaults to today (APP_TIME_ZONE).
  */
 import { calendarDateIn } from '@runsaturday/shared';
-import { recalculateAnalytics } from '../src/analytics/recalculate';
+import { refreshAllAnalytics } from '../src/analytics/refreshAll';
 import { createPrismaClient } from '../src/db/prisma';
 
 async function main() {
@@ -16,11 +17,12 @@ async function main() {
   const db = createPrismaClient(url);
   try {
     const started = Date.now();
-    const summary = await recalculateAnalytics(db, asOfDate);
+    const { events: summary, runnerForms } = await refreshAllAnalytics(db, asOfDate);
     console.log(
       `Analytics recalculated as of ${summary.asOfDate}: ${summary.events} events, ` +
         `${summary.courseFactorSnapshots} course_speed_v1 (${summary.fittedFactors} fitted), ` +
         `${summary.difficultySnapshots} difficulty_v1, ${summary.competitionSnapshots} competition_v1 and ${summary.pbSnapshots} pb_v1 snapshots ` +
+        `then Runner Form for ${runnerForms.users} users (${runnerForms.estimate} estimates, ${runnerForms.indicative} indicative, ${runnerForms.unavailable} unavailable) ` +
         `(${Date.now() - started} ms).`,
     );
   } finally {

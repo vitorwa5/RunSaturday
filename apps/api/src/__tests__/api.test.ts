@@ -480,7 +480,7 @@ describe('API', () => {
   it('serves the demo profile with current form separate from lifetime PB', async () => {
     app = await buildTestApp();
     const profile = (await app.inject('/api/profile')).json();
-    // Current Form is modelled (course-neutral) and separate from the Overall 5K PB.
+    // Current Form is modelled (course-adjusted) and separate from the Overall 5K PB.
     expect(profile).toMatchObject({ isDemo: true, lifetimePbSeconds: 1138, current5kEstimateSeconds: 1218, currentFormGapToOverallPbSeconds: 80 });
     expect(profile.currentForm).toMatchObject({ version: 'runner_form_v1', status: 'estimate', formSeconds: 1218, distanceMeters: 5000 });
     expect(profile.recentPbEvent).toEqual({ id: 'demo-riverside-5k', name: 'Riverside 5K' });

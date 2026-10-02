@@ -92,8 +92,8 @@ export function adjustPerformance(
 }
 
 /**
- * Current Form → an event. Current Form is ALREADY course-neutral (time at the analysed-cohort
- * reference course), so:
+ * Current Form → an event. Current Form is ALREADY on the course-reference scale (the analysed-
+ * cohort reference, geometric centre 1.000; not a universal neutral course), so:
  *   equivalent = formSeconds × f_target
  * It is never divided by a source-event factor, and no source event is invented. The target
  * factor must be at least Medium confidence. The adjustment's confidence is the lower of the

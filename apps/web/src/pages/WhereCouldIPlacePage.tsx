@@ -38,7 +38,7 @@ const MODE_HELP: Record<PlacementMode, string> = {
 const RELIABLE = new Set(['high', 'medium']);
 
 const FORM_HELP =
-  'Your Current Form is a course-neutral estimate of your present ability. It is converted to an equivalent at each course using that course’s Speed Factor, then compared with past results. Equivalents are not predicted finish times.';
+  'Your Current Form is estimated from your recent performances after accounting for course differences. It is converted to an equivalent at each course using that course’s Speed Factor, then compared with past results. Equivalents are not predicted finish times.';
 
 const oneOf = <T extends string>(value: string | null, ids: readonly T[], fallback: T): T =>
   value != null && (ids as readonly string[]).includes(value) ? (value as T) : fallback;
@@ -58,7 +58,7 @@ export function WhereCouldIPlacePage() {
 
   // Forward-looking default: Current Form when there is one, else the next supported reference.
   const source = oneOf<RunnerTimeSourceId>(params.get('src'), RUNNER_TIME_SOURCES.map((s) => s.id), profile ? defaultRunnerTimeSource(profile) : 'current');
-  /** Current Form is already course-neutral: the server converts it (form × target factor). */
+  /** Current Form is already on the course-reference scale: the server converts it (form × target factor). */
   const isForm = source === 'current';
   const manualRaw = Number(params.get('time'));
   const manualSeconds = Number.isInteger(manualRaw) && manualRaw > 0 ? manualRaw : null;
@@ -157,7 +157,7 @@ export function WhereCouldIPlacePage() {
               onChange={(e) => update({ from: e.target.value, mode: null })}
               className="min-h-11 w-full rounded-full border border-line bg-surface px-4 text-base focus:border-brand-700 focus:outline-none disabled:bg-canvas disabled:text-muted"
             >
-              {isForm && <option value="form">Current Form (course-neutral, no single event)</option>}
+              {isForm && <option value="form">Current Form (course-adjusted) — no single source event</option>}
               {externalCourse != null && <option value="external">{externalCourse} (not modelled by 5K Compass)</option>}
               <option value="none">Not specified</option>
               {events?.map((e) => (

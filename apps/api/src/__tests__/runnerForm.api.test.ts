@@ -38,7 +38,7 @@ describe('Current Form API (runner_form_v1)', () => {
     app = await buildTestApp();
     const body = await get<PlacementResponse>('/api/placement?basis=current_form&maxTravel=90&window=all&time=15:00&source=demo-riverside-5k');
     expect(body).toMatchObject({ mode: 'adjusted', source: null, timeSeconds: 1218, formReference: { formSeconds: 1218, confidence: 'high', version: 'runner_form_v1' } });
-    expect(body.notes[0]).toMatch(/Current Form is a modelled, course-neutral estimate/);
+    expect(body.notes[0]).toMatch(/Current Form is estimated from your recent performances after accounting for course differences/);
     const forest = body.results.find((r) => r.event.id === 'demo-forest-trail-5k')!;
     expect(forest.adjustment).toMatchObject({ sourceKind: 'current_form', sourceEventId: null, sourceEventName: 'Current Form', sourceSeconds: 1218 });
     expect(forest.analysedSeconds).toBe(Math.round(1218 * (await factorOf('demo-forest-trail-5k'))));
@@ -71,11 +71,13 @@ describe('Current Form API (runner_form_v1)', () => {
     expect(compare.events.every((r) => r.placement?.adjustment?.sourceKind === 'current_form')).toBe(true);
   });
 
-  it('gives the Planner Current Form as its ability reference', async () => {
+  it('uses Current Form in the Planner only for goals that depend on ability', async () => {
     app = await buildTestApp();
-    const planner = await get<PlannerResponse>('/api/planner');
-    expect(planner.ability.formReference).toMatchObject({ formSeconds: 1218 });
-    expect(planner.ability.note).toMatch(/Current Form ≈ 20:18/);
+    const place = await get<PlannerResponse>('/api/planner?goal=place');
+    expect(place.ability).toMatchObject({ usesCurrentForm: true, formReference: { formSeconds: 1218 } });
+    expect(place.ability.note).toMatch(/Current Form ≈ 20:18/);
+    const pb = await get<PlannerResponse>('/api/planner');
+    expect(pb.ability).toMatchObject({ usesCurrentForm: false, formReference: null });
   });
 
   it('says so when Current Form is unavailable, and never substitutes an old PB', async () => {
@@ -85,8 +87,12 @@ describe('Current Form API (runner_form_v1)', () => {
     const res = await app.inject('/api/placement?basis=current_form');
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toEqual({ code: 'form_unavailable', message: 'Current Form unavailable: No recorded 5K performances yet.' });
-    const planner = await get<PlannerResponse>('/api/planner');
-    expect(planner.ability).toEqual({ formReference: null, note: 'Current Form unavailable: No recorded 5K performances yet. Your Overall 5K PB is not used as current ability.' });
+    const planner = await get<PlannerResponse>('/api/planner?goal=place');
+    expect(planner.ability).toEqual({
+      usesCurrentForm: false,
+      formReference: null,
+      note: 'Current Form unavailable: No recorded 5K performances yet. Your Overall 5K PB is not used as current ability. High Finish falls back to the lowest Competition Score.',
+    });
     const profile = await get<UserProfile>('/api/profile');
     expect([profile.current5kEstimateSeconds, profile.currentFormGapToOverallPbSeconds]).toEqual([null, null]);
   });

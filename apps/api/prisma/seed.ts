@@ -7,9 +7,7 @@
  *   npm run db:seed
  */
 import { calendarDateIn } from '@runsaturday/shared';
-import { recalculateAnalytics } from '../src/analytics/recalculate';
-import { PrismaDataStore } from '../src/repositories/prisma/PrismaDataStore';
-import { recalculateRunnerForm } from '../src/services/runnerForm';
+import { refreshAllAnalytics } from '../src/analytics/refreshAll';
 import { createPrismaClient } from '../src/db/prisma';
 import { summarizeResults } from '../src/domain/occurrenceSummary';
 import { buildDemoDataset, DEMO_WINDOW_DAYS } from '../src/demo/buildDemoDataset';
@@ -111,15 +109,14 @@ async function main() {
     });
 
     // Derived analytics (Course Speed V1, Difficulty V1, Competition V1, PB Score V1) so a fresh database is complete.
-    const analytics = await recalculateAnalytics(db, today);
+    // Canonical refresh: event analytics, then every user's Current Form from the new factors.
+    const { events: analytics, runnerForms } = await refreshAllAnalytics(db, today);
     console.log(
       `Calculated analytics as of ${analytics.asOfDate}: ${analytics.courseFactorSnapshots} course factors (${analytics.fittedFactors} fitted), ` +
         `${analytics.competitionSnapshots + analytics.difficultySnapshots + analytics.pbSnapshots} score snapshots.`,
     );
 
-    // Current Form (runner_form_v1) from the demo user's performances and the new course factors.
-    const form = await recalculateRunnerForm(new PrismaDataStore(db, dataset.scoreVersion), user.id, today);
-    console.log(`Current Form: ${form.status}${form.formSeconds != null ? ` ${form.formSeconds}s (${form.confidence.level})` : ''}.`);
+    console.log(`Current Form: ${runnerForms.estimate} estimate(s), ${runnerForms.indicative} indicative, ${runnerForms.unavailable} unavailable.`);
 
     const occurrenceCount = dataset.events.reduce((n, e) => n + e.occurrences.length, 0);
     console.log(

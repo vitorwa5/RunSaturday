@@ -208,16 +208,16 @@ Four separate concepts, never mixed:
 | **Overall 5K PB** | best recorded 5000 m performance ever (any race): an achievement |
 | **parkrun PB** | best recorded 5000 m parkrun: an achievement |
 | **Recent best** | best recorded 5000 m performance in the last 90 days |
-| **Current Form** | a *modelled* estimate of present 5K ability from several recent runs, course-neutral |
+| **Current Form** | a *modelled* estimate of present 5K ability, estimated from several recent runs after accounting for course differences |
 
 **Method** (`analytics/runnerForm.ts`; all parameters in `RUNNER_FORM_V1`):
 
 1. **Eligibility.** 5000 m performances from the last **180 days**, at a known event whose Course Speed Factor is at least Medium confidence. Everything else is listed as excluded, with a reason:
    - other distances;
    - performances older than 180 days (an old PB is history, not current ability);
-   - external courses 5K Compass does not model (never assumed neutral, factor 1.000);
+   - external courses 5K Compass does not model (never given the reference factor 1.000);
    - events with no factor, or a Low/Limited factor.
-2. **Course normalisation.** `neutral = actual ÷ course factor`: the time at the analysed-cohort reference course. The model works in log space.
+2. **Course adjustment.** `reference = actual ÷ course factor`: the equivalent on the **5K Compass course-reference scale**. Course Speed Factors are relative to the analysed event cohort, whose geometric centre is 1.000. That is a cohort reference, **not a universal neutral 5K course**; rescaling every factor by the same amount changes no source-to-target conversion. The model works in log space.
 3. **Weights.**
    - *Recency:* `0.5^(age / 45 days)`, a smooth exponential half-life of 45 days. 45 days ago counts ½ and 90 days ago ¼.
    - *Course-factor confidence:* High 1.0, Medium 0.75.
@@ -228,7 +228,7 @@ Four separate concepts, never mixed:
    - Current Form is `exp(centre)`. It is never the single fastest run.
 5. **Minimum data.**
    - No eligible runs: unavailable.
-   - One run: *indicative* (its neutral value for reference only, no Current Form).
+   - One run: *indicative* (its course-adjusted reference value, for reference only; no Current Form).
    - Two or three runs: an estimate capped at Low confidence.
 6. **Confidence** (0–100, then High ≥ 75 / Medium ≥ 55 / Low ≥ 35 / Limited data), a weighted sum of six parts:
 
@@ -242,20 +242,33 @@ Four separate concepts, never mixed:
    | Time coverage | 5% | 42 days |
 
    If the latest run is over 90 days old, the level is capped at Low. Confidence describes the evidence, never the chance of running the time.
-7. **Trend.** A weighted least-squares slope of log-neutral time against date, weighted by course weight × robust weight so an outlier cannot create a trend.
+7. **Trend.** A weighted least-squares slope of the log course-adjusted reference time against date, weighted by course weight × robust weight so an outlier cannot create a trend.
    - It needs at least 4 runs spanning at least 28 days; otherwise *Limited data*.
    - It is *Improving* or *Declining* only when the change is at least 1.5% per 90 days **and** |slope / standard error| ≥ 2. Otherwise it is *Stable*.
 8. **Snapshots.** Current Form is stored in `RunnerFormSnapshot`, unique per (user, distance, version, asOfDate). It is recalculated:
-   - when the user's performances change;
+   - when that user's performances change;
    - lazily, once per day;
-   - by `npm run runner-form:recalculate` (run it after new course factors).
+   - as the **last step of the canonical refresh** (`npm run analytics:recalculate`, used by the seed, in `analytics/refreshAll.ts`): **Course Speed Factors → Difficulty → Competition → PB Score → event snapshots → Runner Form**.
+
+   Updating the factors therefore always refreshes every user's Current Form from the new factors. Runner Form never triggers event analytics, so there is no cycle. `npm run runner-form:recalculate` runs the last step alone, for debugging or manual use.
 
    The API reads the snapshot and never recomputes per request.
 
-**Using Current Form.** It is already course-neutral, so converting it to an event is `equivalent = form × f_target`. It is never divided by a source factor, and no source event is invented.
+**Using Current Form.** It is already on the course-reference scale, so converting it to an event is `equivalent = form × f_target`. It is never divided by a source factor, and no source event is invented.
 - **Where Could I Place?, Compare and the Event outlook:** these default to Current Form (`basis=current_form`, read on the server from the user's own snapshot). Overall 5K PB, parkrun PB, recent best and typed times stay selectable, and Raw time mode is kept.
 - **Hidden Gems:** uses Current Form converted per course.
-- **Saturday Planner:** names Current Form as the ability reference. Its rankings don't depend on ability.
+- **Saturday Planner and Home best pick (goal by goal):**
+
+  | Goal | Ranking inputs |
+  | --- | --- |
+  | PB | PB Score, a course characteristic; no runner ability |
+  | High Finish | **Current Form** converted to each course, then the unchanged placement engine (share of the last 90 days' events where it reached the top 10, conservative ties; then median placing). Without Current Form: lowest Competition Score, labelled as a fallback |
+  | Hidden Gem | `hidden_gem_v1` Gem Score, the same as the Hidden Gems tool; its placement opportunity uses **Current Form** converted to each course (else inverse Competition) |
+  | New Event | visit state and estimated travel; no runner ability |
+  | Quiet | average field size; no runner ability |
+  | Challenge | not available yet |
+
+  The response's `ability` says whether the goal used Current Form (`usesCurrentForm`) and what it used. Goals that do not depend on ability never load it.
 - **When Current Form is unavailable:** every tool says so and falls back transparently. An old PB is never used as current ability.
 - **Profile:** shows the descriptive *gap* between Current Form and the Overall 5K PB. There are no readiness or improvement predictions.
 

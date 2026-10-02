@@ -8,10 +8,12 @@
  * 1. ELIGIBILITY. 5000 m performances dated within HORIZON_DAYS up to asOfDate, at a KNOWN
  *    internal event whose Course Speed Factor is at least Medium confidence. Everything else is
  *    listed as excluded with a reason, never silently used: other distances, unmodelled external
- *    courses (an unknown course is NOT assumed to be neutral, factor 1.000), events without a
+ *    courses (an unknown course is NOT given the reference factor 1.000), events without a
  *    factor and factors of Low/Limited confidence.
- * 2. COURSE NORMALISATION. neutral = actual ÷ course factor: the equivalent time at the
- *    analysed-cohort reference course (1.000). The model works in log space, x = ln(neutral), so
+ * 2. COURSE ADJUSTMENT. reference = actual ÷ course factor: the equivalent on the 5K Compass
+ *    course-reference scale. Factors are centred on the eligible analysed cohort (geometric
+ *    centre 1.000); this is a cohort reference, NOT a universal neutral 5K course. The model works
+ *    in log space, x = ln(reference), so
  *    differences are ratios and mean the same for any runner.
  * 3. WEIGHTS. recency = 0.5^(ageDays / HALF_LIFE_DAYS) (smooth exponential decay, no buckets);
  *    course = by factor confidence (High 1.0, Medium 0.75).
@@ -27,7 +29,7 @@
  *    runner's other results) is down-weighted.
  *    Current Form = exp(mu), rounded to a second. It is never the single fastest result, and an
  *    old PB outside the horizon has no influence at all.
- * 5. MINIMUM DATA. 0 eligible → unavailable. 1 → "indicative" (its neutral value is reported
+ * 5. MINIMUM DATA. 0 eligible → unavailable. 1 → "indicative" (its reference value is reported
  *    for reference, but no Current Form). 2–3 → an estimate capped at Low confidence.
  * 6. CONFIDENCE (0–100, then High ≥ 75 / Medium ≥ 55 / Low ≥ 35 / Limited data): see
  *    `confidence` below. It describes the evidence for the estimate, never the chance of running
@@ -257,7 +259,7 @@ export function computeRunnerForm(
     ageDays: e.ageDays,
     actualSeconds: e.finishTimeSeconds,
     courseFactor: e.factor.factor,
-    neutralSeconds: Math.round(Math.exp(x[i]!)),
+    referenceSeconds: Math.round(Math.exp(x[i]!)),
     recencyWeight: round3(recency[i]!),
     courseWeight: course[i]!,
     robustWeight: round3(robust[i]!),
@@ -266,7 +268,7 @@ export function computeRunnerForm(
 
   if (eligible.length === 1) {
     const reason = 'Only one eligible recent performance: shown for reference, not as Current Form.';
-    return { ...common, status: 'indicative', formSeconds: null, indicativeSeconds: inputs[0]!.neutralSeconds, confidence: limited(reason), trend: noTrend, limitedReason: reason, inputs };
+    return { ...common, status: 'indicative', formSeconds: null, indicativeSeconds: inputs[0]!.referenceSeconds, confidence: limited(reason), trend: noTrend, limitedReason: reason, inputs };
   }
 
   // Confidence in the estimate of underlying form.

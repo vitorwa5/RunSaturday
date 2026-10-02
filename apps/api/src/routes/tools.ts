@@ -53,7 +53,7 @@ const ADJUSTED_NOTE =
  */
 const BasisParam = z.enum(['time', 'current_form']).default('time');
 const FORM_NOTE =
-  'Current Form is a modelled, course-neutral estimate of your present 5K ability. Each equivalent is your Current Form converted to that course: an equivalent performance from past results, not a predicted finish time.';
+  'Current Form is estimated from your recent performances after accounting for course differences. Each equivalent is your Current Form converted to that course: an equivalent performance from past results, not a predicted finish time.';
 
 /** auto: course adjusted when a source event with a reliable factor is given, otherwise raw time. */
 const ModeParam = z.enum(['auto', 'adjusted', 'raw']).default('auto');
@@ -151,7 +151,7 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
     };
     if (q.mode === 'raw') return raw(null);
     if (formReference) {
-      // Current Form is already course-neutral: equivalent = form × target factor. No source event.
+      // Current Form is already on the course-reference scale: equivalent = form × target factor. No source event.
       const factors = new Map((await ctx.store.listCourseFactors()).map((f) => [f.eventId, f]));
       const result = await computeAdjustedPlacements(ctx.store, selected, { ...base, form: formReference, factors });
       return { mode: 'adjusted', modeNote: null, source: null, formReference, ...result };

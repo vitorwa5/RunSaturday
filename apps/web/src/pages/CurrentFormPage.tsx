@@ -91,14 +91,21 @@ export function CurrentFormPage() {
               from the last {form.method.horizonDays} days at courses 5K Compass models.
             </p>
             <ul className="list-disc space-y-1 pl-5">
-              <li>Each run is course-normalised: your time ÷ the course’s Speed Factor, so a hilly course and a fast one are compared fairly.</li>
+              <li>Each run is course-adjusted: your time ÷ the course’s Speed Factor, so a hilly course and a fast one are compared fairly.</li>
               <li>Recent runs count more: a run {form.method.halfLifeDays} days old counts half as much as one today.</li>
               <li>An unusually slow run (an easy day, pacing, illness) keeps a reduced influence; a genuine fast run counts in full.</li>
               <li>Your PBs are achievements, not current ability: an old PB does not pull Current Form towards it.</li>
             </ul>
-            <p className="text-xs text-subtle">
-              Version {form.version}. The time is course-neutral: 1.000 is the reference of the analysed course cohort, not a particular course.
+            <p>
+              Current Form is expressed on the 5K Compass course-reference scale, based on the analysed course cohort:
             </p>
+            <ul className="list-disc space-y-1 pl-5" aria-label="About the course-reference scale">
+              <li>Course Speed Factors are relative to the analysed event cohort.</li>
+              <li>The geometric centre of the eligible cohort is 1.000.</li>
+              <li>This is not a universal neutral 5K course: it is the 5K Compass reference.</li>
+              <li>Converting between courses uses only the ratio of their factors, so rescaling every factor by the same amount would not change any equivalent.</li>
+            </ul>
+            <p className="text-xs text-subtle">Version {form.version}.</p>
           </section>
 
           {form.inputs.length > 0 && (
@@ -111,7 +118,7 @@ export function CurrentFormPage() {
                   <li key={i.performanceId} className="px-3 py-2">
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="min-w-0 truncate font-semibold">{i.eventName}</span>
-                      <span className="shrink-0 font-semibold tabular-nums">{formatFinishTime(i.neutralSeconds)} equivalent</span>
+                      <span className="shrink-0 font-semibold tabular-nums">{formatFinishTime(i.referenceSeconds)} reference</span>
                     </div>
                     <div className="flex flex-wrap justify-between gap-x-2 text-xs text-muted">
                       <span>

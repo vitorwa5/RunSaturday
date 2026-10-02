@@ -130,7 +130,7 @@ describe('Course Speed Factor V1: model', () => {
 describe('Course adjustment', () => {
   const f = fit(['A', 'B', 'C'], synth({ truth: { A: 0.98, B: 1.04, C: 1 }, groups: [{ runners: 90, rotation: ['A', 'B', 'C'] }] }));
 
-  it('converts source → neutral → target and rounds to a whole second', () => {
+  it('converts source → cohort reference → target and rounds to a whole second', () => {
     const adj = adjustPerformance({ eventId: 'A', name: 'A', seconds: 1175 }, f.get('A'), { eventId: 'B' }, f.get('B'));
     expect(adj.available).toBe(true);
     expect(adj.equivalentSeconds).toBe(Math.round(1175 * (f.get('B')!.factor! / f.get('A')!.factor!)));

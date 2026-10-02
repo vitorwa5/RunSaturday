@@ -8,11 +8,11 @@ const mmss = (t: string) => {
   return m * 60 + s;
 };
 const high = (factor: number, score = 90): FormCourseFactor => ({ factor, confidence: { level: 'high', score } });
-/** Neutral-course test events: factor exactly 1, so actual = neutral. */
+/** Reference-factor test events: factor exactly 1.000, so actual = course-adjusted reference. */
 const FACTORS = new Map<string, FormCourseFactor>([
-  ['neutral-a', high(1)],
-  ['neutral-b', high(1)],
-  ['neutral-c', high(1)],
+  ['ref-a', high(1)],
+  ['ref-b', high(1)],
+  ['ref-c', high(1)],
   ['fast', high(0.9887)],
   ['hilly', high(1.0302)],
   ['medium', { factor: 1, confidence: { level: 'medium', score: 65 } }],
@@ -31,14 +31,14 @@ const run = (eventId: string | null, daysAgo: number, time: string | number, ext
   ...extra,
 });
 const form = (runs: FormPerformance[], factors = FACTORS) => computeRunnerForm(runs, factors, AS_OF);
-const EVENTS = ['neutral-a', 'neutral-b', 'neutral-c'];
-/** Weekly runs, newest first, rotating through three neutral events. */
+const EVENTS = ['ref-a', 'ref-b', 'ref-c'];
+/** Weekly runs, newest first, rotating through three reference-factor events. */
 const weekly = (times: string[]) => times.map((t, i) => run(EVENTS[i % 3]!, 7 * i + 2, t));
 
 describe('Runner Form V1: critical regressions', () => {
   it('ignores a 7-year-old 21:00 PB: Current Form stays with the recent ~22:10 runs', () => {
     const recent = weekly(['22:03', '22:12', '22:08', '22:16', '22:10']);
-    const withPb = form([...recent, run('neutral-a', 7 * 365, '21:00')]);
+    const withPb = form([...recent, run('ref-a', 7 * 365, '21:00')]);
     const withoutPb = form(recent);
     expect(withPb.formSeconds).toBe(withoutPb.formSeconds);
     expect(withPb.formSeconds!).toBeGreaterThanOrEqual(mmss('22:03'));
@@ -49,7 +49,7 @@ describe('Runner Form V1: critical regressions', () => {
   it('sees 21:50 on a fast course and 22:45 on a hilly one as the same ~22:05 ability, not a 55 s decline', () => {
     const f = form([run('hilly', 3, '22:45'), run('fast', 10, '21:50'), run('hilly', 17, '22:45'), run('fast', 24, '21:50'), run('hilly', 31, '22:45'), run('fast', 38, '21:50')]);
     expect(Math.abs(f.formSeconds! - mmss('22:05'))).toBeLessThanOrEqual(2);
-    for (const i of f.inputs) expect(Math.abs(i.neutralSeconds - mmss('22:05'))).toBeLessThanOrEqual(2);
+    for (const i of f.inputs) expect(Math.abs(i.referenceSeconds - mmss('22:05'))).toBeLessThanOrEqual(2);
     expect(f.inputs.every((i) => i.robustWeight === 1)).toBe(true);
     expect(f.trend.direction).toBe('stable');
   });
@@ -75,7 +75,7 @@ describe('Runner Form V1: critical regressions', () => {
     expect(f.trend.changePercentPer90Days!).toBeLessThan(0);
   });
 
-  it('does not let an external 19:25 road race become Current Form or a neutral result', () => {
+  it('does not let an external 19:25 road race become Current Form or a reference-course result', () => {
     const f = form([run(null, 20, '19:25'), ...weekly(['19:48', '19:52', '19:50', '19:49'])]);
     expect(f.formSeconds!).toBeGreaterThanOrEqual(mmss('19:48'));
     expect(f.formSeconds!).toBeLessThanOrEqual(mmss('19:52'));
@@ -86,10 +86,10 @@ describe('Runner Form V1: critical regressions', () => {
 
 describe('Runner Form V1: behaviour', () => {
   it('weights recent runs more than older ones (exponential half-life)', () => {
-    const f = form([run('neutral-a', 0, '22:00'), run('neutral-b', 45, '22:00'), run('neutral-c', 90, '22:00')]);
+    const f = form([run('ref-a', 0, '22:00'), run('ref-b', 45, '22:00'), run('ref-c', 90, '22:00')]);
     expect(f.inputs.map((i) => i.recencyWeight)).toEqual([1, 0.5, 0.25]);
     // Same times either way, but the recent half pulls the estimate towards itself.
-    const recentFaster = form([run('neutral-a', 3, '21:50'), run('neutral-b', 10, '21:52'), run('neutral-c', 120, '22:40'), run('neutral-a', 130, '22:42')]);
+    const recentFaster = form([run('ref-a', 3, '21:50'), run('ref-b', 10, '21:52'), run('ref-c', 120, '22:40'), run('ref-a', 130, '22:42')]);
     expect(recentFaster.formSeconds!).toBeLessThan((mmss('21:51') + mmss('22:41')) / 2);
   });
 
@@ -134,10 +134,10 @@ describe('Runner Form V1: behaviour', () => {
   });
 
   it('handles course-factor confidence: Medium counts less, Low and missing factors are excluded', () => {
-    const f = form([run('medium', 2, '22:00'), run('neutral-a', 9, '22:00'), run('low', 16, '22:00'), run('nofactor', 23, '22:00')]);
+    const f = form([run('medium', 2, '22:00'), run('ref-a', 9, '22:00'), run('low', 16, '22:00'), run('nofactor', 23, '22:00')]);
     expect(f.inputs.map((i) => [i.eventId, i.courseWeight])).toEqual([
       ['medium', 0.75],
-      ['neutral-a', 1],
+      ['ref-a', 1],
     ]);
     expect(f.excluded.map((e) => e.reason).sort()).toEqual(['factor_low_confidence', 'factor_unavailable']);
   });
@@ -148,7 +148,7 @@ describe('Runner Form V1: behaviour', () => {
   });
 
   it('is 5000 m only', () => {
-    const f = form([...weekly(['22:05', '22:08']), run('neutral-a', 4, 2700, { distanceMeters: 10000 })]);
+    const f = form([...weekly(['22:05', '22:08']), run('ref-a', 4, 2700, { distanceMeters: 10000 })]);
     expect(f.inputs).toHaveLength(2);
     expect(f.excluded).toEqual([expect.objectContaining({ reason: 'not_5k' })]);
     expect(RUNNER_FORM_V1.DISTANCE_METERS).toBe(5000);

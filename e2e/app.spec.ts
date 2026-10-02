@@ -174,13 +174,13 @@ test.describe('Event page', () => {
     await expect(page.getByRole('button', { name: /Save/ })).toBeDisabled();
 
     const outlook = page.getByRole('region', { name: 'Your outlook' });
-    // Current Form (course-neutral) converted to this course: an equivalent, never a predicted finish.
+    // Current Form (course-adjusted) converted to this course: an equivalent, never a predicted finish.
     await expect(outlook.getByText('Current Form', { exact: true })).toBeVisible();
     await expect(outlook.getByText('≈ 20:18', { exact: true })).toBeVisible();
     await expect(outlook.getByText('Typical historical position')).toBeVisible();
     await expect(outlook.getByText(/\d+ of \d+ events/)).toBeVisible();
     await expect(outlook.getByText('Equivalent 5K here')).toBeVisible();
-    await expect(outlook.getByText('From your course-neutral Current Form')).toBeVisible();
+    await expect(outlook.getByText('From your course-adjusted Current Form')).toBeVisible();
     await expect(outlook.getByText('Equivalent here is based on your current course-normalised form.')).toBeVisible();
     await expect(page.getByText(/predicted finish/i)).toHaveCount(1); // only the "not a predicted finish time" note
     await expect(outlook.getByText(/not a predicted finish time/)).toBeVisible();
@@ -545,7 +545,7 @@ test.describe('Personal performance history (Phase 4A)', () => {
     await expect(summary.getByText('Different events')).toBeVisible();
     await expect(summary.getByRole('link', { name: /^parkrun PB 18:58 at Riverside 5K/ })).toBeVisible();
     await expect(summary.getByRole('link', { name: 'Current Form about 20:18, High confidence: how is it calculated?' })).toBeVisible();
-    await expect(summary.getByText(/modelled, course-neutral estimate of your present ability/)).toBeVisible();
+    await expect(summary.getByText(/estimated from your recent performances after accounting for course differences/)).toBeVisible();
 
     const recent = page.getByRole('list', { name: 'Recent performances' });
     await expect(recent.getByRole('listitem')).toHaveCount(8);
@@ -749,7 +749,12 @@ test.describe('Runner Form V1 (Phase 4B)', () => {
     await expect(summary.getByText('Stable', { exact: true })).toBeVisible();
     const used = page.getByRole('list', { name: 'Recent runs used' });
     await expect(used.getByRole('listitem')).toHaveCount(13);
-    await expect(used.getByRole('listitem').first()).toContainText(/\d{2}:\d{2} equivalent/);
+    await expect(used.getByRole('listitem').first()).toContainText(/\d{2}:\d{2} reference/);
+    const scale = page.getByRole('list', { name: 'About the course-reference scale' });
+    await expect(scale).toContainText('Course Speed Factors are relative to the analysed event cohort.');
+    await expect(scale).toContainText('The geometric centre of the eligible cohort is 1.000.');
+    await expect(scale).toContainText('This is not a universal neutral 5K course');
+    await expect(scale).toContainText('rescaling every factor by the same amount would not change any equivalent');
     await expect(used.getByText(/reduced influence/).first()).toBeVisible();
     await expect(page.getByRole('list', { name: 'Performances not included' }).getByText(/history, not current form/).first()).toBeVisible();
     await expect(page.getByText(/not the chance of running this time/)).toBeVisible();
@@ -763,13 +768,13 @@ test.describe('Runner Form V1 (Phase 4B)', () => {
     await page.getByRole('link', { name: 'Where could I place with this?' }).click();
     await expect(page).toHaveURL(/\/where-could-i-place\?src=current$/);
     await expect(page.getByRole('radio', { name: 'Current Form ≈ 20:18' })).toHaveAttribute('aria-checked', 'true');
-    // Current Form is course-neutral: no source event is invented.
+    // Current Form is already course-adjusted: no source event is invented.
     await expect(page.getByLabel('Achieved at')).toBeDisabled();
-    await expect(page.getByLabel('Achieved at')).toContainText('Current Form (course-neutral, no single event)');
+    await expect(page.getByLabel('Achieved at')).toContainText('Current Form (course-adjusted) — no single source event');
     await expect(page.getByRole('radiogroup', { name: 'Compare as' }).getByRole('radio', { name: 'Course adjusted' })).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByText(/your Current Form ≈ 20:18, converted to each course/)).toBeVisible();
     const first = page.getByRole('article').first();
-    await expect(first.getByText('Course-neutral estimate')).toBeVisible();
+    await expect(first.getByText('Course-adjusted estimate')).toBeVisible();
     await expect(first.getByText('Equivalent here')).toBeVisible();
     await expectNoHorizontalScroll(page);
 
@@ -785,7 +790,7 @@ test.describe('Runner Form V1 (Phase 4B)', () => {
     await page.goto('/event/demo-forest-trail-5k');
     const outlook = page.getByRole('region', { name: 'Your outlook' });
     await expect(outlook.getByText('≈ 20:18', { exact: true })).toBeVisible();
-    // A slower course: the equivalent here is slower than the course-neutral form.
+    // A slower course: the equivalent here is slower than the Current Form reference.
     const equivalent = outlook.getByText(/^≈ (2[1-9]):\d{2}$/);
     await expect(equivalent).toBeVisible();
     await expect(outlook.getByText('Equivalent here is based on your current course-normalised form.')).toBeVisible();
@@ -798,7 +803,7 @@ test.describe('Runner Form V1 (Phase 4B)', () => {
     await expect(page.getByRole('radiogroup', { name: 'Runner time' }).getByRole('radio', { name: 'Current Form ≈ 20:18' })).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByRole('rowheader', { name: 'Equivalent here' })).toBeVisible();
     await expect(page.getByText('from Current Form').first()).toBeVisible();
-    await expect(page.getByText(/Placement rows use your Current Form ≈ 20:18, a course-neutral estimate/)).toBeVisible();
+    await expect(page.getByText(/Placement rows use your Current Form ≈ 20:18, a course-adjusted estimate/)).toBeVisible();
     await expectNoHorizontalScroll(page);
     await page.getByRole('radiogroup', { name: 'Runner time' }).getByRole('radio', { name: /^Overall 5K PB 18:58/ }).click();
     await expect(page).toHaveURL(/time=1138&from=demo-riverside-5k/);
@@ -807,6 +812,33 @@ test.describe('Runner Form V1 (Phase 4B)', () => {
 
   test('Saturday Planner names Current Form as the ability reference', async ({ page }) => {
     await page.goto('/saturday');
-    await expect(page.getByRole('note', { name: 'Your ability reference' })).toContainText('Your personalised reference is your Current Form ≈ 20:18 (high confidence)');
+    // PB goal (the default) does not use ability, and says so.
+    await expect(page.getByRole('note', { name: 'Your ability reference' })).toContainText('PB ranking uses PB Score, a course characteristic');
+  });
+
+  test('Saturday Planner High Finish ranks by Current Form; PB says it does not use ability', async ({ page }) => {
+    await page.goto('/saturday?goal=place&travel=90');
+    await expect(page.getByRole('note', { name: 'Your ability reference' })).toContainText('High Finish uses your Current Form ≈ 20:18 (high confidence), converted to each course');
+    const first = page.getByRole('article').first();
+    await expect(first.getByText('Top 10 historically')).toBeVisible();
+    await first.getByRole('button', { name: 'Why this?' }).click();
+    await expect(first.getByText(/^Top 10 in \d+ of \d+ recent events with your Current Form ≈ 20:18/)).toBeVisible();
+    await expectNoHorizontalScroll(page);
   });
 });
+
+test.describe('No "neutral course" claims (Phase 4B.1)', () => {
+  // Every user-facing mention of "neutral" must be a negation ("not a … neutral … course").
+  for (const path of ['/profile', '/profile/current-form', '/where-could-i-place?src=current&travel=90', '/event/demo-forest-trail-5k', '/compare?ids=demo-riverside-5k,demo-forest-trail-5k', '/saturday?goal=place']) {
+    test(`${path} never presents a time or course as neutral`, async ({ page }) => {
+      await page.goto(path);
+      await page.waitForLoadState('networkidle');
+      const text = await page.locator('body').innerText();
+      for (const sentence of text.match(/[^.\n]*neutral[^.\n]*/gi) ?? []) {
+        expect(sentence).toMatch(/not a (universal |physically )?neutral/i);
+      }
+      expect(text).not.toMatch(/course-neutral|neutral (time|ability|equivalent|value|form)/i);
+    });
+  }
+});
+
