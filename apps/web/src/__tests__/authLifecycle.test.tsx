@@ -47,6 +47,14 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => { for (const root of roots.splice(0)) root.unmount(); }); document.body.innerHTML = ''; Channel.channels.clear(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('auth generation across deliberately delayed responses', () => {
+  it('keeps a signed-out view mounted while focus revalidation discards the old generation', async () => {
+    server = { mode: 'beta', user: null }; await mount(); const old = auth.captureOperation();
+    const delayed = deferred<Session>(); vi.mocked(apiGet).mockImplementationOnce(() => delayed.promise as never);
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(auth.ready).toBe(true); expect(auth.user).toBeNull(); expect(old.signal.aborted).toBe(true);
+    await act(async () => delayed.resolve({ mode: 'beta', user: null }));
+    expect(auth.ready).toBe(true); expect(old.isCurrent()).toBe(false);
+  });
   it('fails cookie-changing operations safely if cross-tab serialization is unavailable', async () => {
     await mount(); vi.stubGlobal('navigator', {});
     await act(async () => { await expect(auth.signIn('B@example.test', '123456')).rejects.toThrow(/updated browser/); });

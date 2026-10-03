@@ -10,7 +10,7 @@ describe('explicit trusted proxy configuration', () => {
     }
   });
   it('ignores spoofed forwarding headers unless the immediate peer is explicitly trusted', async () => {
-    for (const TRUSTED_PROXY_CIDRS of ['', '10.50.0.0/24']) {
+    for (const TRUSTED_PROXY_CIDRS of ['', '10.50.0.0/24', '::ffff:10.50.0.0/120']) {
       const app = await buildApp({ config: loadConfig({ APP_MODE: 'demo', DATA_SOURCE: 'demo', TRUSTED_PROXY_CIDRS }), store: new MemoryDataStore('2026-10-01'), logger: false });
       app.get('/test-ip', (request) => ({ ip: request.ip }));
       try {
@@ -19,6 +19,13 @@ describe('explicit trusted proxy configuration', () => {
         expect((await app.inject({ url: '/test-ip', remoteAddress: '10.50.0.4', headers })).json().ip).toBe(TRUSTED_PROXY_CIDRS ? '203.0.113.12' : '10.50.0.4');
         expect((await app.inject({ url: '/test-ip', remoteAddress: '10.50.0.4', headers: { 'x-forwarded-for': '203.0.113.99, 192.0.2.8' } })).json().ip).toBe(TRUSTED_PROXY_CIDRS ? '192.0.2.8' : '10.50.0.4');
       } finally { await app.close(); }
+    }
+  });
+  it('rejects IPv4-mapped and combined trust-all ranges in beta', () => {
+    const beta = { APP_MODE: 'beta', NODE_ENV: 'test', DATABASE_URL: 'postgresql://example.invalid/db', AUTH_BASE_URL: 'https://example.test', AUTH_SECRET: 'test-only-proxy-secret-at-least-32-characters', EMAIL_TRANSPORT: 'test' };
+    expect(() => loadConfig({ ...beta, TRUSTED_PROXY_CIDRS: '::ffff:10.50.0.0/120' })).not.toThrow();
+    for (const TRUSTED_PROXY_CIDRS of ['::ffff:0.0.0.0/96', '0:0:0:0:0:ffff:0:0/96', '::/32', '0.0.0.0/1,128.0.0.0/1', '::ffff:0.0.0.0/97,::ffff:128.0.0.0/97']) {
+      expect(() => loadConfig({ ...beta, TRUSTED_PROXY_CIDRS })).toThrow(/TRUSTED_PROXY_CIDRS/);
     }
   });
 });

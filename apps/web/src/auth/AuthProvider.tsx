@@ -31,8 +31,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       temporary.postMessage(message); temporary.close();
     }
   }, []);
-  const reset = useCallback(() => {
-    setState((s) => ({ ...s, ready: false, user: null, error: null }));
+  const reset = useCallback((preserveSignedOut = false) => {
+    // Revalidating an already signed-out view must not destroy the email/OTP step
+    // when the runner returns from their inbox. Signed-in personal UI still hides.
+    setState((s) => ({ ...s, ready: preserveSignedOut && s.ready && !s.user, user: null, error: null }));
     void clearPersonalData(client);
   }, [client]);
   const applySession = (session: SessionState) => {
@@ -42,7 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
   const refresh = useCallback(async () => {
     if (!epoch.mounted || epoch.busy || remoteTransitions.current.size) return;
-    const ticket = epoch.advance(); reset();
+    const ticket = epoch.advance(); reset(true);
     try {
       const session = await withAuthLock(() => apiGet<SessionState>('/account/session', {}, ticket.signal), ticket.signal);
       if (ticket.isCurrent()) applySession(session);
