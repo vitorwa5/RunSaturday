@@ -9,6 +9,10 @@ async function login(page: Page, email: string) {
   await page.getByLabel('Email address').fill(email);
   await page.getByRole('button', { name: 'Send code', exact: true }).click();
   await expect(page.getByLabel('Sign-in code')).toBeVisible();
+  // Returning from a webmail tab must preserve the already-sent OTP form.
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByLabel('Sign-in code')).toBeVisible();
+  await expect(page.getByLabel('Email address')).toHaveValue(email);
   let code = '';
   await expect.poll(async () => {
     const rows = (await readFile(inbox, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as { email: string; code: string });

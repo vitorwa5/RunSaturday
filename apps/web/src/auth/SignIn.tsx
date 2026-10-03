@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from './AuthProvider';
 export function SignIn() {
   const auth = useAuth();
@@ -7,6 +7,14 @@ export function SignIn() {
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const signal = auth.captureOperation().signal;
+  useEffect(() => {
+    // A focus revalidation can cancel an in-flight send while this signed-out form
+    // stays mounted. Release its busy UI; its old response still cannot set state.
+    const cancelled = () => setBusy(false);
+    signal.addEventListener('abort', cancelled);
+    return () => signal.removeEventListener('abort', cancelled);
+  }, [signal]);
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError(null);
     const ticket = auth.captureOperation();

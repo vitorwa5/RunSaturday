@@ -12,18 +12,19 @@ describe('destructive demo seed guard', () => {
       expect(() => requireDemoSeedOptIn({ ...valid, ...change })).toThrow(/Demo seed requires/);
     }
   });
-  const database = (user: object | null, sessions = 0, accounts = 0) => ({ user: { findFirst: async () => user }, session: { count: async () => sessions }, account: { count: async () => accounts } }) as unknown as Db;
+  const database = (user: object | null, sessions = 0, accounts = 0, importedEvents = 0) => ({ user: { findFirst: async () => user }, session: { count: async () => sessions }, account: { count: async () => accounts }, event: { count: async () => importedEvents } }) as unknown as Db;
   it('accepts a database with no unexpected users and no auth identities', async () => {
     await expect(assertDemoSeedDatabase(database(null))).resolves.toBeUndefined();
   });
   it('refuses unexpected users, sessions and account identities', async () => {
-    for (const db of [database({ id: 'real' }), database(null, 1), database(null, 0, 1)]) {
+    for (const db of [database({ id: 'real' }), database(null, 1), database(null, 0, 1), database(null, 0, 0, 1)]) {
       await expect(assertDemoSeedDatabase(db)).rejects.toThrow(/No data was deleted/);
     }
   });
   it.skipIf(!process.env.TEST_DATABASE_URL)('checks the established PostgreSQL demo fixture and refuses a real account without changing data', async () => {
     const db = createPrismaClient(process.env.TEST_DATABASE_URL!);
     const id = `seed-guard-${randomUUID()}`;
+    const importedId = `${id}-catalogue`;
     try {
       const demo = await db.user.findUniqueOrThrow({ where: { id: 'demo-user' } });
       expect(demo).toMatchObject({ isDemo: true, email: null, emailVerified: false });
@@ -33,6 +34,11 @@ describe('destructive demo seed guard', () => {
       await expect(assertDemoSeedDatabase(db)).rejects.toThrow(/No data was deleted/);
       expect(await db.user.findUnique({ where: { id } })).not.toBeNull();
       expect(await db.userPerformance.count()).toBe(before);
-    } finally { await db.user.deleteMany({ where: { id } }); await db.$disconnect(); }
+      await db.user.delete({ where: { id } });
+      await db.event.create({ data: { id: importedId, slug: importedId, name: 'Synthetic seed-guard catalogue fixture', country: 'Test', latitude: 0, longitude: 0, source: 'IMPORTED' } });
+      await expect(assertDemoSeedDatabase(db)).rejects.toThrow(/imported catalogue data/);
+      expect(await db.event.findUnique({ where: { id: importedId } })).not.toBeNull();
+      expect(await db.userPerformance.count()).toBe(before);
+    } finally { await db.user.deleteMany({ where: { id } }); await db.event.deleteMany({ where: { id: importedId } }); await db.$disconnect(); }
   });
 });
