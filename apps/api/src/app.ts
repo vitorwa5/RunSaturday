@@ -2,6 +2,7 @@ import { installIdentity, accountRoutes, type AuthRuntime } from './auth/http';
 import cors from '@fastify/cors';
 import Fastify, { type FastifyServerOptions } from 'fastify';
 import type { AppConfig } from './config/env';
+import { trustedProxyAddresses } from './config/proxy';
 import { createTodayFn, type RequestContext } from './http/context';
 import { registerErrorHandling } from './http/errors';
 import type { DataStore } from './repositories/DataStore';
@@ -23,7 +24,8 @@ export interface BuildAppOptions {
 }
 
 export async function buildApp({ config, store, now = () => new Date(), logger, authRuntime }: BuildAppOptions) {
-  const app = Fastify({ logger: logger ?? {
+  const proxies = trustedProxyAddresses(config.TRUSTED_PROXY_CIDRS);
+  const app = Fastify({ trustProxy: proxies.length ? proxies : false, logger: logger ?? {
     level: config.LOG_LEVEL,
     redact: ['req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'],
     serializers: { req: (request: { method: string; url: string }) => ({ method: request.method, url: request.url.split('?')[0] }) },

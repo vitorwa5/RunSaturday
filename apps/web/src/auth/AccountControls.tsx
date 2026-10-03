@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { apiGet } from '../api/client';
 import { useAuth } from './AuthProvider';
 export function AccountControls() {
@@ -7,14 +7,23 @@ export function AccountControls() {
   const [text, setText] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const lifetime = useRef(new AbortController());
+  useEffect(() => {
+    lifetime.current = new AbortController();
+    return () => lifetime.current.abort();
+  }, []);
   if (auth.mode === 'demo') return null;
   async function action(fn: () => Promise<unknown>) {
     setBusy(true); setError('');
-    try { await fn(); } catch (err) { setError(err instanceof Error ? err.message : 'Please try again.'); }
-    finally { setBusy(false); }
+    const ticket = auth.captureOperation();
+    try { await fn(); } catch (err) { if (ticket.isCurrent() && !lifetime.current.signal.aborted) setError(err instanceof Error ? err.message : 'Please try again.'); }
+    finally { if (ticket.isCurrent() && !lifetime.current.signal.aborted) setBusy(false); }
   }
   async function download() {
-    const data = await apiGet('/account/export');
+    const ticket = auth.captureOperation();
+    const signal = AbortSignal.any([ticket.signal, lifetime.current.signal]);
+    const data = await apiGet('/account/export', {}, signal);
+    if (!ticket.isCurrent() || signal.aborted) return;
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
     const anchor = document.createElement('a'); anchor.href = url; anchor.download = '5k-compass-account.json'; anchor.click(); URL.revokeObjectURL(url);
   }

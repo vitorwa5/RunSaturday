@@ -7,6 +7,7 @@ import { loadConfig } from '../config/env';
 import { createPrismaClient } from '../db/prisma';
 import { PrismaDataStore } from '../repositories/prisma/PrismaDataStore';
 import { currentRunnerForm, computeUserRunnerForm } from '../services/runnerForm';
+import { assertDemoSeedDatabase } from '../demo/seedGuard';
 
 const url = process.env.TEST_DATABASE_URL;
 const origin = 'http://localhost:5173';
@@ -141,6 +142,38 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     expect(out.statusCode).toBe(200); expect(cookieOf(out).maxAge).toBe(0);
     expect((await get('/api/profile', b.cookie)).statusCode).toBe(401);
     expect(await db.session.count({ where: { userId: a.user.id } })).toBe(0);
+  });
+
+  it('keeps an active/approaching-expiry session fixed and rejects it after expiry', async () => {
+    const a = await login();
+    const issued = await db.session.findFirstOrThrow({ where: { userId: a.user.id } });
+    expect(issued.expiresAt.getTime() - issued.createdAt.getTime()).toBeCloseTo(604_800_000, -3);
+    const expiresAt = new Date(Date.now() + 120_000);
+    await db.session.update({ where: { id: issued.id }, data: { expiresAt, updatedAt: new Date(Date.now() - 172_800_000) } });
+    expect((await get('/api/account/session', a.cookie)).json().expiresAt).toBe(expiresAt.toISOString());
+    expect((await get('/api/profile', a.cookie)).statusCode).toBe(200);
+    expect((await db.session.findUniqueOrThrow({ where: { id: issued.id } })).expiresAt).toEqual(expiresAt);
+    const near = new Date(Date.now() + 10_000);
+    await db.session.update({ where: { id: issued.id }, data: { expiresAt: near } });
+    expect((await get('/api/account/session', a.cookie)).json().expiresAt).toBe(near.toISOString());
+    expect((await db.session.findUniqueOrThrow({ where: { id: issued.id } })).expiresAt).toEqual(near);
+    await db.session.update({ where: { id: issued.id }, data: { expiresAt: new Date(0) } });
+    expect((await get('/api/profile', a.cookie)).statusCode).toBe(401);
+    expect((await get('/api/account/session', a.cookie)).json().user).toBeNull();
+  });
+
+  it('exports recorded facts despite a Current Form outage and refuses demo seeding with a real account', async () => {
+    const a = await login();
+    await mutation('POST', '/api/profile/performances', a.cookie, input);
+    await assertDemoSeedDatabase(db).then(() => { throw new Error('seed must refuse'); }, (error) => expect(error.message).toContain('refused'));
+    await db.runnerFormSnapshot.deleteMany({ where: { userId: a.user.id } });
+    vi.spyOn(store, 'listCourseFactors').mockRejectedValue(new Error('private factor outage'));
+    const response = await get('/api/account/export', a.cookie);
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ profile: { id: a.user.id }, performances: [{ finishTimeSeconds: 1175 }],
+      summaries: { performance: { totalPerformances: 1 }, currentForm: null }, derivedStatus: { currentForm: { status: 'error', code: 'calculation_unavailable', asOfDate: '2026-10-01' } } });
+    expect(response.body).not.toContain('private factor outage');
+    expect(await db.userPerformance.count({ where: { userId: a.user.id } })).toBe(1);
   });
 
   it('does not claim logout or clear the retry cookie when persistent revocation fails', async () => {

@@ -43,7 +43,8 @@ export function createAuth(db: Db, config: AppConfig, delivery = emailDelivery(c
     } } } },
     user: { fields: { name: 'displayName' } },
     emailAndPassword: { enabled: false },
-    session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24, cookieCache: { enabled: false } },
+    // Fixed seven-day sessions. Internal checks must never extend a persisted expiry without its cookie.
+    session: { expiresIn: 60 * 60 * 24 * 7, disableSessionRefresh: true, cookieCache: { enabled: false } },
     advanced: {
       useSecureCookies: usesSecureAuthCookies(config),
       cookiePrefix: '5k-compass',

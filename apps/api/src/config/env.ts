@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { trustedProxyAddresses } from './proxy';
 
 const EnvSchema = z
   .object({
@@ -15,6 +16,7 @@ const EnvSchema = z
     DATA_SOURCE: z.enum(['database', 'demo']).default('database'),
     DATABASE_URL: z.string().min(1).optional(),
     HOST: z.string().default('127.0.0.1'),
+    TRUSTED_PROXY_CIDRS: z.string().default(''),
     PORT: z.coerce.number().int().min(1).max(65535).default(3001),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
     CORS_ORIGINS: z
@@ -27,6 +29,8 @@ const EnvSchema = z
   })
   .superRefine((env, ctx) => {
     const issue = (path: string, message: string) => ctx.addIssue({ code: 'custom', path: [path], message });
+    try { trustedProxyAddresses(env.TRUSTED_PROXY_CIDRS); }
+    catch (error) { issue('TRUSTED_PROXY_CIDRS', (error as Error).message); }
     if (env.NODE_ENV === 'production' && env.APP_MODE !== 'beta') issue('APP_MODE', 'Production requires APP_MODE=beta');
     if (env.APP_MODE === 'beta') {
       if (env.DATA_SOURCE !== 'database') issue('DATA_SOURCE', 'Beta requires PostgreSQL');

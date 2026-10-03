@@ -45,14 +45,21 @@ test('B1: empty account, persistence, safe switch without a personal-data flash,
     await page.goto('/profile');
     await expect(page.getByText('19:37', { exact: true }).first()).toBeVisible();
     const dataA = await (await context.request.get('/api/profile')).json();
+    const otherTab = await context.newPage();
+    await otherTab.goto('/profile');
+    await expect(otherTab.getByText('19:37', { exact: true }).first()).toBeVisible();
     await page.getByRole('button', { name: 'Sign out', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+    await expect(otherTab.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+    await expect(otherTab.getByText('19:37', { exact: true })).toHaveCount(0);
     expect((await context.request.get('/api/profile')).status()).toBe(401);
     await login(page, a);
     await expect(page.getByText('19:37', { exact: true }).first()).toBeVisible();
+    await expect(otherTab.getByText('19:37', { exact: true }).first()).toBeVisible();
     expect(await (await context.request.get('/api/profile')).json()).toMatchObject({ id: dataA.id, runsCompleted: 1, lifetimePbSeconds: 1177 });
     await page.getByRole('button', { name: 'Sign out', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+    await expect(otherTab.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
     // Record every DOM mutation throughout B's login, rather than checking only the settled UI.
     await page.evaluate(() => {
       const w = window as typeof window & { personalFlash?: boolean; personalObserver?: MutationObserver };
@@ -61,6 +68,9 @@ test('B1: empty account, persistence, safe switch without a personal-data flash,
       w.personalObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
     });
     await login(page, b);
+    await expect(otherTab.getByText(`Signed in as ${b}`, { exact: true })).toBeVisible();
+    await expect(otherTab.getByText('19:37', { exact: true })).toHaveCount(0);
+    await otherTab.close();
     await expect(page.getByText('No performances yet').first()).toBeVisible();
     await expect(page.getByText('19:37', { exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => (window as typeof window & { personalFlash?: boolean }).personalFlash)).toBe(false);

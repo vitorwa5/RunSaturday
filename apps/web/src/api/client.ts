@@ -21,24 +21,29 @@ export class ApiError extends Error {
 type QueryValue = string | number | boolean | null | undefined;
 
 /** POST / PATCH / DELETE with a JSON body. Returns null for 204 No Content. */
-export async function apiSend<T>(method: 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
+export async function apiSend<T>(method: 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${BASE_URL}${path}`, {
       method,
+      signal,
       credentials: 'same-origin',
       headers: { Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
-  } catch {
+  } catch (error) {
+    if ((error as Error).name === 'AbortError') throw error;
     throw new ApiError(0, 'network_error', 'We could not reach 5K Compass. Check your connection and try again.');
   }
+  signal?.throwIfAborted();
   if (response.status === 401) window.dispatchEvent(new Event('compass-session-expired'));
   if (!response.ok) {
     const errorBody = (await response.json().catch(() => null)) as ApiErrorBody | null;
     throw new ApiError(response.status, errorBody?.error.code ?? 'unknown_error', errorBody?.error.message ?? 'Something went wrong. Please try again.');
   }
-  return (response.status === 204 ? null : await response.json()) as T;
+  const result = (response.status === 204 ? null : await response.json()) as T;
+  signal?.throwIfAborted();
+  return result;
 }
 
 export async function apiGet<T>(path: string, query: Record<string, QueryValue> = {}, signal?: AbortSignal): Promise<T> {
@@ -56,6 +61,7 @@ export async function apiGet<T>(path: string, query: Record<string, QueryValue> 
     throw new ApiError(0, 'network_error', 'We could not reach 5K Compass. Check your connection and try again.');
   }
 
+  signal?.throwIfAborted();
   if (response.status === 401) window.dispatchEvent(new Event('compass-session-expired'));
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as ApiErrorBody | null;
@@ -65,5 +71,7 @@ export async function apiGet<T>(path: string, query: Record<string, QueryValue> 
       body?.error.message ?? 'Something went wrong. Please try again.',
     );
   }
-  return (await response.json()) as T;
+  const result = (await response.json()) as T;
+  signal?.throwIfAborted();
+  return result;
 }
