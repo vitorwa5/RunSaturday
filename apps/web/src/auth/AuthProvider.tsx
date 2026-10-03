@@ -21,6 +21,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const client = useQueryClient();
   const [state, setState] = useState<SessionState & { ready: boolean; error: string | null }>({ mode: 'beta', user: null, ready: false, error: null });
   const epoch = useRef(new AuthEpoch()).current;
+  // Keep the validated/anticipated session synchronously: React may batch renders across awaits.
+  const sessionIntent = useRef<SessionState>({ mode: 'beta', user: null });
   const channel = useRef<BroadcastChannel | null>(null);
   const remoteTransitions = useRef(new Set<string>());
   const broadcast = useCallback((message: object) => {
@@ -39,8 +41,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [client]);
   const applySession = (session: SessionState) => {
     if (session.user && session.expiresAt && Date.parse(session.expiresAt) <= Date.now()) {
+      sessionIntent.current = { mode: session.mode, user: null };
       setState({ mode: session.mode, user: null, ready: true, error: null });
-    } else setState({ ...session, ready: true, error: null });
+    } else { sessionIntent.current = session; setState({ ...session, ready: true, error: null }); }
   };
   const refresh = useCallback(async () => {
     if (!epoch.mounted || epoch.busy || remoteTransitions.current.size) return;
@@ -57,9 +60,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const transition = useCallback((operation: 'logout' | 'delete' | 'login', input?: { email: string; otp: string }) => {
     let stale = false;
     const id = crypto.randomUUID();
+    const intendedUserId = sessionIntent.current.user?.id ?? null;
+    const intendedExpiry = sessionIntent.current.user ? sessionIntent.current.expiresAt : undefined;
     const result = epoch.transition(async (ticket) => {
       try {
         await withAuthLock(async () => {
+          const assertIntent = () => {
+            if (!ticket.isCurrent()) throw new DOMException('Account operation superseded', 'AbortError');
+          };
+          // Waiting for the queue/lock must not retarget an old intention to the current cookie.
+          assertIntent();
+          const current = await apiGet<SessionState>('/account/session', {}, ticket.signal);
+          assertIntent();
+          if ((current.user?.id ?? null) !== intendedUserId || (intendedExpiry && current.expiresAt !== intendedExpiry)) {
+            epoch.advance();
+            throw new DOMException('Account session changed', 'AbortError');
+          }
+          // No await between this check and sending the cookie-mutating request.
+          assertIntent();
           if (operation === 'login') {
             await apiSend('POST', '/auth/sign-in/email-otp', input);
             const session = await apiGet<SessionState>('/account/session');
@@ -79,6 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       broadcast({ type: 'session-changed', id });
       if (stale && !epoch.busy && epoch.mounted) void refresh();
     });
+    sessionIntent.current = { mode: 'beta', user: null };
     reset();
     broadcast({ type: 'transition-start', id });
     return result;
@@ -91,7 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     epoch.mount(); void refresh();
     const onExpiry = () => {
-      epoch.advance(); reset();
+      epoch.advance(); reset(); sessionIntent.current = { mode: 'beta', user: null };
       setState({ mode: 'beta', user: null, ready: true, error: null });
       channel.current?.postMessage({ type: 'session-changed' });
     };

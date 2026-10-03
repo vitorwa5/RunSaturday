@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { deliveryStatus, type Auth } from './auth';
 import type { Db } from '../db/prisma';
 import type { RequestContext } from '../http/context';
-import { currentUserId, identities } from '../http/context';
+import { currentUserId, identities, type RequestIdentity } from '../http/context';
 import { AppError, parseInput } from '../http/errors';
 import { usesSecureAuthCookies } from '../config/env';
 import { consumeEmailBudget } from './emailBudget';
@@ -26,7 +26,7 @@ export function authHeaders(request: FastifyRequest): Headers {
 /** The session is validated on every request; no cookie cache or fixed identity in beta. */
 export function installIdentity(app: FastifyInstance, ctx: RequestContext, runtime?: AuthRuntime) {
   if (ctx.config.APP_MODE === 'beta' && (!runtime || ctx.store.kind !== 'database')) throw new Error('Beta requires database-backed authentication');
-  const resolved = new WeakMap<FastifyRequest, string | null>();
+  const resolved = new WeakMap<FastifyRequest, RequestIdentity>();
   app.addHook('onRequest', async (request, reply) => {
     reply.header('Cache-Control', 'private, no-store');
     if (ctx.config.APP_MODE === 'beta' && !['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
@@ -35,30 +35,31 @@ export function installIdentity(app: FastifyInstance, ctx: RequestContext, runti
         throw new AppError(403, 'invalid_origin', 'Open 5K Compass from its own website to make changes.');
       }
     }
-    if (ctx.config.APP_MODE === 'demo') { resolved.set(request, 'demo-user'); return; }
+    if (ctx.config.APP_MODE === 'demo') { resolved.set(request, { userId: 'demo-user' }); return; }
     const session = await runtime!.auth.api.getSession({ headers: authHeaders(request) });
     // Verify the internal row as well: deleted, unverified and demo users cannot act as real users.
-    const owner = session && session.user.id !== 'demo-user' ? await runtime!.db.user.findFirst({ where: { id: session.user.id, emailVerified: true, isDemo: false }, select: { id: true } }) : null;
-    resolved.set(request, owner?.id ?? null);
-    if (!owner && (request.url.startsWith('/api/profile') || request.url.startsWith('/api/account/export') || (request.url === '/api/account' && request.method === 'DELETE'))) {
+    const owner = session && session.user.id !== 'demo-user' ? await runtime!.db.user.findFirst({ where: { id: session.user.id, emailVerified: true, isDemo: false }, select: { id: true, email: true } }) : null;
+    const valid = !!owner && !!session && session.session.expiresAt.getTime() > Date.now();
+    resolved.set(request, valid ? { userId: owner.id, session: { user: owner, expiresAt: session.session.expiresAt.toISOString() } } : { userId: null });
+    if (!valid && (request.url.startsWith('/api/profile') || request.url.startsWith('/api/account/export') || (request.url === '/api/account' && request.method === 'DELETE'))) {
       throw new AppError(401, 'authentication_required', 'Sign in to access your account.');
     }
   });
   app.addHook('onRoute', (route) => {
     const handler = route.handler;
     route.handler = function(request, reply) {
-      return identities.run({ userId: resolved.get(request) ?? null }, () => handler.call(this, request, reply));
+      return identities.run(resolved.get(request) ?? { userId: null }, () => handler.call(this, request, reply));
     };
   });
 }
 
 export async function accountRoutes(app: FastifyInstance, ctx: RequestContext, runtime?: AuthRuntime) {
-  app.get('/api/account/session', async (request) => {
+  app.get('/api/account/session', async () => {
     const userId = identities.getStore()?.userId;
     if (ctx.config.APP_MODE === 'demo') return { mode: 'demo', user: { id: userId, email: null } };
-    const user = userId ? await runtime!.db.user.findUnique({ where: { id: userId }, select: { id: true, email: true } }) : null;
-    const session = user ? await runtime!.auth.api.getSession({ headers: authHeaders(request) }) : null;
-    return { mode: 'beta', user, expiresAt: session?.session.expiresAt.toISOString() };
+    // Identity and expiry come from the same authoritative session validation in onRequest.
+    const session = identities.getStore()?.session;
+    return session ? { mode: 'beta', ...session } : { mode: 'beta', user: null };
   });
   if (!runtime) return;
   for (const path of ['/email-otp/send-verification-otp', '/sign-in/email-otp', '/sign-out']) {
