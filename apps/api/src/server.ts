@@ -23,7 +23,7 @@ async function main() {
   }
   if (config.APP_MODE === 'beta') {
     try {
-      await Promise.all([db!.user.findFirst({ select: { email: true, performanceRevision: true } }), db!.session.findFirst({ select: { id: true } }), db!.verification.findFirst({ select: { id: true } }), db!.account.findFirst({ select: { id: true } }), db!.rateLimit.findFirst({ select: { id: true } })]);
+      await Promise.all([db!.user.findFirst({ select: { email: true, performanceRevision: true } }), db!.session.findFirst({ select: { id: true } }), db!.verification.findFirst({ select: { id: true } }), db!.account.findFirst({ select: { id: true } }), db!.rateLimit.findFirst({ select: { id: true } }), db!.emailAuthBudget.findFirst({ select: { key: true } })]);
     } catch { throw new Error('Beta requires the B1 database migration; run db:deploy before startup'); }
   }
   app.log.info({ dataSource: store.kind }, 'Starting RunSaturday API');

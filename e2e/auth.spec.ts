@@ -79,6 +79,7 @@ test('B1: empty account, persistence, safe switch without a personal-data flash,
     await db.user.deleteMany({ where: { email: { in: [a, b] } } });
     await db.verification.deleteMany({ where: { identifier: { contains: run } } });
     await db.rateLimit.deleteMany({ where: { key: { contains: run } } });
+    await db.emailAuthBudget.deleteMany({ where: { email: { contains: run } } });
     await db.$disconnect();
   }
 });

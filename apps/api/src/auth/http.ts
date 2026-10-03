@@ -5,8 +5,10 @@ import type { Db } from '../db/prisma';
 import type { RequestContext } from '../http/context';
 import { currentUserId, currentUser, identities } from '../http/context';
 import { AppError, parseInput } from '../http/errors';
+import { usesSecureAuthCookies } from '../config/env';
+import { consumeEmailBudget } from './emailBudget';
 
-export interface AuthRuntime { auth: Auth; db: Db }
+export interface AuthRuntime { auth: Auth; db: Db; emailBudgetNow?: () => Date }
 const Email = z.string().trim().toLowerCase().pipe(z.email().max(254));
 const SendCode = z.object({ email: Email }).strict();
 const VerifyCode = z.object({ email: Email, otp: z.string().regex(/^\d{6}$/) }).strict();
@@ -48,19 +50,6 @@ export function installIdentity(app: FastifyInstance, ctx: RequestContext, runti
   });
 }
 
-/** A database-backed per-email budget supplements Better Auth's IP and per-code attempt limits. */
-async function emailBudget(db: Db, email: string, action: string, max: number) {
-  const key = `email:${email}:${action}`;
-  const now = Date.now();
-  const rows = await db.$queryRaw<{ count: number }[]>`
-    INSERT INTO "RateLimit" (id, key, count, "lastRequest") VALUES (${key}, ${key}, 1, ${BigInt(now)})
-    ON CONFLICT (key) DO UPDATE SET
-      count = CASE WHEN "RateLimit"."lastRequest" < ${BigInt(now - 600_000)} THEN 1 ELSE "RateLimit".count + 1 END,
-      "lastRequest" = CASE WHEN "RateLimit"."lastRequest" < ${BigInt(now - 600_000)} THEN ${BigInt(now)} ELSE "RateLimit"."lastRequest" END
-    RETURNING count`;
-  if (rows[0]!.count > max) throw new AppError(429, 'too_many_attempts', 'Too many attempts. Wait ten minutes before trying again.');
-}
-
 export async function accountRoutes(app: FastifyInstance, ctx: RequestContext, runtime?: AuthRuntime) {
   app.get('/api/account/session', async (request) => {
     const userId = identities.getStore()?.userId;
@@ -75,12 +64,25 @@ export async function accountRoutes(app: FastifyInstance, ctx: RequestContext, r
       let body: object = {};
       if (path === '/email-otp/send-verification-otp') {
         const input = parseInput(SendCode, request.body);
-        await emailBudget(runtime.db, input.email, 'send', 5);
+        await consumeEmailBudget(runtime.db, input.email, 'send', runtime.emailBudgetNow?.());
         body = { ...input, type: 'sign-in' };
       } else if (path === '/sign-in/email-otp') {
         const input = parseInput(VerifyCode, request.body);
-        await emailBudget(runtime.db, input.email, 'verify', 15);
+        await consumeEmailBudget(runtime.db, input.email, 'verify', runtime.emailBudgetNow?.());
         body = { ...input, name: 'Runner' };
+      }
+      if (path === '/sign-out') {
+        try {
+          const session = await runtime.auth.api.getSession({ headers: authHeaders(request) });
+          if (session) {
+            // Commit revocation before Better Auth clears cookies: its sign-out catches delete failures.
+            // deleteMany is idempotent if another request already revoked the same session.
+            await runtime.db.session.deleteMany({ where: { id: session.session.id, token: session.session.token } });
+          }
+        } catch {
+          // Do not clear the retry cookie or claim successful revocation on a database failure.
+          throw new AppError(503, 'logout_unavailable', 'We could not revoke your session. Please try signing out again.');
+        }
       }
       const status = { failed: false };
       const response = await deliveryStatus.run(status, () => runtime.auth.handler(new Request(`${ctx.config.AUTH_BASE_URL}/api/auth${path}`, {
@@ -122,11 +124,14 @@ export async function accountRoutes(app: FastifyInstance, ctx: RequestContext, r
       const user = await tx.user.findUniqueOrThrow({ where: { id }, select: { email: true } });
       if (user.email) {
         await tx.verification.deleteMany({ where: { identifier: { in: [`sign-in-otp-${user.email}`, `email-verification-otp-${user.email}`, `forget-password-otp-${user.email}`, `change-email-otp-${user.email}`] } } });
-        await tx.rateLimit.deleteMany({ where: { key: { startsWith: `email:${user.email}:` } } });
+        await tx.emailAuthBudget.deleteMany({ where: { email: user.email } });
+        // Remove any legacy email budgets retained by the additive migration too.
+        await tx.rateLimit.deleteMany({ where: { key: { in: [`email:${user.email}:send`, `email:${user.email}:verify`] } } });
       }
       await tx.user.delete({ where: { id } }); // FK cascades include all historical personal JSON snapshots.
     });
-    const cookie = `${ctx.config.NODE_ENV === 'production' ? '__Secure-' : ''}5k-compass.session_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${ctx.config.NODE_ENV === 'production' ? '; Secure' : ''}`;
+    const secure = usesSecureAuthCookies(ctx.config);
+    const cookie = `${secure ? '__Secure-' : ''}5k-compass.session_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
     reply.header('set-cookie', cookie);
     return reply.status(204).send();
   });

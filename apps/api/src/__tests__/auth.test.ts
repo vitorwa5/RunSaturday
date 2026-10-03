@@ -11,7 +11,7 @@ import { currentRunnerForm, computeUserRunnerForm } from '../services/runnerForm
 const url = process.env.TEST_DATABASE_URL;
 const origin = 'http://localhost:5173';
 const run = randomUUID();
-const config = () => loadConfig({ APP_MODE: 'beta', NODE_ENV: 'test', DATA_SOURCE: 'database', DATABASE_URL: url, AUTH_BASE_URL: origin, AUTH_SECRET: 'b1-test-only-secret-at-least-32-characters', EMAIL_TRANSPORT: 'test', LOG_LEVEL: 'silent' });
+const config = () => loadConfig({ APP_MODE: 'beta', NODE_ENV: 'test', DATA_SOURCE: 'database', DATABASE_URL: url, AUTH_BASE_URL: origin, AUTH_ALLOW_INSECURE_LOCAL_HTTP: 'true', AUTH_SECRET: 'b1-test-only-secret-at-least-32-characters', EMAIL_TRANSPORT: 'test', LOG_LEVEL: 'silent' });
 
 describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () => {
   const db = createPrismaClient(url!);
@@ -43,6 +43,7 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
   afterAll(async () => {
     await db.verification.deleteMany({ where: { identifier: { contains: run } } });
     await db.rateLimit.deleteMany({ where: { key: { contains: run } } });
+    await db.emailAuthBudget.deleteMany({ where: { email: { contains: run } } });
     await db.user.deleteMany({ where: { email: { contains: run } } });
     await app?.close();
     await db.$disconnect();
@@ -58,6 +59,7 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     expect(res.statusCode).toBe(200);
     const c = cookieOf(res); const cookie = `${c.name}=${c.value}`;
     expect(c.httpOnly).toBe(true); expect(c.sameSite).toBe('Lax'); expect(c.path).toBe('/'); expect(c.maxAge).toBe(604800);
+    expect(c.secure).toBeFalsy(); expect(c.name).toBe('5k-compass.session_token');
     expect(res.json()).toEqual({ success: true });
     expect((await verify(e, codes.get(e)!)).statusCode).toBe(400);
     const user = await db.user.findUniqueOrThrow({ where: { email: e } });
@@ -141,12 +143,52 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     expect(await db.session.count({ where: { userId: a.user.id } })).toBe(0);
   });
 
+  it('does not claim logout or clear the retry cookie when persistent revocation fails', async () => {
+    const a = await login();
+    const otherSession = await login(a.email);
+    const failure = vi.spyOn(db.session, 'deleteMany').mockRejectedValueOnce(new Error('private database failure'));
+    const out = await mutation('POST', '/api/auth/sign-out', a.cookie);
+    expect(out.statusCode).toBe(503);
+    expect(out.json().error.code).toBe('logout_unavailable');
+    expect(out.body).not.toContain('private database failure');
+    expect(out.headers['set-cookie']).toBeUndefined();
+    expect(await db.session.count({ where: { userId: a.user.id } })).toBe(2);
+    expect((await get('/api/profile', a.cookie)).statusCode).toBe(200);
+    failure.mockRestore();
+
+    const retry = await mutation('POST', '/api/auth/sign-out', a.cookie);
+    expect(retry.statusCode).toBe(200);
+    expect(cookieOf(retry).maxAge).toBe(0);
+    expect(await db.session.count({ where: { userId: a.user.id } })).toBe(1);
+    // A copied cookie, not the cleared browser cookie, must be unusable.
+    expect((await get('/api/profile', a.cookie)).statusCode).toBe(401);
+    expect((await get('/api/profile', otherSession.cookie)).statusCode).toBe(200);
+    expect((await mutation('POST', '/api/auth/sign-out', a.cookie)).statusCode).toBe(200);
+  });
+
+  it('handles absent, forged and expired sessions idempotently at logout', async () => {
+    for (const cookie of ['', '5k-compass.session_token=forged']) {
+      const out = await mutation('POST', '/api/auth/sign-out', cookie);
+      expect(out.statusCode).toBe(200);
+      expect(cookieOf(out).maxAge).toBe(0);
+    }
+    const a = await login();
+    await db.session.updateMany({ where: { userId: a.user.id }, data: { expiresAt: new Date(0) } });
+    expect((await mutation('POST', '/api/auth/sign-out', a.cookie)).statusCode).toBe(200);
+    expect(await db.session.count({ where: { userId: a.user.id } })).toBe(0);
+    expect((await get('/api/profile', a.cookie)).statusCode).toBe(401);
+  });
+
   it('blocks missing/foreign origins on login and authenticated mutations', async () => {
     const a = await login();
     for (const foreign of [undefined, 'https://evil.example']) {
       const r = await app.inject({ method: 'POST', url: '/api/profile/performances', headers: { cookie: a.cookie, ...(foreign ? { origin: foreign } : {}) }, payload: input });
       expect(r.statusCode).toBe(403);
+      const logout = await app.inject({ method: 'POST', url: '/api/auth/sign-out', headers: { cookie: a.cookie, ...(foreign ? { origin: foreign } : {}) }, payload: {} });
+      expect(logout.statusCode).toBe(403);
+      expect(logout.headers['set-cookie']).toBeUndefined();
     }
+    expect((await get('/api/profile', a.cookie)).statusCode).toBe(200);
     expect((await req({ method: 'POST', url: '/api/auth/email-otp/send-verification-otp', headers: { origin: 'https://evil.example' }, payload: { email: email() } })).statusCode).toBe(403);
     expect((await req({ method: 'POST', url: '/api/profile/performances', headers: { cookie: a.cookie, 'sec-fetch-site': 'cross-site' }, payload: input })).statusCode).toBe(403);
     expect(await db.userPerformance.count({ where: { userId: a.user.id } })).toBe(0);
@@ -154,7 +196,7 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
 
   it('sets Secure production cookies and keeps provider failures free of credentials', async () => {
     const secureOrigin = 'https://5k.example';
-    const secureConfig = loadConfig({ ...config(), CORS_ORIGINS: secureOrigin, NODE_ENV: 'production', AUTH_BASE_URL: secureOrigin, EMAIL_TRANSPORT: 'resend', EMAIL_API_KEY: 'test-key', EMAIL_FROM: 'auth@example.test' } as unknown as NodeJS.ProcessEnv);
+    const secureConfig = loadConfig({ ...config(), CORS_ORIGINS: secureOrigin, NODE_ENV: 'production', AUTH_BASE_URL: secureOrigin, AUTH_ALLOW_INSECURE_LOCAL_HTTP: 'false', EMAIL_TRANSPORT: 'resend', EMAIL_API_KEY: 'test-key', EMAIL_FROM: 'auth@example.test' } as unknown as NodeJS.ProcessEnv);
     const db2 = createPrismaClient(url!);
     const app2 = await buildApp({ config: secureConfig, store: new PrismaDataStore(db2, 'demo_v0'), authRuntime: { db: db2, auth: createAuth(db2, secureConfig, { async send(email, code) { codes.set(email, code); } }) }, logger: false });
     const e = email();
@@ -171,6 +213,33 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
       const result = await app2.inject({ method: 'POST', url: '/api/auth/email-otp/send-verification-otp', headers, payload: { email: failed } });
       expect(result.statusCode).toBeGreaterThanOrEqual(400);
       expect(result.body).not.toContain('provider credential');
+    } finally { await app2.close(); }
+  });
+
+  it('uses Secure beta cookies with NODE_ENV omitted and clears the matching cookie at logout/deletion', async () => {
+    const secureOrigin = 'https://example.com';
+    const secureConfig = loadConfig({ APP_MODE: 'beta', DATABASE_URL: url, AUTH_BASE_URL: secureOrigin, AUTH_SECRET: 'b1-test-only-secret-at-least-32-characters', EMAIL_TRANSPORT: 'resend', EMAIL_API_KEY: 'test-key', EMAIL_FROM: 'auth@example.test', LOG_LEVEL: 'silent' });
+    expect(secureConfig.NODE_ENV).toBe('development');
+    const db2 = createPrismaClient(url!);
+    const app2 = await buildApp({ config: secureConfig, store: new PrismaDataStore(db2, 'demo_v0'), authRuntime: { db: db2, auth: createAuth(db2, secureConfig, { async send(email, code) { codes.set(email, code); } }) }, logger: false });
+    const request = (method: 'POST' | 'DELETE', path: string, payload: object, cookie?: string) => app2.inject({ method, url: path, headers: { origin: secureOrigin, 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, payload });
+    try {
+      for (const ending of ['logout', 'delete'] as const) {
+        const e = email();
+        expect((await request('POST', '/api/auth/email-otp/send-verification-otp', { email: e })).statusCode).toBe(200);
+        const login = await request('POST', '/api/auth/sign-in/email-otp', { email: e, otp: codes.get(e)! });
+        expect(login.statusCode).toBe(200);
+        const c = cookieOf(login);
+        expect(c.secure).toBe(true);
+        expect(c.name).toBe('__Secure-5k-compass.session_token');
+        const cookie = `${c.name}=${c.value}`;
+        const out = ending === 'logout'
+          ? await request('POST', '/api/auth/sign-out', {}, cookie)
+          : await request('DELETE', '/api/account', { confirmation: 'DELETE MY ACCOUNT' }, cookie);
+        expect(out.statusCode).toBe(ending === 'logout' ? 200 : 204);
+        expect(cookieOf(out)).toMatchObject({ name: c.name, secure: true, httpOnly: true, path: '/', sameSite: 'Lax', maxAge: 0 });
+        expect((await app2.inject({ url: '/api/profile', headers: { cookie } })).statusCode).toBe(401);
+      }
     } finally { await app2.close(); }
   });
 
@@ -245,6 +314,7 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     const old = await computeUserRunnerForm(store, a.user.id, '2026-09-30'); await store.saveRunnerFormSnapshot(a.user.id, old);
     await db.account.create({ data: { userId: a.user.id, accountId: a.user.id, providerId: 'test-identity' } });
     await send(a.email);
+    await db.rateLimit.create({ data: { key: `email:${a.email}:send`, count: 5, lastRequest: BigInt(Date.now()) } });
     const exported = (await get('/api/account/export', a.cookie)).json();
     expect(exported.profile.id).toBe(a.user.id); expect(exported.performances).toHaveLength(1); expect(exported.favourites).toHaveLength(1); expect(exported.derivedSnapshots).toHaveLength(2);
     expect(JSON.stringify(exported)).not.toContain(b.user.id); expect(JSON.stringify(exported)).not.toContain('session_token'); expect(exported.results).toBeUndefined();
@@ -253,6 +323,8 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     expect(await db.user.findUnique({ where: { id: a.user.id } })).toBeNull();
     for (const model of [db.userPerformance, db.userEvent, db.runnerFormSnapshot, db.session, db.account]) expect(await (model.count as (a: unknown) => Promise<number>)({ where: { userId: a.user.id } })).toBe(0);
     expect(await db.verification.count({ where: { identifier: `sign-in-otp-${a.email}` } })).toBe(0);
+    expect(await db.emailAuthBudget.count({ where: { email: a.email } })).toBe(0);
+    expect(await db.rateLimit.count({ where: { key: `email:${a.email}:send` } })).toBe(0);
     expect((await get('/api/profile', second.cookie)).statusCode).toBe(401);
     expect((await get('/api/profile', b.cookie)).json()).toMatchObject({ id: b.user.id, runsCompleted: 1 });
   });

@@ -6,6 +6,8 @@ const EnvSchema = z
     APP_MODE: z.enum(['demo', 'beta']),
     AUTH_SECRET: z.string().min(32).optional(),
     AUTH_BASE_URL: z.url().optional(),
+    // Explicit opt-in, restricted below to exact loopback hosts outside production.
+    AUTH_ALLOW_INSECURE_LOCAL_HTTP: z.enum(['true', 'false']).default('false'),
     EMAIL_TRANSPORT: z.enum(['resend', 'test']).optional(),
     EMAIL_API_KEY: z.string().min(1).optional(),
     EMAIL_FROM: z.string().min(1).optional(),
@@ -30,7 +32,16 @@ const EnvSchema = z
       if (env.DATA_SOURCE !== 'database') issue('DATA_SOURCE', 'Beta requires PostgreSQL');
       if (!env.AUTH_SECRET) issue('AUTH_SECRET', 'Beta requires an authentication secret of at least 32 characters');
       if (!env.AUTH_BASE_URL) issue('AUTH_BASE_URL', 'Beta requires the public same-origin AUTH_BASE_URL');
-      if (env.NODE_ENV === 'production' && !env.AUTH_BASE_URL?.startsWith('https://')) issue('AUTH_BASE_URL', 'Production requires HTTPS');
+      if (env.AUTH_BASE_URL) {
+        const url = new URL(env.AUTH_BASE_URL);
+        const localHttp = env.AUTH_ALLOW_INSECURE_LOCAL_HTTP === 'true'
+          && env.NODE_ENV !== 'production'
+          && url.protocol === 'http:'
+          && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+          && !url.username && !url.password;
+        if (url.protocol !== 'https:' && !localHttp) issue('AUTH_BASE_URL', 'Beta requires HTTPS; local HTTP requires explicit AUTH_ALLOW_INSECURE_LOCAL_HTTP=true and a loopback host outside production');
+      }
+      if (env.NODE_ENV === 'production' && env.AUTH_ALLOW_INSECURE_LOCAL_HTTP === 'true') issue('AUTH_ALLOW_INSECURE_LOCAL_HTTP', 'Production forbids the local HTTP exception');
       if (env.EMAIL_TRANSPORT === 'test') {
         if (env.NODE_ENV !== 'test') issue('EMAIL_TRANSPORT', 'Test delivery is allowed only with NODE_ENV=test');
       } else if (env.EMAIL_TRANSPORT !== 'resend' || !env.EMAIL_API_KEY || !env.EMAIL_FROM) {
@@ -44,6 +55,11 @@ const EnvSchema = z
   });
 
 export type AppConfig = z.infer<typeof EnvSchema>;
+
+/** Validated beta transport, independent of NODE_ENV's default. */
+export function usesSecureAuthCookies(config: AppConfig): boolean {
+  return config.APP_MODE === 'beta' && new URL(config.AUTH_BASE_URL!).protocol === 'https:';
+}
 
 /** Parse and validate configuration once at startup; fail fast with a readable message. */
 export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {

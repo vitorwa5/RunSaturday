@@ -4,7 +4,7 @@ import { emailOTP } from 'better-auth/plugins';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { dirname } from 'node:path';
-import type { AppConfig } from '../config/env';
+import { usesSecureAuthCookies, type AppConfig } from '../config/env';
 import type { Db } from '../db/prisma';
 
 export const deliveryStatus = new AsyncLocalStorage<{ failed: boolean }>();
@@ -45,7 +45,7 @@ export function createAuth(db: Db, config: AppConfig, delivery = emailDelivery(c
     emailAndPassword: { enabled: false },
     session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24, cookieCache: { enabled: false } },
     advanced: {
-      useSecureCookies: config.NODE_ENV === 'production',
+      useSecureCookies: usesSecureAuthCookies(config),
       cookiePrefix: '5k-compass',
       defaultCookieAttributes: { httpOnly: true, sameSite: 'lax', path: '/' },
       // This header is overwritten with Fastify's socket IP at the boundary, never client-supplied.

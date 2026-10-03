@@ -464,3 +464,16 @@ model RateLimit {
   count       Int
   lastRequest BigInt
 }
+
+/// Operational per-email send/verify budgets, including emails without an account.
+/// Independent of Better Auth cleanup. Expired windows are removed on the next budget request.
+model EmailAuthBudget {
+  key             String   @id
+  email           String
+  count           Int
+  windowStartedAt DateTime
+  expiresAt       DateTime
+
+  @@index([email])
+  @@index([expiresAt])
+}
