@@ -109,6 +109,8 @@ export interface DataStore {
   readonly catalogueMode: CatalogueMode;
   /** Active events with their scores for the active calculation version. */
   listActiveEvents(filter?: CatalogueFilter): Promise<EventRecord[]>;
+  /** Trusted referenced identities for historical visits; includes inactive events. */
+  listTrustedEventIds(eventIds: readonly string[]): Promise<string[]>;
   /** Case-insensitive match on name, town or region. */
   searchEvents(query: string, limit: number, filter?: CatalogueFilter): Promise<EventRecord[]>;
   /** Look up by id or slug. `today` (ISO date) anchors the 90-day sample count. */

@@ -18,6 +18,7 @@ import { cleanExternalEventName } from '../domain/performanceKey';
 import { RECENT_PERFORMANCE_WINDOW_DAYS } from '../config/analysis';
 import { windowStart } from '../domain/confidence';
 import type { DataStore, PerformanceRecord, UserEventRecord, UserRecord } from '../repositories/DataStore';
+import { scopedVisitHistory } from './personalVisits';
 import { currentRunnerForm, formReferenceOf } from './runnerForm';
 
 /** Only manually entered performances may be edited or deleted by the user. */
@@ -104,21 +105,23 @@ export function courseAdjustmentSource(p: UserPerformance): { eventId: string; n
 export async function loadUser(store: DataStore, userId: string, today: string): Promise<UserRecord | null> {
   const user = await store.getUser(userId);
   if (!user) return null;
-  const summary = summarizePerformances(await store.listUserPerformances(userId), today);
+  const performances = await store.listUserPerformances(userId);
+  const summary = summarizePerformances(performances, today);
+  const history = await scopedVisitHistory(store, performances, today);
   // A source event only for performances at known events: external courses get none.
   const ref = (p: UserPerformance | null) => {
     const source = p ? courseAdjustmentSource(p) : null;
     return source && 'eventId' in source ? { id: source.eventId, name: source.name } : null;
   };
 
-  const visited = new Map(summary.events.map((e) => [e.eventId, e]));
+  const visited = new Map(history.events.map((e) => [e.eventId, e]));
   const eventIds = [...new Set([...visited.keys(), ...user.favouriteEventIds])];
   const events: UserEventRecord[] = eventIds.map((eventId) => ({
     eventId,
     visited: visited.has(eventId),
     favourite: user.favouriteEventIds.includes(eventId),
-    visitCount: visited.get(eventId)?.count ?? 0,
-    personalBestSeconds: visited.get(eventId)?.pb.finishTimeSeconds ?? null,
+    visitCount: visited.get(eventId)?.visitCount ?? 0,
+    personalBestSeconds: visited.get(eventId)?.pbSeconds ?? null,
   }));
 
   const currentForm = await currentRunnerForm(store, userId, today);

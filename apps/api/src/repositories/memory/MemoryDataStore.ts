@@ -142,6 +142,12 @@ export class MemoryDataStore implements DataStore {
       && (!filter.sourceNamespace || e.catalogue?.sourceNamespace === filter.sourceNamespace));
   }
 
+  async listTrustedEventIds(eventIds: readonly string[]): Promise<string[]> {
+    const referenced = new Set(eventIds);
+    // This store is explicitly DEMO-only; every fixture event belongs to that scope.
+    return this.dataset.events.filter((event) => referenced.has(event.id)).map((event) => event.id).sort();
+  }
+
   async searchEvents(query: string, limit: number, filter: CatalogueFilter = {}): Promise<EventRecord[]> {
     const q = query.toLowerCase();
     return (await this.listActiveEvents(filter))

@@ -35,4 +35,21 @@ describe('provider-neutral catalogue contract', () => {
     expect(() => catalogueMode({})).toThrow(/explicit/);
     expect(() => catalogueMode({ APP_MODE: 'demo', NODE_ENV: 'production' })).toThrow(/production/);
   });
+  it.each([
+    ['https://example.test/catalogue', true], ['http://example.test/catalogue', true],
+    ['not a URL', false], ['https://', false], [' ', false], [' https://example.test ', false],
+    ['javascript:alert(1)', false], ['https://user:password@', false], ['http://[invalid', false],
+    ['https://user:password@example.test', false],
+  ])('returns structured URL validation for %j without throwing', (sourceUrl, valid) => {
+    let result!: ReturnType<typeof EventCatalogueRecordSchema.safeParse>;
+    expect(() => { result = EventCatalogueRecordSchema.safeParse({ ...record, sourceUrl }); }).not.toThrow();
+    expect(result.success).toBe(valid);
+    if (!result.success) expect(result.error.issues.some((issue) => issue.path.join('.') === 'sourceUrl')).toBe(true);
+    expect(() => EventCatalogueSourceSchema.safeParse({ namespace: 'test.provider', kind: 'imported', attribution: 'Test fixture', referenceUrl: sourceUrl })).not.toThrow();
+  });
+
+  it('accepts missing optional URLs as unknown', () => {
+    expect(EventCatalogueRecordSchema.parse(record)).toMatchObject({ sourceUrl: null, officialUrl: null });
+  });
+
 });

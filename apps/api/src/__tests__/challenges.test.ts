@@ -27,18 +27,22 @@ function perf(eventId: string | null, date: string, seconds = 1300, extra: Parti
     ...extra,
   };
 }
+/** Pure derivation tests use explicitly trusted fixture identities; repository scope has separate integration tests. */
+const fixtureVisits = (performances: PerformanceRecord[], today: string) => deriveVisits(performances, today,
+  new Set(performances.flatMap((performance) => performance.eventId == null ? [] : [performance.eventId])));
+
 /** An event whose id is also its name, e.g. "Ashton". */
 const ev = (name: string, extra = {}) => makeEvent({ id: name, name, ...extra });
 
 const evaluate = (performances: PerformanceRecord[], events = DATASET) => {
-  const history = deriveVisits(performances, AS_OF);
+  const history = fixtureVisits(performances, AS_OF);
   return evaluateChallenge(ALPHABET, { asOfDate: AS_OF, visited: history.events, events });
 };
 const DATASET = ['Ashton', 'Bramley', 'Bolton Park', 'Cheadle', 'Delamere', 'Ashby Fields'].map((name) => ev(name));
 
 describe('Visited events (derived from performances)', () => {
   it('derives count, first and latest visit and the event PB; repeat visits do not add events', () => {
-    const h = deriveVisits([perf('Ashton', '2026-03-07', 1320), perf('Ashton', '2026-01-10', 1290), perf('Ashton', '2026-05-02', 1305), perf('Bramley', '2026-02-14')], AS_OF);
+    const h = fixtureVisits([perf('Ashton', '2026-03-07', 1320), perf('Ashton', '2026-01-10', 1290), perf('Ashton', '2026-05-02', 1305), perf('Bramley', '2026-02-14')], AS_OF);
     expect(h.events).toHaveLength(2);
     expect(h.events.find((e) => e.eventId === 'Ashton')).toEqual({ eventId: 'Ashton', eventName: 'Ashton', visitCount: 3, firstVisit: '2026-01-10', latestVisit: '2026-05-02', pbSeconds: 1290 });
     expect(h.visits.map((v) => v.date)).toEqual(['2026-01-10', '2026-02-14', '2026-03-07', '2026-05-02']);
@@ -46,13 +50,13 @@ describe('Visited events (derived from performances)', () => {
   });
 
   it('never counts an external race as a visited 5K Compass event', () => {
-    const h = deriveVisits([perf(null, '2026-04-04'), perf('Ashton', '2026-03-07')], AS_OF);
+    const h = fixtureVisits([perf(null, '2026-04-04'), perf('Ashton', '2026-03-07')], AS_OF);
     expect(h.events.map((e) => e.eventId)).toEqual(['Ashton']);
     expect([h.totalRuns, h.externalRuns, h.visits.length]).toEqual([2, 1, 1]);
   });
 
   it('ignores performances dated after asOfDate', () => {
-    expect(deriveVisits([perf('Ashton', '2026-10-02')], AS_OF).events).toEqual([]);
+    expect(fixtureVisits([perf('Ashton', '2026-10-02')], AS_OF).events).toEqual([]);
   });
 });
 

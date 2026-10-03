@@ -105,7 +105,7 @@ export async function profileRoutes(app: FastifyInstance, ctx: RequestContext) {
       current5kEstimateSeconds: user.current5kEstimateSeconds,
       preferredGoal: user.preferredGoal,
       runsCompleted: user.performance.totalPerformances,
-      uniqueEventsVisited: user.performance.uniqueEvents,
+      uniqueEventsVisited: user.events.filter((event) => event.visited).length,
       savedEventIds: user.favouriteEventIds,
       isDemo: user.isDemo,
       performance: user.performance,

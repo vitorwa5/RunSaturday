@@ -2,6 +2,8 @@
  * VISITS (Phase 5A). CANONICAL SOURCE: the user's UserPerformance rows. A known (internal) event
  * is visited when the user has at least one performance there, dated on or before asOfDate.
  * External races (no eventId) are valid performances but never make a 5K Compass event visited.
+ * Only identities explicitly resolved by the mode-aware catalogue boundary count as visits.
+ * Recorded run totals remain canonical, including out-of-scope references.
  * Nothing here is stored: the deprecated UserEvent.visited / visitCount columns are not read.
  */
 import { FIVE_K_METERS, type VisitedEvent } from '@runsaturday/shared';
@@ -25,10 +27,10 @@ export interface VisitHistory {
   externalRuns: number;
 }
 
-export function deriveVisits(performances: readonly PerformanceRecord[], asOfDate: string): VisitHistory {
+export function deriveVisits(performances: readonly PerformanceRecord[], asOfDate: string, trustedEventIds: ReadonlySet<string>): VisitHistory {
   const past = performances.filter((p) => p.date <= asOfDate);
   const visits: Visit[] = past
-    .filter((p) => p.eventId != null)
+    .filter((p) => p.eventId != null && trustedEventIds.has(p.eventId))
     .map((p) => ({ performanceId: p.id, eventId: p.eventId!, eventName: p.eventName ?? p.eventId!, date: p.date }))
     .sort((a, b) => a.date.localeCompare(b.date) || a.performanceId.localeCompare(b.performanceId));
 
@@ -42,7 +44,8 @@ export function deriveVisits(performances: readonly PerformanceRecord[], asOfDat
   }
   for (const p of past) {
     if (p.eventId == null || p.distanceMeters !== FIVE_K_METERS) continue;
-    const e = byEvent.get(p.eventId)!;
+    const e = byEvent.get(p.eventId);
+    if (!e) continue;
     e.pbSeconds = e.pbSeconds == null ? p.finishTimeSeconds : Math.min(e.pbSeconds, p.finishTimeSeconds);
   }
   const events = [...byEvent.values()].sort(
