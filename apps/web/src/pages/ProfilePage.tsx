@@ -246,7 +246,7 @@ export function ProfilePage() {
             {summary!.latest && <LastRun latest={summary!.latest} />}
             <div className="grid grid-cols-2 gap-2">
               <Stat label="Performances" value={summary!.totalPerformances} />
-              <Stat label="Different events" value={summary!.uniqueEvents} />
+              <Stat label="Catalogue events visited" value={profile.uniqueEventsVisited} />
             </div>
             <p className="text-xs text-muted">
               Overall 5K PB (any race) and parkrun PB are achievements you have recorded; Recent best is your best in the last {summary!.recentWindowDays} days.

@@ -6,7 +6,8 @@
 import type { ChallengeResult, EventVisitSummary, ExploreSummary } from '@runsaturday/shared';
 import { evaluateChallenges, helpsWith } from '../challenges/engine';
 import type { ChallengeContext } from '../challenges/types';
-import { deriveVisits, type VisitHistory } from '../challenges/visits';
+import type { VisitHistory } from '../challenges/visits';
+import { scopedVisitHistory } from './personalVisits';
 import type { DataStore } from '../repositories/DataStore';
 
 export interface ExploreState {
@@ -15,10 +16,10 @@ export interface ExploreState {
   challenges: ChallengeResult[];
 }
 
-/** Loads a user's visits and evaluates every challenge (two light store reads). */
+/** Resolves trusted historical visits and evaluates challenges against active candidates. */
 export async function loadExploreState(store: DataStore, userId: string, today: string): Promise<ExploreState> {
   const [performances, events] = await Promise.all([store.listUserPerformances(userId), store.listActiveEvents()]);
-  const history = deriveVisits(performances, today);
+  const history = await scopedVisitHistory(store, performances, today);
   const context: ChallengeContext = { asOfDate: today, visited: history.events, events };
   return { history, context, challenges: evaluateChallenges(context) };
 }

@@ -560,7 +560,7 @@ test.describe('Personal performance history (Phase 4A)', () => {
     await expect(summary.getByRole('link', { name: /^Overall 5K PB 18:58 at Riverside 5K/ })).toBeVisible();
     await expect(summary.getByRole('link', { name: /^Recent best 19:32 at Riverside 5K/ })).toBeVisible();
     await expect(summary.getByText('Last run')).toBeVisible();
-    await expect(summary.getByText('Different events')).toBeVisible();
+    await expect(summary.getByText('Catalogue events visited')).toBeVisible();
     await expect(summary.getByRole('link', { name: /^parkrun PB 18:58 at Riverside 5K/ })).toBeVisible();
     await expect(summary.getByRole('link', { name: 'Current Form about 20:02, High confidence: how is it calculated?' })).toBeVisible();
     await expect(summary.getByText(/estimates your present 5K capability from your strongest supported recent performances, adjusted for course differences/)).toBeVisible();

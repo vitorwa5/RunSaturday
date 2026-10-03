@@ -47,6 +47,8 @@ function world(events: EventRecord[], o: { performances?: PerformanceRecord[]; o
   const performances = o.performances ?? [];
   const store = {
     listActiveEvents: async () => events,
+    // All references in this synthetic strategy fixture are trusted, including historical ones.
+    listTrustedEventIds: async (ids: string[]) => ids,
     listUserPerformances: async () => performances,
     listOccurrences: async (id: string) => o.occurrences?.[id] ?? [],
     listCourseFactors: async () => [],

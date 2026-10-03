@@ -5,6 +5,8 @@ import { CatalogueInputError } from '../catalogue/schema';
 import { createPrismaClient } from '../db/prisma';
 import { PrismaDataStore, queryCompetitionInputs, queryPerformances } from '../repositories/prisma/PrismaDataStore';
 import { recalculateAnalytics } from '../analytics/recalculate';
+import { loadUser } from '../services/userPerformance';
+import { loadExploreState } from '../services/explore';
 import { currentRunnerForm } from '../services/runnerForm';
 import { buildApp } from '../app';
 import { loadConfig } from '../config/env';
@@ -29,7 +31,9 @@ describe.skipIf(!url)('B2A catalogue import and PostgreSQL provenance boundaries
   const find = (namespace: string, externalId = '0007') => db.event.findUniqueOrThrow({ where: { sourceNamespace_externalId: { sourceNamespace: namespace, externalId } } });
   beforeAll(async () => { await db.user.create({ data: { id: userId, displayName: 'Catalogue test owner', isDemo: false } }); });
   afterAll(async () => {
-    await db.user.deleteMany({ where: { id: userId } });
+    await db.user.deleteMany({ where: { OR: [{ id: userId }, { email: { contains: run } }] } });
+    await db.verification.deleteMany({ where: { identifier: { contains: run } } });
+    await db.emailAuthBudget.deleteMany({ where: { email: { contains: run } } });
     await db.event.deleteMany({ where: { OR: [{ sourceNamespace: { in: [...namespaces] } }, { id: { in: legacyIds } }] } });
     await db.catalogueImportRun.deleteMany({ where: { sourceNamespace: { in: [...namespaces] } } });
     await db.$disconnect();
@@ -174,4 +178,101 @@ describe.skipIf(!url)('B2A catalogue import and PostgreSQL provenance boundaries
       expect(history.eventId).toBe(event.id); expect(JSON.stringify(history)).not.toContain('demo-');
     } finally { await app.close(); }
   });
+  it('rejects malformed URL rows structurally while committing valid siblings and coherent counts', async () => {
+    const s = source('url-rejections');
+    const invalid = ['not a URL', 'https://', ' ', 'javascript:alert(1)', 'https://user:password@', 'http://[invalid', 'https://user:password@example.test'];
+    const rows = [
+      { ...record('https-valid'), sourceUrl: 'https://example.test/valid' },
+      { ...record('http-valid'), officialUrl: 'http://example.test/valid' },
+      record('optional-missing'),
+      ...invalid.map((sourceUrl, index) => ({ ...record(`bad-${index}`), sourceUrl })),
+    ];
+    expect(await importer.import(envelope(s, rows), { dryRun: true })).toMatchObject({ runId: null, created: 3, rejected: 7 });
+    expect(await db.event.count({ where: { sourceNamespace: s.namespace } })).toBe(0);
+    expect(await db.catalogueImportRun.count({ where: { sourceNamespace: s.namespace } })).toBe(0);
+    const result = await importer.import(envelope(s, rows));
+    expect(result).toMatchObject({ received: 10, created: 3, rejected: 7, updated: 0, unchanged: 0, deactivated: 0 });
+    expect(result.rejections.map((rejection) => rejection.index)).toEqual([3, 4, 5, 6, 7, 8, 9]);
+    expect(result.rejections.every((rejection) => rejection.issues.some((issue) => issue.path === 'sourceUrl'))).toBe(true);
+    expect((await db.event.findMany({ where: { sourceNamespace: s.namespace }, orderBy: { externalId: 'asc' }, select: { externalId: true } })).map((event) => event.externalId)).toEqual(['http-valid', 'https-valid', 'optional-missing']);
+    expect(await db.catalogueImportRun.findUniqueOrThrow({ where: { id: result.runId! } })).toMatchObject({ received: 10, created: 3, rejected: 7 });
+    await expect(importer.import(envelope({ ...s, referenceUrl: 'https://' }, [record('invalid-envelope')]))).rejects.toBeInstanceOf(CatalogueInputError);
+    expect(await db.event.count({ where: { sourceNamespace: s.namespace } })).toBe(3);
+  });
+
+  it('scopes beta visits end-to-end while preserving DEMO, legacy, active, inactive and external canonical facts', async () => {
+    const s = source('historical-visits');
+    await importer.import(envelope(s, [
+      { ...record('active'), name: 'Aster Active', latitude: 53.4, longitude: -2.6 },
+      { ...record('inactive'), name: 'Birch Inactive', latitude: 53.4, longitude: -2.6, active: true },
+      { ...record('c-opportunity'), name: 'Cedar Trusted Opportunity', latitude: 53.4, longitude: -2.6 },
+      { ...record('d-opportunity'), name: 'Daisy Trusted Opportunity', latitude: 53.4, longitude: -2.6 },
+    ]));
+    const active = await find(s.namespace, 'active'); const inactive = await find(s.namespace, 'inactive');
+    const c = await find(s.namespace, 'c-opportunity'); const d = await find(s.namespace, 'd-opportunity');
+    const demoId = `visits-demo-${run}`; const legacyId = `visits-legacy-${run}`; legacyIds.push(demoId, legacyId);
+    await db.event.createMany({ data: [
+      { id: demoId, slug: demoId, name: 'Cedar Demo', country: 'Test', latitude: 53.4, longitude: -2.6, source: 'DEMO' },
+      { id: legacyId, slug: legacyId, name: 'Daisy Legacy', country: 'Test', latitude: 53.4, longitude: -2.6, source: 'IMPORTED' },
+    ] });
+    const config = loadConfig({ APP_MODE: 'beta', NODE_ENV: 'test', DATABASE_URL: url, AUTH_BASE_URL: 'https://example.test', AUTH_SECRET: 'historical-visits-test-secret-at-least-32-characters', EMAIL_TRANSPORT: 'test', LOG_LEVEL: 'silent' });
+    let otp = '';
+    const app = await buildApp({ config, store, now: () => new Date('2026-10-03T10:00:00Z'), authRuntime: { db, auth: createAuth(db, config, { async send(_email, code) { otp = code; } }) }, logger: false });
+    const email = `catalogue-visits-${run}@example.test`;
+    const request = (method: 'GET' | 'POST', path: string, cookie?: string, payload?: object) => app.inject({ method, url: path, remoteAddress: '10.81.0.4', headers: { origin: 'https://example.test', ...(cookie ? { cookie } : {}) }, payload });
+    try {
+      expect((await request('POST', '/api/auth/email-otp/send-verification-otp', undefined, { email })).statusCode).toBe(200);
+      const login = await request('POST', '/api/auth/sign-in/email-otp', undefined, { email, otp });
+      expect(login.statusCode).toBe(200);
+      const token = login.cookies.find((cookie) => cookie.name.endsWith('.session_token'))!; const cookie = `${token.name}=${token.value}`;
+      const owner = await db.user.findUniqueOrThrow({ where: { email } });
+      await db.user.update({ where: { id: owner.id }, data: { homeLat: 53.4, homeLon: -2.6, defaultTravelMinutes: 90 } });
+      for (const [eventId, date] of [[demoId, '2026-10-02'], [demoId, '2026-09-01'], [legacyId, '2026-09-12'], [active.id, '2026-09-26'], [inactive.id, '2026-09-19'], [null, '2026-09-05']] as const) {
+        await db.userPerformance.create({ data: { userId: owner.id, eventId, externalEventName: eventId == null ? 'External Race' : null, performanceType: eventId == null ? 'ROAD_RACE' : 'PARKRUN', date: new Date(date), finishTimeSeconds: 1300, duplicateKey: `${eventId ?? 'external'}|${date}|5000` } });
+      }
+      // Deactivation after the recorded achievement must not erase historical credit.
+      expect(await importer.import(envelope(s, [{ ...record('inactive'), name: 'Birch Inactive', latitude: 53.4, longitude: -2.6, active: false }]))).toMatchObject({ deactivated: 1 });
+      const canonicalBefore = await store.listUserPerformances(owner.id);
+      expect(canonicalBefore).toHaveLength(6);
+      expect(new Set(await store.listTrustedEventIds([demoId, legacyId, active.id, inactive.id]))).toEqual(new Set([active.id, inactive.id]));
+      const state = await loadExploreState(store, owner.id, '2026-10-03');
+      expect(state.history.events.map((event) => event.eventId).sort()).toEqual([active.id, inactive.id].sort());
+      expect(state.history).toMatchObject({ totalRuns: 6, externalRuns: 1 });
+      const alphabet = state.challenges.find((challenge) => challenge.id === 'alphabet')!;
+      expect(alphabet.completedItems).toEqual(['A', 'B']); expect(alphabet.progress).toMatchObject({ current: 2, target: 25 });
+      const context = (await loadUser(store, owner.id, '2026-10-03'))!;
+      expect(context.events.filter((event) => event.visited).map((event) => event.eventId).sort()).toEqual([active.id, inactive.id].sort());
+      expect(context.performance).toMatchObject({ totalPerformances: 6, uniqueEvents: 5 });
+      const profile = (await request('GET', '/api/profile', cookie)).json();
+      expect(profile).toMatchObject({ runsCompleted: 6, uniqueEventsVisited: 2, performance: { totalPerformances: 6, uniqueEvents: 5 } });
+      const history = (await request('GET', '/api/profile/performances', cookie)).json();
+      expect(history.total).toBe(6); expect(history.performances.some((performance: { eventId: string }) => performance.eventId === demoId)).toBe(true);
+      expect(history.performances.some((performance: { eventId: string }) => performance.eventId === legacyId)).toBe(true);
+      const exploring = (await request('GET', '/api/profile/explore-summary', cookie)).json();
+      expect(exploring).toMatchObject({ eventsVisited: 2, totalRuns: 6, mostVisited: { eventId: active.id }, latestVisit: { eventId: active.id } });
+      expect((await request('GET', `/api/profile/events/${inactive.id}/visits`, cookie)).json()).toMatchObject({ visited: true, visitCount: 1 });
+      for (const [letter, candidate] of [['C', c.id], ['D', d.id]]) {
+        const opportunities = (await request('GET', `/api/profile/challenges/alphabet/opportunities?item=${letter}`, cookie)).json();
+        expect(opportunities.completed).toBe(false); expect(opportunities.events.map((event: { id: string }) => event.id)).toEqual([candidate]);
+        const saturday = (await request('GET', `/api/saturday/recommendations?intent=challenge&challenge=alphabet&item=${letter}`, cookie)).json();
+        expect(saturday.bestPick.event.id).toBe(candidate); expect(saturday.challenge.missingItems.some((item: { key: string }) => item.key === letter)).toBe(true);
+      }
+      const done = (await request('GET', '/api/saturday/recommendations?intent=challenge&challenge=alphabet&item=B', cookie)).json();
+      expect(done.results).toEqual([]); expect(done.message).toContain('already completed B');
+      const available = (await request('GET', '/api/events', cookie)).json();
+      expect(available.find((event: { id: string }) => event.id === active.id).visited).toBe(true);
+      expect(available.find((event: { id: string }) => event.id === c.id).visited).toBe(false);
+      expect(available.some((event: { id: string }) => [demoId, legacyId, inactive.id].includes(event.id))).toBe(false);
+      for (const path of ['/api/saturday/recommendations?intent=new_event', '/api/hidden-gems?mode=not_visited']) {
+        const response = (await request('GET', path, cookie)).json(); const ids = response.results.map((result: { event: { id: string } }) => result.event.id);
+        expect(ids).toContain(c.id); expect(ids).not.toContain(active.id); expect(ids).not.toContain(inactive.id);
+      }
+      const exported = (await request('GET', '/api/account/export', cookie)).json(); expect(exported.performances).toHaveLength(6);
+      expect(await store.listUserPerformances(owner.id)).toEqual(canonicalBefore);
+      const demoStore = new PrismaDataStore(db, 'demo_v0', 'demo');
+      expect(await demoStore.listTrustedEventIds([demoId, legacyId, active.id, inactive.id])).toEqual([demoId]);
+      expect((await loadExploreState(demoStore, owner.id, '2026-10-03')).challenges.find((challenge) => challenge.id === 'alphabet')!.completedItems).toEqual(['C']);
+    } finally { await app.close(); }
+  });
+
 });

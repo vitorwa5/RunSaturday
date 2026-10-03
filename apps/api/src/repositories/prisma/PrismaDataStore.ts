@@ -177,6 +177,12 @@ export class PrismaDataStore implements DataStore {
     return this.withScores(await this.db.event.findMany({ where: { AND: [filter, this.eventScope], active: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }] }));
   }
 
+  async listTrustedEventIds(eventIds: readonly string[]): Promise<string[]> {
+    if (!eventIds.length) return [];
+    const rows = await this.db.event.findMany({ where: { ...this.eventScope, id: { in: [...eventIds] } }, select: { id: true }, orderBy: { id: 'asc' } });
+    return rows.map((event) => event.id);
+  }
+
   async searchEvents(query: string, limit: number, filter: CatalogueFilter = {}): Promise<EventRecord[]> {
     const contains = { contains: query, mode: 'insensitive' as const };
     return this.withScores(
