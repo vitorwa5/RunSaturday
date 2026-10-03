@@ -3,6 +3,7 @@ import { assertDemoSeedDatabase, requireDemoSeedOptIn } from '../demo/seedGuard'
 import type { Db } from '../db/prisma';
 import { createPrismaClient } from '../db/prisma';
 import { randomUUID } from 'node:crypto';
+import { CatalogueImportService } from '../catalogue/importService';
 
 describe('destructive demo seed guard', () => {
   const valid = { APP_MODE: 'demo', NODE_ENV: 'development', ALLOW_DESTRUCTIVE_DEMO_SEED: 'true' };
@@ -39,6 +40,21 @@ describe('destructive demo seed guard', () => {
       await expect(assertDemoSeedDatabase(db)).rejects.toThrow(/imported catalogue data/);
       expect(await db.event.findUnique({ where: { id: importedId } })).not.toBeNull();
       expect(await db.userPerformance.count()).toBe(before);
-    } finally { await db.user.deleteMany({ where: { id } }); await db.event.deleteMany({ where: { id: importedId } }); await db.$disconnect(); }
+      await db.event.delete({ where: { id: importedId } });
+      await new CatalogueImportService(db, 'beta').import({ format: '5k-compass-catalogue-v1', source: { namespace: id, kind: 'imported', attribution: 'Synthetic seed guard integration fixture' }, records: [
+        { externalId: 'trusted', name: 'Trusted fixture', countryCode: 'GB', latitude: 53, longitude: -2, timezone: 'Europe/London', active: true },
+      ] });
+      const catalogue = await db.event.findMany({ where: { sourceNamespace: id } });
+      const runs = await db.catalogueImportRun.findMany({ where: { sourceNamespace: id } });
+      await expect(assertDemoSeedDatabase(db)).rejects.toThrow(/imported catalogue data/);
+      expect(await db.event.findMany({ where: { sourceNamespace: id } })).toEqual(catalogue);
+      expect(await db.catalogueImportRun.findMany({ where: { sourceNamespace: id } })).toEqual(runs);
+      expect(await db.userPerformance.count()).toBe(before);
+    } finally {
+      await db.user.deleteMany({ where: { id } });
+      await db.event.deleteMany({ where: { OR: [{ id: importedId }, { sourceNamespace: id }] } });
+      await db.catalogueImportRun.deleteMany({ where: { sourceNamespace: id } });
+      await db.$disconnect();
+    }
   });
 });

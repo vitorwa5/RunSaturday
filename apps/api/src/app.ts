@@ -24,6 +24,7 @@ export interface BuildAppOptions {
 }
 
 export async function buildApp({ config, store, now = () => new Date(), logger, authRuntime }: BuildAppOptions) {
+  if (store.catalogueMode !== config.APP_MODE) throw new Error('Application and catalogue store modes must match');
   const proxies = trustedProxyAddresses(config.TRUSTED_PROXY_CIDRS);
   const app = Fastify({ trustProxy: proxies.length ? proxies : false, logger: logger ?? {
     level: config.LOG_LEVEL,

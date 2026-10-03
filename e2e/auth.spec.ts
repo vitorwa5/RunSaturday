@@ -67,6 +67,15 @@ test('B1: empty account, persistence, safe switch without a personal-data flash,
     await page.goto('/profile');
     await expect(page.getByText('19:37', { exact: true }).first()).toBeVisible();
     const dataA = await (await context.request.get('/api/profile')).json();
+    const performanceId = (await (await context.request.get('/api/profile/performances')).json()).performances[0].id;
+    await new CatalogueImportService(db, 'beta').import({ ...catalogue, records: catalogue.records.map((r) => ({ ...r, active: false })) });
+    await page.goto(`/profile/performances/${performanceId}/edit`);
+    const edit = page.getByRole('form', { name: 'Edit performance' });
+    await expect(edit.getByLabel('Event', { exact: true })).toHaveValue(eventId);
+    await expect(edit.getByRole('option', { name: 'Aster Synthetic Saturday 5K (not in active catalogue)', exact: true })).toHaveCount(1);
+    await edit.getByRole('button', { name: 'Save changes', exact: true }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Profile', exact: true })).toBeVisible();
+    expect(await db.userPerformance.findUnique({ where: { id: performanceId } })).toMatchObject({ eventId, finishTimeSeconds: 1177 });
     const otherTab = await context.newPage();
     await otherTab.goto('/profile');
     await expect(otherTab.getByText('19:37', { exact: true }).first()).toBeVisible();
@@ -79,7 +88,27 @@ test('B1: empty account, persistence, safe switch without a personal-data flash,
     await expect(page.getByText('19:37', { exact: true }).first()).toBeVisible();
     await expect(otherTab.getByText('19:37', { exact: true }).first()).toBeVisible();
     expect(await (await context.request.get('/api/profile')).json()).toMatchObject({ id: dataA.id, runsCompleted: 1, lifetimePbSeconds: 1177 });
-    await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+    let captured!: () => void; let release!: () => void; let completed!: () => void;
+    const exportCaptured = new Promise<void>((resolve) => { captured = resolve; });
+    const releaseExport = new Promise<void>((resolve) => { release = resolve; });
+    const exportCompleted = new Promise<void>((resolve) => { completed = resolve; });
+    const downloads: string[] = [];
+    page.on('download', (download) => downloads.push(download.suggestedFilename()));
+    await page.route('**/api/account/export', async (route) => {
+      const response = await route.fetch();
+      expect(response.status()).toBe(200);
+      const payload = await response.json();
+      expect(JSON.stringify(payload)).toContain(performanceId);
+      captured();
+      await releaseExport;
+      try { await route.fulfill({ response }); } catch {
+        // The account transition may already have aborted this request.
+        expect(route.request().failure()?.errorText).toContain('ERR_ABORTED');
+      } finally { completed(); }
+    });
+    await page.getByRole('button', { name: 'Export my data', exact: true }).click();
+    await exportCaptured;
+    await otherTab.getByRole('button', { name: 'Sign out', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
     await expect(otherTab.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
     // Record every DOM mutation throughout B's login, rather than checking only the settled UI.
@@ -90,6 +119,9 @@ test('B1: empty account, persistence, safe switch without a personal-data flash,
       w.personalObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
     });
     await login(page, b);
+    release();
+    await exportCompleted;
+    await page.unroute('**/api/account/export');
     await expect(otherTab.getByText(`Signed in as ${b}`, { exact: true })).toBeVisible();
     await expect(otherTab.getByText('19:37', { exact: true })).toHaveCount(0);
     await otherTab.close();
@@ -99,6 +131,7 @@ test('B1: empty account, persistence, safe switch without a personal-data flash,
     const bProfile = await (await context.request.get('/api/profile')).json();
     expect(bProfile).toMatchObject({ runsCompleted: 0, lifetimePbSeconds: null, recentPbSeconds: null, currentForm: { status: 'unavailable' } });
     expect(bProfile.id).not.toBe(dataA.id);
+    expect(downloads).toEqual([]);
     await page.getByRole('button', { name: 'Delete account', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Permanently delete my account' })).toBeDisabled();
     await page.getByLabel('Type DELETE MY ACCOUNT to confirm').fill('DELETE MY ACCOUNT');

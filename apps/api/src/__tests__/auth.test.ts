@@ -50,6 +50,12 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
   const mutation = (method: 'POST' | 'PATCH' | 'DELETE', path: string, cookie: string, payload?: object) => req({ method, url: path, headers: { cookie }, payload: payload ?? {} });
   const input = { get eventId() { return eventA; }, date: '2026-09-20', time: '19:35' };
   beforeAll(async () => {
+    await new CatalogueImportService(db, 'beta').import({ format: '5k-compass-catalogue-v1', source: { namespace: catalogueNamespace, kind: 'imported', attribution: 'Synthetic auth integration fixtures' }, records: [
+      { externalId: 'riverside', name: 'Riverside Synthetic Saturday 5K', countryCode: 'GB', region: 'England', latitude: 53.4, longitude: -2.6, timezone: 'Europe/London', active: true },
+      { externalId: 'heath', name: 'Heath Synthetic Saturday 5K', countryCode: 'GB', region: 'Wales', latitude: 53.41, longitude: -2.61, timezone: 'Europe/London', active: true },
+    ] });
+    eventA = (await db.event.findUniqueOrThrow({ where: { sourceNamespace_externalId: { sourceNamespace: catalogueNamespace, externalId: 'riverside' } } })).id;
+    eventB = (await db.event.findUniqueOrThrow({ where: { sourceNamespace_externalId: { sourceNamespace: catalogueNamespace, externalId: 'heath' } } })).id;
     auth = createAuth(db, config(), { async send(email, code) { codes.set(email, code); } });
     app = await buildApp({ config: config(), store, authRuntime: { db, auth }, now: () => new Date('2026-10-01T09:00:00Z'), logger: false });
   });
@@ -191,16 +197,19 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
 
   it('exports recorded facts despite a Current Form outage and refuses demo seeding with a real account', async () => {
     const a = await login();
-    await mutation('POST', '/api/profile/performances', a.cookie, input);
+    expect((await mutation('POST', '/api/profile/performances', a.cookie, input)).statusCode).toBe(201);
+    expect((await get('/api/profile/explore-summary', a.cookie)).json()).toMatchObject({ eventsVisited: 1, totalRuns: 1, visitedEvents: [{ eventId: eventA }] });
     await assertDemoSeedDatabase(db).then(() => { throw new Error('seed must refuse'); }, (error) => expect(error.message).toContain('refused'));
     await db.runnerFormSnapshot.deleteMany({ where: { userId: a.user.id } });
     vi.spyOn(store, 'listCourseFactors').mockRejectedValue(new Error('private factor outage'));
     const response = await get('/api/account/export', a.cookie);
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ profile: { id: a.user.id }, performances: [{ finishTimeSeconds: 1175 }],
+    expect(response.json()).toMatchObject({ profile: { id: a.user.id }, performances: [{ eventId: eventA, finishTimeSeconds: 1175 }],
       summaries: { performance: { totalPerformances: 1 }, currentForm: null }, derivedStatus: { currentForm: { status: 'error', code: 'calculation_unavailable', asOfDate: '2026-10-01' } } });
     expect(response.body).not.toContain('private factor outage');
     expect(await db.userPerformance.count({ where: { userId: a.user.id } })).toBe(1);
+    expect((await get('/api/profile/explore-summary', a.cookie)).json()).toMatchObject({ eventsVisited: 1, visitedEvents: [{ eventId: eventA }] });
+    expect(await db.event.findUnique({ where: { id: eventA } })).toMatchObject({ source: 'IMPORTED', sourceNamespace: catalogueNamespace });
   });
 
   it('does not claim logout or clear the retry cookie when persistent revocation fails', async () => {
@@ -373,6 +382,8 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
 
   it('exports only owned data, deletes every canonical/derived/auth row and revokes all sessions', async () => {
     const a = await login(); const second = await login(a.email); const b = await login();
+    const sharedEvents = await db.event.findMany({ where: { sourceNamespace: catalogueNamespace }, orderBy: { id: 'asc' } });
+    const importRuns = await db.catalogueImportRun.findMany({ where: { sourceNamespace: catalogueNamespace }, orderBy: { id: 'asc' } });
     await mutation('POST', '/api/profile/performances', a.cookie, input);
     await mutation('POST', '/api/profile/performances', b.cookie, { ...input, time: '30:00' });
     await db.userEvent.create({ data: { userId: a.user.id, eventId: input.eventId, favourite: true } });
@@ -392,5 +403,8 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     expect(await db.rateLimit.count({ where: { key: `email:${a.email}:send` } })).toBe(0);
     expect((await get('/api/profile', second.cookie)).statusCode).toBe(401);
     expect((await get('/api/profile', b.cookie)).json()).toMatchObject({ id: b.user.id, runsCompleted: 1 });
+    expect(await db.event.findMany({ where: { sourceNamespace: catalogueNamespace }, orderBy: { id: 'asc' } })).toEqual(sharedEvents);
+    expect(await db.catalogueImportRun.findMany({ where: { sourceNamespace: catalogueNamespace }, orderBy: { id: 'asc' } })).toEqual(importRuns);
+    expect((await get(`/api/events/${eventA}`, b.cookie)).statusCode).toBe(200);
   });
 });
