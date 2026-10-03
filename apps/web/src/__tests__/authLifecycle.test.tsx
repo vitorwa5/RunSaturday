@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiGet, apiSend } from '../api/client';
 import { AuthProvider, useAuth } from '../auth/AuthProvider';
+import { withAuthLock } from '../auth/epoch';
 import { AccountControls } from '../auth/AccountControls';
 
 vi.mock('../api/client', () => ({ apiGet: vi.fn(), apiSend: vi.fn() }));
@@ -18,21 +19,34 @@ class Channel {
   postMessage(data: unknown) { for (const other of Channel.channels) if (other !== this && other.name === this.name) queueMicrotask(() => other.onmessage?.({ data })); }
   close() { Channel.channels.delete(this); this.onmessage = null; }
 }
+
+/** FIFO mutual exclusion: callbacks actually wait for the previous holder to finish.
+ * Deliberately ignores AbortSignal, so safety must also hold at callback entry. */
+class QueuedLocks {
+  private tail: Promise<unknown> = Promise.resolve();
+  request(_name: string, _options: object, action: () => Promise<unknown>) {
+    const result = this.tail.then(action);
+    this.tail = result.catch(() => undefined);
+    return result;
+  }
+}
+
 let auth: ReturnType<typeof useAuth>;
 let server: Session;
 const roots: Root[] = [];
 const observed: string[] = [];
-function Probe({ controls = false }: { controls?: boolean }) {
-  auth = useAuth(); observed.push(auth.user?.id ?? 'none');
+function Probe({ controls = false, onAuth }: { controls?: boolean; onAuth?: (value: typeof auth) => void }) {
+  auth = useAuth(); onAuth?.(auth); observed.push(auth.user?.id ?? 'none');
   return <div><p>{auth.user?.id ?? 'none'}</p>{controls && auth.ready && auth.user && <AccountControls key={auth.user.id} />}</div>;
 }
 async function mount(controls = false, strict = false) {
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container); roots.push(root);
   const client = new QueryClient();
-  const app = <QueryClientProvider client={client}><AuthProvider><Probe controls={controls} /></AuthProvider></QueryClientProvider>;
+  let tabAuth!: typeof auth;
+  const app = <QueryClientProvider client={client}><AuthProvider><Probe controls={controls} onAuth={(value) => { tabAuth = value; }} /></AuthProvider></QueryClientProvider>;
   await act(async () => { root.render(strict ? <StrictMode>{app}</StrictMode> : app); });
-  return { root, container, hideControls: () => root.render(<QueryClientProvider client={client}><AuthProvider><Probe /></AuthProvider></QueryClientProvider>) };
+  return { root, container, getAuth: () => tabAuth, hideControls: () => root.render(<QueryClientProvider client={client}><AuthProvider><Probe /></AuthProvider></QueryClientProvider>) };
 }
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.stubGlobal('BroadcastChannel', Channel);
@@ -72,7 +86,9 @@ describe('auth generation across deliberately delayed responses', () => {
       return null as never;
     });
     let logout!: Promise<void>; let login!: Promise<void>;
-    await act(async () => { logout = auth.logout(); login = auth.signIn('B@example.test', '123456'); window.dispatchEvent(new Event('focus')); });
+    // Start A's logout request before queuing B; queued unsent intentions are now cancelled.
+    await act(async () => { logout = auth.logout(); });
+    await act(async () => { login = auth.signIn('B@example.test', '123456'); window.dispatchEvent(new Event('focus')); });
     expect(calls).toEqual(['/auth/sign-out']); expect(auth.user).toBeNull();
     await act(async () => { logoutGate.resolve(null); await Promise.all([logout, login]); });
     expect(auth.user?.id).toBe('B'); const sinceB = observed.length;
@@ -151,4 +167,77 @@ describe('auth generation across deliberately delayed responses', () => {
     expect(ticket.isCurrent()).toBe(true);
     await act(async () => delayed.resolve({ profile: { id: 'A' } })); expect(blob).not.toHaveBeenCalled();
   });
+  it.each(['delete', 'logout', 'login'] as const)('never sends a stale queued %s intention after another tab establishes B', async (operation) => {
+    vi.stubGlobal('navigator', { locks: new QueuedLocks() });
+    const tab = await mount(); const intended = tab.getAuth();
+    const otherTab = new Channel('5k-compass-session');
+    const entered = deferred<void>(); const change = deferred<void>(); const release = deferred<void>();
+    const otherOperation = withAuthLock(async () => {
+      entered.resolve(); await change.promise;
+      await apiSend('POST', '/auth/sign-in/email-otp', { email: 'B@example.test', otp: '123456' });
+      otherTab.postMessage({ type: 'transition-start', id: 'B-replacement' });
+      await release.promise;
+      otherTab.postMessage({ type: 'session-changed', id: 'B-replacement' });
+    }, undefined, true);
+    await entered.promise;
+    let stale!: Promise<unknown>;
+    await act(async () => {
+      stale = (operation === 'delete' ? intended.deleteAccount() : operation === 'logout' ? intended.logout() : intended.signIn('C@example.test', '123456'))
+        .then(() => ({ completed: true }), (error: Error) => ({ name: error.name }));
+    });
+    expect(apiSend).not.toHaveBeenCalled();
+    await act(async () => { change.resolve(); });
+    expect(server.user?.id).toBe('B'); expect(tab.getAuth().user).toBeNull();
+    await act(async () => { release.resolve(); await otherOperation; expect(await stale).toEqual({ name: 'AbortError' }); });
+    expect(vi.mocked(apiSend).mock.calls.map(([, path]) => path)).toEqual(['/auth/sign-in/email-otp']);
+    expect(server.user?.id).toBe('B'); expect(tab.getAuth().user?.id).toBe('B');
+    otherTab.close();
+  });
+
+  it('checks the intended owner after the lock even if a cross-tab notification is delayed', async () => {
+    vi.stubGlobal('navigator', { locks: new QueuedLocks() });
+    const tab = await mount(); const entered = deferred<void>(); const release = deferred<void>();
+    const holder = withAuthLock(async () => { entered.resolve(); await release.promise; server = session('B'); });
+    await entered.promise;
+    let result!: Promise<unknown>;
+    await act(async () => { result = tab.getAuth().deleteAccount().catch((error: Error) => error.name); });
+    await act(async () => { release.resolve(); await holder; expect(await result).toBe('AbortError'); });
+    expect(apiSend).not.toHaveBeenCalled(); expect(server.user?.id).toBe('B'); expect(tab.getAuth().user?.id).toBe('B');
+  });
+
+  it.each(['login-first', 'logout-first'])('keeps both tabs coherent with queued transitions in %s order', async (order) => {
+    vi.stubGlobal('navigator', { locks: new QueuedLocks() });
+    const a = await mount(); const b = await mount(); const aIntent = a.getAuth(); const bIntent = b.getAuth();
+    const entered = deferred<void>(); const release = deferred<void>();
+    vi.mocked(apiSend).mockImplementation(async (_method, path) => {
+      entered.resolve(); await release.promise;
+      server = path.includes('sign-in') ? session('B') : { mode: 'beta', user: null };
+      return null as never;
+    });
+    let first!: Promise<unknown>; let second!: Promise<unknown>;
+    await act(async () => {
+      first = (order === 'login-first' ? bIntent.signIn('B@example.test', '123456') : aIntent.logout()).catch((error: Error) => error.name);
+      await entered.promise;
+    });
+    await act(async () => {
+      second = (order === 'login-first' ? aIntent.logout() : bIntent.signIn('B@example.test', '123456')).catch((error: Error) => error.name);
+    });
+    await act(async () => { release.resolve(); await first; expect(await second).toBe('AbortError'); });
+    expect(apiSend).toHaveBeenCalledTimes(1);
+    const expected = order === 'login-first' ? 'B' : undefined;
+    expect(server.user?.id).toBe(expected); expect(a.getAuth().user?.id).toBe(expected); expect(b.getAuth().user?.id).toBe(expected);
+  });
+
+  it('keeps B signed in when an actual API client receives A delayed 401', async () => {
+    const tab = await mount();
+    const actual = await vi.importActual<typeof import('../api/client')>('../api/client');
+    const delayed = deferred<Response>(); vi.stubGlobal('fetch', vi.fn(() => delayed.promise));
+    const ticket = tab.getAuth().captureOperation();
+    const oldRequest = actual.apiGet('/profile', {}, ticket.signal).catch((error: Error) => error.name);
+    await act(async () => { await tab.getAuth().logout(); });
+    await act(async () => { await tab.getAuth().signIn('B@example.test', '123456'); });
+    await act(async () => { delayed.resolve(new Response('{}', { status: 401 })); expect(await oldRequest).toBe('AbortError'); });
+    expect(tab.getAuth().user?.id).toBe('B');
+  });
+
 });

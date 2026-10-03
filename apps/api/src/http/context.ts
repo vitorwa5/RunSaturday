@@ -8,7 +8,11 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { AppError } from './errors';
 
 /** Handler-local identity, populated only by the validated HTTP session boundary. */
-export const identities = new AsyncLocalStorage<{ userId: string | null }>();
+export interface RequestIdentity {
+  userId: string | null;
+  session?: { user: { id: string; email: string | null }; expiresAt: string };
+}
+export const identities = new AsyncLocalStorage<RequestIdentity>();
 export function currentUserId(ctx: RequestContext): string {
   const id = identities.getStore()?.userId;
   if (!id || (ctx.config.APP_MODE === 'beta' && id === 'demo-user')) throw new AppError(401, 'authentication_required', 'Sign in to access your account.');

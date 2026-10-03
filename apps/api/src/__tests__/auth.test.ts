@@ -19,6 +19,7 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
   const codes = new Map<string, string>();
   const store = new PrismaDataStore(db, 'demo_v0');
   let app: FastifyInstance;
+  let auth: ReturnType<typeof createAuth>;
   let counter = 0;
   let ip = 1;
   const email = () => `auth-b1-${run}-${++counter}@example.test`;
@@ -38,7 +39,8 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
   const mutation = (method: 'POST' | 'PATCH' | 'DELETE', path: string, cookie: string, payload?: object) => req({ method, url: path, headers: { cookie }, payload: payload ?? {} });
   const input = { eventId: 'demo-riverside-5k', date: '2026-09-20', time: '19:35' };
   beforeAll(async () => {
-    app = await buildApp({ config: config(), store, authRuntime: { db, auth: createAuth(db, config(), { async send(email, code) { codes.set(email, code); } }) }, now: () => new Date('2026-10-01T09:00:00Z'), logger: false });
+    auth = createAuth(db, config(), { async send(email, code) { codes.set(email, code); } });
+    app = await buildApp({ config: config(), store, authRuntime: { db, auth }, now: () => new Date('2026-10-01T09:00:00Z'), logger: false });
   });
   beforeEach(() => vi.restoreAllMocks());
   afterAll(async () => {
@@ -142,6 +144,18 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     expect(out.statusCode).toBe(200); expect(cookieOf(out).maxAge).toBe(0);
     expect((await get('/api/profile', b.cookie)).statusCode).toBe(401);
     expect(await db.session.count({ where: { userId: a.user.id } })).toBe(0);
+  });
+
+  it('returns identity and expiry from one authoritative session read, never mixed across two reads', async () => {
+    const a = await login();
+    const validated = await auth.api.getSession({ headers: new Headers({ cookie: a.cookie }) });
+    expect(validated).not.toBeNull();
+    const lookup = vi.spyOn(auth.api, 'getSession').mockResolvedValueOnce(validated).mockResolvedValueOnce(null);
+    const signedIn = (await get('/api/account/session', a.cookie)).json();
+    expect(lookup).toHaveBeenCalledTimes(1);
+    expect(signedIn).toEqual({ mode: 'beta', user: { id: a.user.id, email: a.email }, expiresAt: validated!.session.expiresAt.toISOString() });
+    expect((await get('/api/account/session', a.cookie)).json()).toEqual({ mode: 'beta', user: null });
+    expect(lookup).toHaveBeenCalledTimes(2);
   });
 
   it('keeps an active/approaching-expiry session fixed and rejects it after expiry', async () => {
