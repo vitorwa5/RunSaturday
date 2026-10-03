@@ -230,6 +230,9 @@ function PerformanceForm({
               className={inputClass(errors.eventId != null)}
             >
               <option value="">Choose an event</option>
+              {existing?.eventId && events && !events.some((ev) => ev.id === existing.eventId) && (
+                <option value={existing.eventId}>{existing.eventName} (not in active catalogue)</option>
+              )}
               {events?.map((ev) => (
                 <option key={ev.id} value={ev.id}>
                   {ev.name}

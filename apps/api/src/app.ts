@@ -23,6 +23,7 @@ export interface BuildAppOptions {
 }
 
 export async function buildApp({ config, store, now = () => new Date(), logger, authRuntime }: BuildAppOptions) {
+  if (store.catalogueMode !== config.APP_MODE) throw new Error('Application and catalogue store modes must match');
   const app = Fastify({ logger: logger ?? {
     level: config.LOG_LEVEL,
     redact: ['req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'],

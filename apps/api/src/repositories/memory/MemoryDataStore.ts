@@ -25,6 +25,7 @@ import { byNewest } from '../../services/userPerformance';
 import {
   DuplicatePerformanceError,
   type DataStore,
+  type CatalogueFilter,
   type EventDetailRecord,
   type EventRecord,
   type NewPerformance,
@@ -105,6 +106,7 @@ function toOccurrenceSummaries(b: DemoEventBundle): OccurrenceSummary[] {
 }
 
 export class MemoryDataStore implements DataStore {
+  readonly catalogueMode = 'demo' as const;
   readonly kind = 'demo-memory' as const;
   private readonly dataset: DemoDataset;
   private readonly analytics: CoreAnalytics;
@@ -134,13 +136,15 @@ export class MemoryDataStore implements DataStore {
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  async listActiveEvents(): Promise<EventRecord[]> {
-    return this.records();
+  async listActiveEvents(filter: CatalogueFilter = {}): Promise<EventRecord[]> {
+    return this.records().filter((e) => (!filter.region || e.region === filter.region)
+      && (!filter.countryCode || e.catalogue?.countryCode === filter.countryCode)
+      && (!filter.sourceNamespace || e.catalogue?.sourceNamespace === filter.sourceNamespace));
   }
 
-  async searchEvents(query: string, limit: number): Promise<EventRecord[]> {
+  async searchEvents(query: string, limit: number, filter: CatalogueFilter = {}): Promise<EventRecord[]> {
     const q = query.toLowerCase();
-    return this.records()
+    return (await this.listActiveEvents(filter))
       .filter((e) => [e.name, e.town, e.region].some((f) => f?.toLowerCase().includes(q)))
       .slice(0, limit);
   }

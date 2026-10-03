@@ -13,6 +13,7 @@
  */
 import type { RunnerFormStatus } from '@runsaturday/shared';
 import type { Db } from '../db/prisma';
+import type { CatalogueMode } from '../catalogue/policy';
 import type { DataStore } from '../repositories/DataStore';
 import { PrismaDataStore } from '../repositories/prisma/PrismaDataStore';
 import { recalculateRunnerForm } from '../services/runnerForm';
@@ -40,11 +41,11 @@ export async function refreshAll<T>(deps: {
 }
 
 /** The canonical refresh against PostgreSQL. */
-export async function refreshAllAnalytics(db: Db, asOfDate: string): Promise<{ events: RecalculationSummary; runnerForms: RunnerFormSummary }> {
+export async function refreshAllAnalytics(db: Db, asOfDate: string, mode: CatalogueMode = 'beta'): Promise<{ events: RecalculationSummary; runnerForms: RunnerFormSummary }> {
   return refreshAll({
-    recalculateEventAnalytics: () => recalculateAnalytics(db, asOfDate),
-    store: new PrismaDataStore(db, 'demo_v0'),
-    listUserIds: async () => (await db.user.findMany({ select: { id: true }, orderBy: { id: 'asc' } })).map((u) => u.id),
+    recalculateEventAnalytics: () => recalculateAnalytics(db, asOfDate, mode),
+    store: new PrismaDataStore(db, 'demo_v0', mode),
+    listUserIds: async () => (await db.user.findMany({ where: { isDemo: mode === 'demo' }, select: { id: true }, orderBy: { id: 'asc' } })).map((u) => u.id),
     asOfDate,
   });
 }

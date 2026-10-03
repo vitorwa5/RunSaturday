@@ -23,6 +23,8 @@ import type { CourseFactorSnapshot, EventScore } from '../../generated/prisma/cl
 import type { CompetitionOccurrenceInput } from '../../analytics/competition';
 import { COMPETITION_VERSION, COURSE_SPEED_VERSION, DEFAULT_ANALYTICS_WINDOW, DIFFICULTY_VERSION, PB_VERSION, STRUCTURAL_WINDOW } from '../../analytics/versions';
 import type { Event } from '../../generated/prisma/client';
+import { catalogueWhere, evidenceScope, type CatalogueMode } from '../../catalogue/policy';
+import type { CatalogueFilter } from '../DataStore';
 
 const RECENT_OCCURRENCES = 12;
 
@@ -98,7 +100,9 @@ export class PrismaDataStore implements DataStore {
   constructor(
     private readonly db: Db,
     private readonly activeScoreVersion: string,
+    readonly catalogueMode: CatalogueMode = 'beta',
   ) {}
+  private get eventScope() { return catalogueWhere(this.catalogueMode); }
 
   /**
    * Latest snapshot per event for: the active PB version (90 days), Competition V1 (given
@@ -108,6 +112,7 @@ export class PrismaDataStore implements DataStore {
     const [rows, factors] = await Promise.all([
       this.db.eventScore.findMany({
         where: {
+          event: this.eventScope,
           eventId: { in: eventIds },
           OR: [
             { calculationVersion: this.activeScoreVersion, windowDays: DEFAULT_SCORE_WINDOW_DAYS },
@@ -138,13 +143,14 @@ export class PrismaDataStore implements DataStore {
   /** Course factor rows from the latest calculation run only (bootstrap draws align within a run). */
   private async latestFactorRows(eventIds?: string[]) {
     const latest = await this.db.courseFactorSnapshot.findFirst({
-      where: { version: COURSE_SPEED_VERSION, windowDays: COURSE_SPEED_V1.WINDOW_DAYS },
+      where: { event: this.eventScope, version: COURSE_SPEED_VERSION, windowDays: COURSE_SPEED_V1.WINDOW_DAYS },
       orderBy: { asOfDate: 'desc' },
       select: { asOfDate: true },
     });
     if (!latest) return [];
     return this.db.courseFactorSnapshot.findMany({
       where: {
+        event: this.eventScope,
         version: COURSE_SPEED_VERSION,
         windowDays: COURSE_SPEED_V1.WINDOW_DAYS,
         asOfDate: latest.asOfDate,
@@ -159,7 +165,7 @@ export class PrismaDataStore implements DataStore {
   }
 
   async listPerformances(from: string | null, to: string): Promise<PerformanceInput[]> {
-    return queryPerformances(this.db, from, to);
+    return queryPerformances(this.db, from, to, this.catalogueMode);
   }
 
   private async withScores(events: Event[]): Promise<EventRecord[]> {
@@ -167,15 +173,15 @@ export class PrismaDataStore implements DataStore {
     return events.map((e) => mapEvent(e, snaps.get(e.id)!));
   }
 
-  async listActiveEvents(): Promise<EventRecord[]> {
-    return this.withScores(await this.db.event.findMany({ where: { active: true }, orderBy: { name: 'asc' } }));
+  async listActiveEvents(filter: CatalogueFilter = {}): Promise<EventRecord[]> {
+    return this.withScores(await this.db.event.findMany({ where: { AND: [filter, this.eventScope], active: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }] }));
   }
 
-  async searchEvents(query: string, limit: number): Promise<EventRecord[]> {
+  async searchEvents(query: string, limit: number, filter: CatalogueFilter = {}): Promise<EventRecord[]> {
     const contains = { contains: query, mode: 'insensitive' as const };
     return this.withScores(
       await this.db.event.findMany({
-        where: { active: true, OR: [{ name: contains }, { town: contains }, { region: contains }] },
+        where: { AND: [filter, this.eventScope], active: true, OR: [{ name: contains }, { town: contains }, { region: contains }] },
         orderBy: { name: 'asc' },
         take: limit,
       }),
@@ -184,7 +190,7 @@ export class PrismaDataStore implements DataStore {
 
   async getEvent(idOrSlug: string, today: string): Promise<EventDetailRecord | null> {
     const event = await this.db.event.findFirst({
-      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] },
+      where: { ...this.eventScope, OR: [{ id: idOrSlug }, { slug: idOrSlug }] },
       include: { occurrences: { orderBy: { date: 'desc' }, take: RECENT_OCCURRENCES } },
     });
     if (!event) return null;
@@ -220,12 +226,12 @@ export class PrismaDataStore implements DataStore {
   }
 
   async findEventId(idOrSlug: string): Promise<string | null> {
-    const event = await this.db.event.findFirst({ where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] }, select: { id: true } });
+    const event = await this.db.event.findFirst({ where: { ...this.eventScope, OR: [{ id: idOrSlug }, { slug: idOrSlug }] }, select: { id: true } });
     return event?.id ?? null;
   }
 
   async listOccurrences(eventId: string): Promise<OccurrenceSummary[]> {
-    const rows = await this.db.eventOccurrence.findMany({ where: { eventId }, orderBy: { date: 'desc' } });
+    const rows = await this.db.eventOccurrence.findMany({ where: { eventId, event: this.eventScope }, orderBy: { date: 'desc' } });
     return rows.map(mapOccurrence);
   }
 
@@ -249,8 +255,10 @@ export class PrismaDataStore implements DataStore {
              (COUNT(r.id) FILTER (WHERE r."finishTimeSeconds" < ${timeSeconds}))::int AS "fasterCount",
              (COUNT(r.id) FILTER (WHERE r."finishTimeSeconds" = ${timeSeconds}))::int AS "equalCount"
       FROM "EventOccurrence" o
+      JOIN "Event" e ON e.id = o."eventId"
       LEFT JOIN "Result" r ON r."occurrenceId" = o.id
       WHERE o.date <= ${to}::date
+        AND ${catalogueSql(this.catalogueMode)}
         ${from ? Prisma.sql`AND o.date >= ${from}::date` : Prisma.empty}
         ${eventIds ? Prisma.sql`AND o."eventId" IN (${Prisma.join(eventIds)})` : Prisma.empty}
       GROUP BY o.id
@@ -278,11 +286,11 @@ export class PrismaDataStore implements DataStore {
   }
 
   async listCompetitionInputs(to: string): Promise<CompetitionOccurrenceInput[]> {
-    return queryCompetitionInputs(this.db, to);
+    return queryCompetitionInputs(this.db, to, this.catalogueMode);
   }
 
   async getUser(userId: string): Promise<StoredUser | null> {
-    const user = await this.db.user.findUnique({ where: { id: userId }, include: { events: { where: { favourite: true }, select: { eventId: true } } } });
+    const user = await this.db.user.findUnique({ where: { id: userId }, include: { events: { where: { favourite: true, event: this.eventScope }, select: { eventId: true } } } });
     if (!user) return null;
     return {
       id: user.id,
@@ -345,7 +353,8 @@ export class PrismaDataStore implements DataStore {
   async getRunnerFormSnapshot(userId: string, distanceMeters: number, version: string, asOfDate: string): Promise<RunnerForm | null> {
     const revision = await this.getPerformanceRevision(userId);
     const row = await this.db.runnerFormSnapshot.findFirst({
-      where: { userId, distanceMeters, calculationVersion: version, asOfDate: new Date(`${asOfDate}T00:00:00Z`), performanceRevision: revision },
+      where: { userId, distanceMeters, calculationVersion: version, asOfDate: new Date(`${asOfDate}T00:00:00Z`), performanceRevision: revision,
+        ...(this.catalogueMode === 'beta' ? { evidenceScope: evidenceScope(this.catalogueMode) } : {}) },
       select: { components: true },
     });
     // The full model output is stored in `components`; the columns duplicate its headline values.
@@ -369,7 +378,7 @@ export class PrismaDataStore implements DataStore {
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
       const user = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { performanceRevision: true } });
       if (expectedRevision != null && user.performanceRevision !== expectedRevision) return false;
-      const revisionData = { ...data, performanceRevision: user.performanceRevision };
+      const revisionData = { ...data, performanceRevision: user.performanceRevision, evidenceScope: evidenceScope(this.catalogueMode) };
       await tx.runnerFormSnapshot.upsert({ where: { userId_distanceMeters_calculationVersion_asOfDate: key }, create: { ...key, ...revisionData }, update: revisionData });
       return true;
     });
@@ -393,7 +402,8 @@ export class PrismaDataStore implements DataStore {
  * Placing times for every occurrence up to `to`, read from Result rows (the source of truth):
  * winner, 3rd, 5th, 10th and the top-10% cutoff (position ceil(0.10 × result count)).
  */
-export async function queryCompetitionInputs(db: Db, to: string): Promise<CompetitionOccurrenceInput[]> {
+const catalogueSql = (mode: CatalogueMode) => mode === 'demo' ? Prisma.sql`e.source = 'DEMO'` : Prisma.sql`e.source = 'IMPORTED' AND e."sourceNamespace" IS NOT NULL AND e."externalId" IS NOT NULL`;
+export async function queryCompetitionInputs(db: Db, to: string, mode: CatalogueMode = 'beta'): Promise<CompetitionOccurrenceInput[]> {
   const rows = await db.$queryRaw<
     {
       eventId: string;
@@ -412,8 +422,10 @@ export async function queryCompetitionInputs(db: Db, to: string): Promise<Compet
     WITH counts AS (
       SELECT o.id, COUNT(r.id)::int AS n
       FROM "EventOccurrence" o
+      JOIN "Event" e ON e.id = o."eventId"
       LEFT JOIN "Result" r ON r."occurrenceId" = o.id
       WHERE o.date <= ${to}::date
+        AND ${catalogueSql(mode)} AND e.active = true
       GROUP BY o.id
     )
     SELECT o."eventId",
@@ -458,15 +470,17 @@ export function factorFromRow(row: CourseFactorSnapshot): CourseFactorResult {
  * Completeness (result rows = participant count) is checked against the occurrence inputs by
  * the caller (usablePerformances).
  */
-export async function queryPerformances(db: Db, from: string | null, to: string): Promise<PerformanceInput[]> {
+export async function queryPerformances(db: Db, from: string | null, to: string, mode: CatalogueMode = 'beta'): Promise<PerformanceInput[]> {
   const rows = await db.$queryRaw<{ athleteKey: string; eventId: string; date: string; seconds: number }[]>`
     SELECT r."athleteKey", o."eventId", to_char(o.date, 'YYYY-MM-DD') AS date, r."finishTimeSeconds" AS seconds
     FROM "Result" r
     JOIN "EventOccurrence" o ON o.id = r."occurrenceId"
+    JOIN "Event" e ON e.id = o."eventId"
     WHERE r."athleteKey" IS NOT NULL
       AND o.status = 'COMPLETED'
       AND o."dataQuality" = 'VALID'
       AND o.date <= ${to}::date
+      AND ${catalogueSql(mode)} AND e.active = true
       ${from ? Prisma.sql`AND o.date >= ${from}::date` : Prisma.empty}
     ORDER BY r."athleteKey", o."eventId", o.date`;
   return rows;

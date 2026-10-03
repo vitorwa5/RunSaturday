@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { CatalogueImportService } from '../catalogue/importService';
+import type { CourseFactorResult } from '../analytics/courseSpeed';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { buildApp } from '../app';
@@ -11,6 +13,15 @@ import { currentRunnerForm, computeUserRunnerForm } from '../services/runnerForm
 const url = process.env.TEST_DATABASE_URL;
 const origin = 'http://localhost:5173';
 const run = randomUUID();
+const catalogueNamespace = `auth-fixture-${run}`;
+let eventA = ''; let eventB = '';
+// Explicit synthetic model fixtures for auth/form isolation only; not importer-created evidence.
+const modelledFactors = (): CourseFactorResult[] => [eventA, eventB].map((eventId) => ({
+  eventId, version: 'course_speed_v1', asOfDate: '2026-10-01', windowDays: 365,
+  factor: 1, logFactor: 0, bootstrap: [0, 0], matchedRunners: 40, comparisons: 80,
+  connectedEvents: 2, medianGapDays: 7, dispersion: 0, bootstrapHalfWidth: 0,
+  latestComparison: '2026-09-26', confidence: { level: 'high', score: 100, factors: [] }, limitedReason: null,
+}));
 const config = () => loadConfig({ APP_MODE: 'beta', NODE_ENV: 'test', DATA_SOURCE: 'database', DATABASE_URL: url, AUTH_BASE_URL: origin, AUTH_ALLOW_INSECURE_LOCAL_HTTP: 'true', AUTH_SECRET: 'b1-test-only-secret-at-least-32-characters', EMAIL_TRANSPORT: 'test', LOG_LEVEL: 'silent' });
 
 describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () => {
@@ -35,8 +46,14 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
   };
   const get = (path: string, cookie?: string) => req({ method: 'GET', url: path, headers: cookie ? { cookie } : {} });
   const mutation = (method: 'POST' | 'PATCH' | 'DELETE', path: string, cookie: string, payload?: object) => req({ method, url: path, headers: { cookie }, payload: payload ?? {} });
-  const input = { eventId: 'demo-riverside-5k', date: '2026-09-20', time: '19:35' };
+  const input = { get eventId() { return eventA; }, date: '2026-09-20', time: '19:35' };
   beforeAll(async () => {
+    await new CatalogueImportService(db, 'beta').import({ format: '5k-compass-catalogue-v1', source: { namespace: catalogueNamespace, kind: 'imported', attribution: 'Synthetic auth integration fixtures' }, records: [
+      { externalId: 'riverside', name: 'Riverside Synthetic Saturday 5K', countryCode: 'GB', region: 'England', latitude: 53.4, longitude: -2.6, timezone: 'Europe/London', active: true },
+      { externalId: 'heath', name: 'Heath Synthetic Saturday 5K', countryCode: 'GB', region: 'Wales', latitude: 53.41, longitude: -2.61, timezone: 'Europe/London', active: true },
+    ] });
+    eventA = (await db.event.findUniqueOrThrow({ where: { sourceNamespace_externalId: { sourceNamespace: catalogueNamespace, externalId: 'riverside' } } })).id;
+    eventB = (await db.event.findUniqueOrThrow({ where: { sourceNamespace_externalId: { sourceNamespace: catalogueNamespace, externalId: 'heath' } } })).id;
     app = await buildApp({ config: config(), store, authRuntime: { db, auth: createAuth(db, config(), { async send(email, code) { codes.set(email, code); } }) }, now: () => new Date('2026-10-01T09:00:00Z'), logger: false });
   });
   beforeEach(() => vi.restoreAllMocks());
@@ -45,6 +62,8 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     await db.rateLimit.deleteMany({ where: { key: { contains: run } } });
     await db.emailAuthBudget.deleteMany({ where: { email: { contains: run } } });
     await db.user.deleteMany({ where: { email: { contains: run } } });
+    await db.event.deleteMany({ where: { sourceNamespace: catalogueNamespace } });
+    await db.catalogueImportRun.deleteMany({ where: { sourceNamespace: catalogueNamespace } });
     await app?.close();
     await db.$disconnect();
   });
@@ -77,7 +96,7 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
       expect(response.json().ability.usesCurrentForm).toBe(false);
       expect(response.json().limitations.join(' ')).toContain('Current Form unavailable');
     }
-    const currentForm = await get('/api/compare?ids=demo-riverside-5k,demo-heath-common-5k&basis=current_form', cookie);
+    const currentForm = await get(`/api/compare?ids=${eventA},${eventB}&basis=current_form`, cookie);
     expect(currentForm.statusCode).toBe(409);
   });
 
@@ -244,6 +263,7 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
   });
 
   it('isolates overlapping histories, PBs, form, favourites, visits, challenges, event history and all personalised tools', async () => {
+    vi.spyOn(store, 'listCourseFactors').mockResolvedValue(modelledFactors());
     const a = await login(); const b = await login();
     const aRun = await mutation('POST', '/api/profile/performances', a.cookie, { ...input, userId: b.user.id });
     const bRun = await mutation('POST', '/api/profile/performances', b.cookie, { ...input, time: '25:00' });
@@ -254,29 +274,32 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     expect((await mutation('DELETE', `/api/profile/performances/${id}`, a.cookie)).statusCode).toBe(404);
     const aList = (await get(`/api/profile/performances?userId=${b.user.id}`, a.cookie)).json();
     expect(aList.total).toBe(1); expect(aList.performances[0].id).toBe(aRun.json().id);
-    await db.userEvent.create({ data: { userId: b.user.id, eventId: 'demo-heath-common-5k', favourite: true } });
+    await db.userEvent.create({ data: { userId: b.user.id, eventId: `${eventB}`, favourite: true } });
     const profileA = (await get('/api/profile', a.cookie)).json(); const profileB = (await get('/api/profile', b.cookie)).json();
     expect(profileA).toMatchObject({ id: a.user.id, lifetimePbSeconds: 1175, recentPbSeconds: 1175, savedEventIds: [] });
-    expect(profileB).toMatchObject({ id: b.user.id, lifetimePbSeconds: 1500, savedEventIds: ['demo-heath-common-5k'] });
+    expect(profileB).toMatchObject({ id: b.user.id, lifetimePbSeconds: 1500, savedEventIds: [`${eventB}`] });
     expect(profileA.currentForm.inputs.every((p: { performanceId: string }) => p.performanceId !== id)).toBe(true);
+    expect(profileA.currentForm.inputs).toHaveLength(1);
+    expect(profileA.currentForm.inputs[0].performanceId).toBe(aRun.json().id);
+    expect(profileB.currentForm.inputs[0].performanceId).toBe(id);
     // Add B-only history: its visits/challenges/form cannot enter A's responses.
-    await mutation('POST', '/api/profile/performances', b.cookie, { ...input, eventId: 'demo-heath-common-5k', date: '2026-09-13' });
-    for (const path of ['/api/profile/explore-summary', '/api/profile/challenges', '/api/profile/current-form', '/api/profile/performance-summary', '/api/profile/events/demo-heath-common-5k/visits', '/api/events/demo-heath-common-5k', '/api/events', '/api/pb-finder', '/api/hidden-gems', '/api/compare?ids=demo-riverside-5k,demo-heath-common-5k', '/api/saturday/recommendations?intent=new_event&lat=53.4&lon=-2.6', '/api/planner?goal=new_event&lat=53.4&lon=-2.6', '/api/recommendations/best-pick?goal=new_event&lat=53.4&lon=-2.6']) {
+    await mutation('POST', '/api/profile/performances', b.cookie, { ...input, eventId: `${eventB}`, date: '2026-09-13' });
+    for (const path of ['/api/profile/explore-summary', '/api/profile/challenges', '/api/profile/current-form', '/api/profile/performance-summary', `/api/profile/events/${eventB}/visits`, `/api/events/${eventB}`, '/api/events', '/api/pb-finder', '/api/hidden-gems', `/api/compare?ids=${eventA},${eventB}`, '/api/saturday/recommendations?intent=new_event&lat=53.4&lon=-2.6', '/api/planner?goal=new_event&lat=53.4&lon=-2.6', '/api/recommendations/best-pick?goal=new_event&lat=53.4&lon=-2.6']) {
       const response = await get(path, a.cookie);
       expect(response.statusCode, path).toBe(200);
       expect(response.body, path).not.toContain(b.user.id);
       expect(response.body, path).not.toContain(id);
     }
-    expect((await get('/api/profile/events/demo-heath-common-5k/visits', a.cookie)).json()).toMatchObject({ visited: false, visitCount: 0, pbSeconds: null });
-    expect((await get('/api/profile/events/demo-heath-common-5k/visits', b.cookie)).json()).toMatchObject({ visited: true, visitCount: 1, pbSeconds: 1175 });
+    expect((await get(`/api/profile/events/${eventB}/visits`, a.cookie)).json()).toMatchObject({ visited: false, visitCount: 0, pbSeconds: null });
+    expect((await get(`/api/profile/events/${eventB}/visits`, b.cookie)).json()).toMatchObject({ visited: true, visitCount: 1, pbSeconds: 1175 });
     expect((await get('/api/profile/challenges', a.cookie)).body).not.toEqual((await get('/api/profile/challenges', b.cookie)).body);
-    expect((await get('/api/events/demo-heath-common-5k', a.cookie)).json()).toMatchObject({ favourite: false, visited: false });
-    expect((await get('/api/events/demo-heath-common-5k', b.cookie)).json()).toMatchObject({ favourite: true, visited: true });
+    expect((await get(`/api/events/${eventB}`, a.cookie)).json()).toMatchObject({ favourite: false, visited: false });
+    expect((await get(`/api/events/${eventB}`, b.cookie)).json()).toMatchObject({ favourite: true, visited: true });
     const saturdayPath = '/api/saturday/recommendations?intent=new_event&lat=53.4&lon=-2.6&maxTravel=90';
     const [saturdayA, saturdayB] = await Promise.all([get(saturdayPath, a.cookie), get(saturdayPath, b.cookie)]);
     const ids = (response: typeof saturdayA) => response.json().results.map((r: { event: { id: string } }) => r.event.id);
-    expect(ids(saturdayA)).toContain('demo-heath-common-5k');
-    expect(ids(saturdayB)).not.toContain('demo-heath-common-5k');
+    expect(ids(saturdayA)).toContain(`${eventB}`);
+    expect(ids(saturdayB)).not.toContain(`${eventB}`);
     // Overlapping asynchronous handlers must retain their own identity.
     const simultaneous = await Promise.all(Array.from({ length: 12 }, (_, i) => get('/api/profile', i % 2 === 0 ? a.cookie : b.cookie)));
     simultaneous.forEach((response, i) => expect(response.json().id).toBe(i % 2 === 0 ? a.user.id : b.user.id));
@@ -292,15 +315,16 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
   });
 
   it('invalidates all snapshot versions atomically and never serves stale form if recomputation fails', async () => {
+    const factors = vi.spyOn(store, 'listCourseFactors').mockResolvedValue(modelledFactors());
     const a = await login(); await mutation('POST', '/api/profile/performances', a.cookie, input);
     const old = await currentRunnerForm(store, a.user.id, '2026-10-01'); const revision = await store.getPerformanceRevision(a.user.id);
     await store.saveRunnerFormSnapshot(a.user.id, { ...old, asOfDate: '2026-09-30', version: 'old-personal-version' });
-    const fail = vi.spyOn(store, 'listCourseFactors').mockRejectedValue(new Error('factor outage'));
+    factors.mockRejectedValue(new Error('factor outage'));
     const result = await mutation('PATCH', `/api/profile/performances/${(await get('/api/profile/performances', a.cookie)).json().performances[0].id}`, a.cookie, { ...input, time: '22:00' });
     expect(result.statusCode).toBe(200);
     expect(await db.runnerFormSnapshot.count({ where: { userId: a.user.id } })).toBe(0);
     expect((await get('/api/profile/current-form', a.cookie)).statusCode).toBe(503);
-    fail.mockRestore();
+    factors.mockResolvedValue(modelledFactors());
     expect(await store.saveRunnerFormSnapshot(a.user.id, old, revision)).toBe(false);
     const fresh = await currentRunnerForm(store, a.user.id, '2026-10-01');
     expect(fresh.inputs[0]!.actualSeconds).toBe(1320);

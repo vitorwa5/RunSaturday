@@ -5,6 +5,7 @@
  * snapshots untouched (history for reproducibility and trend charts).
  */
 import type { Db } from '../db/prisma';
+import { catalogueWhere, type CatalogueMode } from '../catalogue/policy';
 import { Prisma } from '../generated/prisma/client';
 import { windowStart } from '../domain/confidence';
 import { queryCompetitionInputs, queryPerformances } from '../repositories/prisma/PrismaDataStore';
@@ -27,9 +28,9 @@ export interface RecalculationSummary {
   fittedFactors: number;
 }
 
-export async function recalculateAnalytics(db: Db, asOfDate: string): Promise<RecalculationSummary> {
+export async function recalculateAnalytics(db: Db, asOfDate: string, mode: CatalogueMode = 'beta'): Promise<RecalculationSummary> {
   const events = await db.event.findMany({
-    where: { active: true },
+    where: { ...catalogueWhere(mode), active: true },
     select: { id: true, elevationM: true, surface: true, courseType: true, laps: true },
     orderBy: { id: 'asc' },
   });
@@ -40,8 +41,8 @@ export async function recalculateAnalytics(db: Db, asOfDate: string): Promise<Re
     courseType: e.courseType.toLowerCase() as CourseFacts['courseType'],
     laps: e.laps,
   }));
-  const inputs = await queryCompetitionInputs(db, asOfDate);
-  const rawPerformances = await queryPerformances(db, windowStart(asOfDate, COURSE_SPEED_V1.WINDOW_DAYS), asOfDate);
+  const inputs = await queryCompetitionInputs(db, asOfDate, mode);
+  const rawPerformances = await queryPerformances(db, windowStart(asOfDate, COURSE_SPEED_V1.WINDOW_DAYS), asOfDate, mode);
   const performances = usablePerformances(
     rawPerformances.map((p) => ({ ...p, occurrenceKey: `${p.eventId}|${p.date}` })),
     inputs,

@@ -151,6 +151,12 @@ function InfoTab({ event }: { event: EventDetail }) {
         items={[
           { label: 'Start point', value: event.startLocationText ?? 'Unknown' },
           { label: 'Start time', value: event.startTime ?? 'Unknown' },
+          ...(event.catalogue ? [
+            { label: 'Timezone', value: event.catalogue.timezone ?? 'Unknown' },
+            { label: 'Catalogue source', value: event.catalogue.attribution ?? event.catalogue.sourceNamespace },
+            { label: 'Licence / terms', value: event.catalogue.licence ?? 'Not supplied' },
+            { label: 'Source updated', value: event.catalogue.sourceUpdatedAt?.slice(0, 10) ?? 'Not supplied' },
+          ] : []),
           {
             label: 'Latest event',
             value: latest ? `${formatShortDate(latest.date)} · ${latest.status === 'cancelled' ? 'Cancelled' : 'Took place'}` : 'Unknown',
@@ -251,7 +257,7 @@ export function EventPage() {
           {event.startTime && (
             <span className="inline-flex items-center gap-1 text-muted">
               <CalendarClock className="size-4" aria-hidden />
-              Saturdays {event.startTime}
+              Saturdays {event.startTime}{event.catalogue?.timezone ? ` (${event.catalogue.timezone})` : ''}
             </span>
           )}
         </div>
@@ -265,6 +271,9 @@ export function EventPage() {
       )}
 
       <EventHeroMetrics event={event} />
+      {!event.scores && event.source === 'imported' && <AlertBanner tone="info" title="Catalogue information only">
+        Historical performance analytics are not available for this event yet. Catalogue data alone cannot provide PB Score, Competition or Course Speed Factor.
+      </AlertBanner>}
       <ScoreExplainer eventId={event.id} />
 
       <OutlookCard profile={profile} eventId={event.id} />

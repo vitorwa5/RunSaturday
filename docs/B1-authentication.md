@@ -78,7 +78,7 @@ The mobile flow has email/send-code/verify-code and signed-in state. Profile sho
 
 Contextual/personal query keys begin with `['personal', User.id, …]`, including event cards/detail, form-based tools, recommendations, performances and challenges. Pure public history/analytics keep shared keys. On logout, account change, expiry, 401 or session revalidation the account UI is hidden, personal queries are removed/cancelled, mutation cache is removed, and account components remount with the next identity. `keepPreviousData` therefore cannot carry another account's values. Login/logout/expiry changes are broadcast across tabs; focus revalidates the server session. Public API data is not persisted by the service worker. No authentication credential is stored in browser localStorage.
 
-A new account has zero performances, visited events and favourites; no PB/Recent Best; unavailable Current Form; Alphabet 0/25. Public catalogue events remain visible when present. Existing Saturday logic explains unavailable personal evidence and can rank exploration intents with an explicit origin. Shared fictional catalogue content is still labelled DEMO; replacing it is outside B1.
+A new account has zero performances, visited events and favourites; no PB/Recent Best; unavailable Current Form; Alphabet 0/25. Public catalogue events remain visible when present. Existing Saturday logic explains unavailable personal evidence and can rank exploration intents with an explicit origin. B2A excludes DEMO and unprovenanced legacy catalogue rows entirely in beta, including analytical inputs. Demo mode still supplies labelled fictional data. See [catalogue provenance](B2A-catalogue-provenance.md).
 
 ## Deletion and export
 
@@ -88,7 +88,7 @@ A new account has zero performances, visited events and favourites; no PB/Recent
 
 ## Verification
 
-Use the supplied `TEST_DATABASE_URL` and one Vitest worker per AGENTS.md. Tests require the established demo fixture and B1 migration; production/beta bootstrap must still never seed demo data.
+Use the supplied `TEST_DATABASE_URL` and one Vitest worker per AGENTS.md. Tests require the established demo fixture and B1/B2A migrations; auth tests create and clean isolated imported synthetic catalogue fixtures, while demo tests remain in explicit demo mode; production/beta bootstrap must still never seed demo data.
 
 ```bash
 npm run db:up

@@ -122,6 +122,8 @@ Web (optional, `apps/web/.env`): `VITE_API_BASE_URL` (default `/api`) and `VITE_
 ## Authentication (B1)
 
 Passwordless email codes and opaque HttpOnly sessions are implemented with Better Auth and PostgreSQL. New accounts start empty. Profile supports sign-out, confirmed account deletion and JSON export. Beta requires `AUTH_BASE_URL`, `AUTH_SECRET`, real Resend email delivery and the additive migration; production additionally requires HTTPS. [Authentication architecture, modes, security, cache isolation and deployment instructions](docs/B1-authentication.md).
+Event catalogue ingestion is now provider-neutral and local-file only. Beta excludes DEMO/unprovenanced catalogue rows and analytical inputs. No real provider or historical result ingestion is included. See [B2A provenance, import contract and dry-run workflow](docs/B2A-catalogue-provenance.md).
+
 
 ## API (Phase 1)
 

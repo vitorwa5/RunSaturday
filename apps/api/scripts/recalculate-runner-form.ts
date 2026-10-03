@@ -6,11 +6,13 @@
  * Deterministic for a given date. Defaults to today (APP_TIME_ZONE).
  */
 import { calendarDateIn } from '@runsaturday/shared';
+import { catalogueMode } from '../src/catalogue/policy';
 import { createPrismaClient } from '../src/db/prisma';
 import { PrismaDataStore } from '../src/repositories/prisma/PrismaDataStore';
 import { recalculateAllRunnerForms } from '../src/analytics/refreshAll';
 
 async function main() {
+  const mode = catalogueMode(process.env);
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is not set. Copy apps/api/.env.example to apps/api/.env.');
   const arg = process.argv.find((a) => a.startsWith('--as-of='))?.slice('--as-of='.length);
@@ -19,8 +21,8 @@ async function main() {
 
   const db = createPrismaClient(url);
   try {
-    const store = new PrismaDataStore(db, 'demo_v0');
-    const users = await db.user.findMany({ select: { id: true }, orderBy: { id: 'asc' } });
+    const store = new PrismaDataStore(db, 'demo_v0', mode);
+    const users = await db.user.findMany({ where: { isDemo: mode === 'demo' }, select: { id: true }, orderBy: { id: 'asc' } });
     const counts = await recalculateAllRunnerForms(store, users.map((u) => u.id), asOfDate);
     console.log(
       `Runner Form recalculated as of ${asOfDate} for ${users.length} users: ` +
