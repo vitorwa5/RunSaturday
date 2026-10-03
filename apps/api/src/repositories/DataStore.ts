@@ -20,6 +20,8 @@ import type {
 import type { CourseFactorResult, PerformanceInput } from '../analytics/courseSpeed';
 import type { CompetitionOccurrenceInput } from '../analytics/competition';
 import type { PlacementOccurrenceInput } from '../domain/placementEngine';
+import type { CatalogueMode } from '../catalogue/policy';
+export interface CatalogueFilter { countryCode?: string; region?: string; sourceNamespace?: string }
 
 /** Event as stored, before request-specific context (travel, visited) is added. */
 export type EventRecord = Omit<EventSummary, 'travel' | 'visited' | 'favourite'>;
@@ -104,10 +106,11 @@ export class DuplicatePerformanceError extends Error {
 
 export interface DataStore {
   readonly kind: 'database' | 'demo-memory';
+  readonly catalogueMode: CatalogueMode;
   /** Active events with their scores for the active calculation version. */
-  listActiveEvents(): Promise<EventRecord[]>;
+  listActiveEvents(filter?: CatalogueFilter): Promise<EventRecord[]>;
   /** Case-insensitive match on name, town or region. */
-  searchEvents(query: string, limit: number): Promise<EventRecord[]>;
+  searchEvents(query: string, limit: number, filter?: CatalogueFilter): Promise<EventRecord[]>;
   /** Look up by id or slug. `today` (ISO date) anchors the 90-day sample count. */
   getEvent(idOrSlug: string, today: string): Promise<EventDetailRecord | null>;
   /** Resolve an id or slug to the event id, or null when it does not exist. */

@@ -6,8 +6,14 @@ import { notFound, parseInput } from '../http/errors';
 import { MaxTravel, OriginQuery } from '../http/schemas';
 import { nearest, withContext } from '../services/eventContext';
 import { buildEventHistory } from '../services/eventHistory';
+const CatalogueFilters = z.object({
+  countryCode: z.string().regex(/^[A-Z]{2}$/).optional(),
+  region: z.string().min(1).max(250).optional(),
+  sourceNamespace: z.string().regex(/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/).max(100).optional(),
+});
 
 const SearchQuery = z.object({
+  ...CatalogueFilters.shape,
   q: z.string().trim().min(1).max(100),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
@@ -26,14 +32,15 @@ const HistoryQuery = z.object({
 export async function eventRoutes(app: FastifyInstance, ctx: RequestContext) {
   app.get('/api/events', async (request): Promise<EventSummary[]> => {
     const origin = parseInput(OriginQuery, request.query);
+    const filter = parseInput(CatalogueFilters, request.query);
     const user = await currentUser(ctx);
-    return withContext(await ctx.store.listActiveEvents(), resolveOrigin(origin, user), user);
+    return withContext(await ctx.store.listActiveEvents(filter), resolveOrigin(origin, user), user);
   });
 
   app.get('/api/events/search', async (request): Promise<EventSummary[]> => {
-    const { q, limit } = parseInput(SearchQuery, request.query);
+    const { q, limit, ...filter } = parseInput(SearchQuery, request.query);
     const user = await currentUser(ctx);
-    return withContext(await ctx.store.searchEvents(q, limit), resolveOrigin({}, user), user);
+    return withContext(await ctx.store.searchEvents(q, limit, filter), resolveOrigin({}, user), user);
   });
 
   app.get('/api/events/nearby', async (request): Promise<EventSummary[]> => {

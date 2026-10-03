@@ -13,7 +13,7 @@ async function main() {
   const store: DataStore =
     config.DATA_SOURCE === 'demo'
       ? new MemoryDataStore(calendarDateIn(new Date(), config.APP_TIME_ZONE))
-      : new PrismaDataStore(db!, config.ACTIVE_SCORE_VERSION);
+      : new PrismaDataStore(db!, config.ACTIVE_SCORE_VERSION, config.APP_MODE);
 
   const app = await buildApp({ config, store, authRuntime: config.APP_MODE === 'beta' ? { db: db!, auth: createAuth(db!, config) } : undefined });
 
@@ -23,8 +23,10 @@ async function main() {
   }
   if (config.APP_MODE === 'beta') {
     try {
-      await Promise.all([db!.user.findFirst({ select: { email: true, performanceRevision: true } }), db!.session.findFirst({ select: { id: true } }), db!.verification.findFirst({ select: { id: true } }), db!.account.findFirst({ select: { id: true } }), db!.rateLimit.findFirst({ select: { id: true } }), db!.emailAuthBudget.findFirst({ select: { key: true } })]);
-    } catch { throw new Error('Beta requires the B1 database migration; run db:deploy before startup'); }
+      await Promise.all([db!.user.findFirst({ select: { email: true, performanceRevision: true } }), db!.session.findFirst({ select: { id: true } }), db!.verification.findFirst({ select: { id: true } }), db!.account.findFirst({ select: { id: true } }), db!.rateLimit.findFirst({ select: { id: true } }), db!.emailAuthBudget.findFirst({ select: { key: true } }),
+        db!.event.findFirst({ select: { sourceNamespace: true, externalId: true, countryCode: true, timezone: true, catalogueImportRunId: true } }),
+        db!.catalogueImportRun.findFirst({ select: { id: true } }), db!.runnerFormSnapshot.findFirst({ select: { evidenceScope: true } })]);
+    } catch { throw new Error('Beta requires the B1/B2A database migrations; run db:deploy before startup'); }
   }
   app.log.info({ dataSource: store.kind }, 'Starting RunSaturday API');
 

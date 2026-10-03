@@ -137,6 +137,23 @@ model Event {
   /// DEMO rows are fictional development data and must be labelled as such in the UI.
   source      DataSource @default(IMPORTED)
 
+  /// Single-source catalogue identity. Never derived from the mutable name/slug.
+  /// NULL on legacy rows: provenance is not fabricated by a migration.
+  sourceNamespace      String?
+  externalId           String?
+  sourceUrl            String?
+  sourceAttribution    String?
+  sourceLicence        String?
+  sourceUpdatedAt      DateTime?
+  importedAt           DateTime?
+  timezone             String?
+  /// ISO 3166-1 alpha-2; GB includes all four UK nations.
+  countryCode          String?
+  /// Optional ISO 3166-2, e.g. GB-ENG/GB-SCT/GB-WLS/GB-NIR.
+  subdivisionCode      String?
+  catalogueImportRunId String?
+  catalogueImportRun   CatalogueImportRun? @relation(fields: [catalogueImportRunId], references: [id], onDelete: Restrict)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -149,8 +166,32 @@ model Event {
   lifetimePbUsers  User[]                 @relation("LifetimePbEvent")
   recentPbUsers    User[]                 @relation("RecentPbEvent")
 
+  @@unique([sourceNamespace, externalId])
   @@index([region])
   @@index([active])
+  @@index([source, active, countryCode, region])
+}
+
+/// One validated local/provider import. Rejections contain paths/codes, never raw payloads.
+model CatalogueImportRun {
+  id                String     @id @default(cuid())
+  sourceNamespace   String
+  source            DataSource
+  sourceAttribution String
+  sourceUrl         String?
+  sourceLicence     String?
+  startedAt         DateTime   @default(now())
+  completedAt       DateTime?
+  received          Int
+  created           Int        @default(0)
+  updated           Int        @default(0)
+  unchanged         Int        @default(0)
+  deactivated       Int        @default(0)
+  rejected          Int        @default(0)
+  rejections        Json
+  events            Event[]
+
+  @@index([sourceNamespace, startedAt])
 }
 
 /// One staging of an event on a date.
@@ -256,6 +297,8 @@ model RunnerFormSnapshot {
   user                User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   distanceMeters      Int
   performanceRevision Int              @default(0)
+  /// Prevent legacy/demo-derived caches from being reused by the imported-only beta cohort.
+  evidenceScope       String?
   status              RunnerFormStatus
   /// Current Form on the 5K Compass course-reference scale (ESTIMATE only).
   formSeconds         Int?

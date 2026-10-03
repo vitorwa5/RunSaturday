@@ -73,6 +73,13 @@ export function mapEvent(event: Event, snapshots: EventSnapshots): EventRecord {
     elevationM: event.elevationM,
     averageParticipants: legacy?.averageParticipants != null ? Math.round(legacy.averageParticipants) : null,
     source: mapSource(event.source),
+    ...(event.sourceNamespace && event.externalId ? { catalogue: {
+      sourceNamespace: event.sourceNamespace, externalId: event.externalId, sourceUrl: event.sourceUrl,
+      attribution: event.sourceAttribution, licence: event.sourceLicence,
+      sourceUpdatedAt: event.sourceUpdatedAt?.toISOString() ?? null, importedAt: event.importedAt?.toISOString() ?? null,
+      importRunId: event.catalogueImportRunId, countryCode: event.countryCode,
+      subdivisionCode: event.subdivisionCode, timezone: event.timezone,
+    } } : {}),
     scores: assembleScores(
       legacySnapshot(legacy),
       breakdownOf<PbBreakdown>(snapshots.pb),

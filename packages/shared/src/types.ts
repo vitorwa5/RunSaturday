@@ -72,6 +72,13 @@ export interface EventSummary {
   averageParticipants: number | null;
   scores: EventScores | null;
   source: DataSource;
+  /** Present only for records with supplied, validated catalogue provenance. */
+  catalogue?: {
+    sourceNamespace: string; externalId: string; sourceUrl: string | null;
+    attribution: string | null; licence: string | null; sourceUpdatedAt: string | null;
+    importedAt: string | null; importRunId: string | null;
+    countryCode: string | null; subdivisionCode: string | null; timezone: string | null;
+  };
   /** Present when the request supplied an origin. */
   travel?: TravelEstimate;
   /**

@@ -22,7 +22,7 @@ const FIVE_K_PARKRUN = { externalEventName: null, performanceType: 'parkrun' as 
 describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
   const today = calendarDateIn(new Date(), 'Europe/London');
   const db = url ? createPrismaClient(url) : null;
-  const store = db ? new PrismaDataStore(db, 'demo_v0') : null;
+  const store = db ? new PrismaDataStore(db, 'demo_v0', 'demo') : null;
   const memory = new MemoryDataStore(today);
   afterAll(async () => db?.$disconnect());
 
@@ -81,9 +81,9 @@ describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
       await db!.eventScore.count({ where: { calculationVersion: { in: ['competition_v1', 'difficulty_v1', 'pb_v1'] }, asOfDate } }),
       await db!.courseFactorSnapshot.count({ where: { asOfDate } }),
     ];
-    await recalculateAnalytics(db!, today);
+    await recalculateAnalytics(db!, today, 'demo');
     const first = await count();
-    await recalculateAnalytics(db!, today);
+    await recalculateAnalytics(db!, today, 'demo');
     expect(await count()).toEqual(first);
     expect(first[1]).toBe(10);
     for (const id of ['demo-riverside-5k', 'demo-heath-common-5k', 'demo-dockside-promenade-5k']) {
@@ -177,7 +177,7 @@ describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
     });
 
     it('serves the latest legacy snapshot in the default 90-day window (PB Score comes from pb_v1 only)', async () => {
-      const versioned = new PrismaDataStore(db!, version);
+      const versioned = new PrismaDataStore(db!, version, 'demo');
       const event = (await versioned.listActiveEvents()).find((e) => e.id === eventId);
       expect(event?.scores).toMatchObject({ windowDays: 90, gemBaseScore: 92, calculationVersion: 'pb_v1' });
       expect(event?.scores?.pbScore).not.toBe(92);
@@ -232,14 +232,14 @@ describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
 
   it('canonical refresh rewrites Current Form from the factors it has just recalculated (no stale form)', { timeout: 60_000 }, async () => {
     const asOfDate = new Date(`${today}T00:00:00Z`);
-    await refreshAllAnalytics(db!, today);
+    await refreshAllAnalytics(db!, today, 'demo');
     // Simulate stale state: a factor changed and the stored form still reflects something else.
     await db!.courseFactorSnapshot.updateMany({ where: { eventId: 'demo-riverside-5k', asOfDate }, data: { factor: 2 } });
     await db!.runnerFormSnapshot.updateMany({ where: { userId: 'demo-user', asOfDate }, data: { formSeconds: 1 } });
     const stale = await db!.runnerFormSnapshot.findFirstOrThrow({ where: { userId: 'demo-user', asOfDate } });
     expect(stale.formSeconds).toBe(1);
 
-    const { runnerForms } = await refreshAllAnalytics(db!, today);
+    const { runnerForms } = await refreshAllAnalytics(db!, today, 'demo');
     expect(runnerForms.users).toBeGreaterThanOrEqual(1);
     const factor = (await db!.courseFactorSnapshot.findFirstOrThrow({ where: { eventId: 'demo-riverside-5k', asOfDate } })).factor;
     expect(factor).not.toBe(2); // factors recalculated first…

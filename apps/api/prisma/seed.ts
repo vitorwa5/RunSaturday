@@ -113,7 +113,7 @@ async function main() {
 
     // Derived analytics (Course Speed V1, Difficulty V1, Competition V1, PB Score V1) so a fresh database is complete.
     // Canonical refresh: event analytics, then every user's Current Form from the new factors.
-    const { events: analytics, runnerForms } = await refreshAllAnalytics(db, today);
+    const { events: analytics, runnerForms } = await refreshAllAnalytics(db, today, 'demo');
     console.log(
       `Calculated analytics as of ${analytics.asOfDate}: ${analytics.courseFactorSnapshots} course factors (${analytics.fittedFactors} fitted), ` +
         `${analytics.competitionSnapshots + analytics.difficultySnapshots + analytics.pbSnapshots} score snapshots.`,

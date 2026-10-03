@@ -25,7 +25,8 @@
     "build": "npm run build --workspaces --if-present",
     "test:e2e": "playwright test && playwright test --config playwright.auth.config.ts",
     "test:e2e:auth": "playwright test --config playwright.auth.config.ts",
-    "check": "npm run typecheck && npm run test && npm run build"
+    "check": "npm run typecheck && npm run test && npm run build",
+    "catalogue:import": "npm run catalogue:import -w @runsaturday/api --"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",
