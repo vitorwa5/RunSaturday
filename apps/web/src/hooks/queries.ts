@@ -1,5 +1,6 @@
 /** TanStack Query hooks: the only way pages obtain server data. */
 import { useAuth } from '../auth/AuthProvider';
+import type { AuthTicket } from '../auth/epoch';
 import { personalKey } from '../auth/cache';
 import type { PerformanceInput, HiddenGemModeId, HistoryWindowId, PbFinderSortId, PlacementTargetId, PlannerFilters } from '@runsaturday/shared';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -110,9 +111,19 @@ export const usePerformanceSummary = () => useQuery({ queryKey: personalKey(useA
  * A performance change can move PBs, recent best, visits and every tool that uses them, so all
  * cached server data is invalidated afterwards.
  */
-function usePerformanceMutation<V>(fn: (variables: V) => Promise<unknown>) {
+function usePerformanceMutation<V>(fn: (variables: V, signal: AbortSignal) => Promise<unknown>) {
   const client = useQueryClient();
-  return useMutation({ mutationFn: fn, onSuccess: () => client.invalidateQueries() });
+  const auth = useAuth();
+  const mutation = useMutation({
+    mutationFn: async ({ variables, ticket }: { variables: V; ticket: AuthTicket }) => {
+      ticket.signal.throwIfAborted();
+      const result = await fn(variables, ticket.signal);
+      ticket.signal.throwIfAborted();
+      return result;
+    },
+    onSuccess: (_, { ticket }) => { if (ticket.isCurrent()) return client.invalidateQueries(); },
+  });
+  return { ...mutation, mutateAsync: (variables: V) => mutation.mutateAsync({ variables, ticket: auth.captureOperation() }) };
 }
 
 /** Explore & Challenges (Phase 5A): all derived on the server from performances. */
@@ -129,6 +140,6 @@ export const useChallengeOpportunities = (filter: { challenge: string; item: str
 export const useEventVisits = (id: string) => useQuery({ queryKey: personalKey(useAuth().user!.id, ['event', id, 'visits']), queryFn: ({ signal }) => api.eventVisits(id, signal) });
 
 export const useSavePerformance = (id?: string) =>
-  usePerformanceMutation((input: PerformanceInput) => (id ? api.updatePerformance(id, input) : api.createPerformance(input)));
+  usePerformanceMutation((input: PerformanceInput, signal) => (id ? api.updatePerformance(id, input, signal) : api.createPerformance(input, signal)));
 
-export const useDeletePerformance = () => usePerformanceMutation((id: string) => api.deletePerformance(id));
+export const useDeletePerformance = () => usePerformanceMutation((id: string, signal) => api.deletePerformance(id, signal));

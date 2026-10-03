@@ -2,9 +2,15 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiSend } from '../api/client';
 import { clearPersonalData } from './cache';
+import { AuthEpoch, withAuthLock, type AuthTicket } from './epoch';
 
 interface SessionState { mode: 'demo' | 'beta'; user: { id: string; email: string | null } | null; expiresAt?: string }
-interface AuthState extends SessionState { ready: boolean; error: string | null; refresh(notify?: boolean): Promise<void>; logout(): Promise<void>; deleteAccount(): Promise<void> }
+interface AuthState extends SessionState {
+  ready: boolean; error: string | null;
+  refresh(): Promise<void>; logout(): Promise<void>; deleteAccount(): Promise<void>;
+  sendCode(email: string): Promise<boolean>; signIn(email: string, otp: string): Promise<void>;
+  captureOperation(): AuthTicket;
+}
 const AuthContext = createContext<AuthState | null>(null);
 export function useAuth() {
   const auth = useContext(AuthContext);
@@ -14,60 +20,115 @@ export function useAuth() {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const client = useQueryClient();
   const [state, setState] = useState<SessionState & { ready: boolean; error: string | null }>({ mode: 'beta', user: null, ready: false, error: null });
-  const generation = useRef(0);
+  const epoch = useRef(new AuthEpoch()).current;
   const channel = useRef<BroadcastChannel | null>(null);
-  const hide = useCallback(() => {
-    generation.current++;
+  const remoteTransitions = useRef(new Set<string>());
+  const broadcast = useCallback((message: object) => {
+    if (channel.current) channel.current.postMessage(message);
+    else {
+      // A cookie-changing request may finish after unmount; still release other tabs' barrier.
+      const temporary = new BroadcastChannel('5k-compass-session');
+      temporary.postMessage(message); temporary.close();
+    }
+  }, []);
+  const reset = useCallback(() => {
     setState((s) => ({ ...s, ready: false, user: null, error: null }));
     void clearPersonalData(client);
   }, [client]);
-  const refresh = useCallback(async (notify = false) => {
-    hide();
-    const current = generation.current;
+  const applySession = (session: SessionState) => {
+    if (session.user && session.expiresAt && Date.parse(session.expiresAt) <= Date.now()) {
+      setState({ mode: session.mode, user: null, ready: true, error: null });
+    } else setState({ ...session, ready: true, error: null });
+  };
+  const refresh = useCallback(async () => {
+    if (!epoch.mounted || epoch.busy || remoteTransitions.current.size) return;
+    const ticket = epoch.advance(); reset();
     try {
-      const session = await apiGet<SessionState>('/account/session');
-      if (current === generation.current) {
-        setState({ ...session, ready: true, error: null });
-        if (notify) channel.current?.postMessage('session-changed');
-      }
-    } catch {
-      if (current === generation.current) setState((s) => ({ ...s, ready: true, user: null, error: 'We could not check your session. Please try again.' }));
-    }
-  }, [hide]);
-  const endSession = useCallback(async (deleting: boolean) => {
-    hide();
-    try {
-      if (deleting) await apiSend('DELETE', '/account', { confirmation: 'DELETE MY ACCOUNT' });
-      else await apiSend('POST', '/auth/sign-out', {});
-      setState({ mode: 'beta', user: null, ready: true, error: null });
-      channel.current?.postMessage('session-changed');
+      const session = await withAuthLock(() => apiGet<SessionState>('/account/session', {}, ticket.signal), ticket.signal);
+      if (ticket.isCurrent()) applySession(session);
     } catch (error) {
-      setState({ mode: 'beta', user: null, ready: true, error: error instanceof Error ? error.message : 'Please try again.' });
-      throw error;
+      if (ticket.isCurrent() && (error as Error).name !== 'AbortError') {
+        setState({ mode: 'beta', user: null, ready: true, error: 'We could not check your session. Please try again.' });
+      }
     }
-  }, [hide]);
+  }, [epoch, reset]);
+  const transition = useCallback((operation: 'logout' | 'delete' | 'login', input?: { email: string; otp: string }) => {
+    let stale = false;
+    const id = crypto.randomUUID();
+    const result = epoch.transition(async (ticket) => {
+      try {
+        await withAuthLock(async () => {
+          if (operation === 'login') {
+            await apiSend('POST', '/auth/sign-in/email-otp', input);
+            const session = await apiGet<SessionState>('/account/session');
+            if (ticket.isCurrent()) applySession(session);
+          } else {
+            await apiSend(operation === 'delete' ? 'DELETE' : 'POST', operation === 'delete' ? '/account' : '/auth/sign-out', operation === 'delete' ? { confirmation: 'DELETE MY ACCOUNT' } : {});
+            if (ticket.isCurrent()) setState({ mode: 'beta', user: null, ready: true, error: null });
+          }
+        }, undefined, true);
+      } catch (error) {
+        if (ticket.isCurrent()) setState({ mode: 'beta', user: null, ready: true, error: error instanceof Error ? error.message : 'Please try again.' });
+        throw error;
+      } finally {
+        stale = !ticket.isCurrent();
+      }
+    }).finally(() => {
+      broadcast({ type: 'session-changed', id });
+      if (stale && !epoch.busy && epoch.mounted) void refresh();
+    });
+    reset();
+    broadcast({ type: 'transition-start', id });
+    return result;
+  }, [epoch, reset, refresh, broadcast]);
+  const sendCode = useCallback(async (email: string) => {
+    const ticket = epoch.ticket();
+    await apiSend('POST', '/auth/email-otp/send-verification-otp', { email }, ticket.signal);
+    return ticket.isCurrent();
+  }, [epoch]);
   useEffect(() => {
-    void refresh();
+    epoch.mount(); void refresh();
     const onExpiry = () => {
-      hide();
+      epoch.advance(); reset();
       setState({ mode: 'beta', user: null, ready: true, error: null });
-      channel.current?.postMessage('session-changed');
+      channel.current?.postMessage({ type: 'session-changed' });
     };
-    const onFocus = () => { void refresh(); };
+    const onFocus = () => {
+      if (remoteTransitions.current.size && navigator.locks) {
+        // Recover a barrier left by a closed/crashed tab only after its cookie-write lock
+        // has been released. A new transition invalidates this recovery ticket.
+        const ticket = epoch.ticket();
+        void withAuthLock(async () => {
+          if (ticket.isCurrent()) remoteTransitions.current.clear();
+        }, ticket.signal).then(() => { if (ticket.isCurrent()) void refresh(); }).catch(() => undefined);
+      } else void refresh();
+    };
     channel.current = new BroadcastChannel('5k-compass-session');
-    channel.current.onmessage = onFocus;
+    channel.current.onmessage = ({ data }) => {
+      if (data?.type === 'transition-start' && typeof data.id === 'string') {
+        remoteTransitions.current.add(data.id); epoch.advance(); reset();
+      } else if (data === 'session-changed' || data?.type === 'session-changed') {
+        if (typeof data?.id === 'string') remoteTransitions.current.delete(data.id);
+        epoch.advance(); reset(); void refresh();
+      }
+    };
     window.addEventListener('compass-session-expired', onExpiry);
     window.addEventListener('focus', onFocus);
     return () => {
-      channel.current?.close();
+      epoch.dispose(); remoteTransitions.current.clear();
+      channel.current?.close(); channel.current = null;
       window.removeEventListener('compass-session-expired', onExpiry);
       window.removeEventListener('focus', onFocus);
     };
-  }, [refresh, hide]);
+  }, [epoch, refresh, reset]);
   useEffect(() => {
     if (!state.expiresAt || !state.user) return;
-    const timer = window.setTimeout(() => window.dispatchEvent(new Event('compass-session-expired')), Math.max(0, Date.parse(state.expiresAt) - Date.now()));
+    const ticket = epoch.ticket();
+    const timer = window.setTimeout(() => {
+      if (ticket.isCurrent()) window.dispatchEvent(new Event('compass-session-expired'));
+    }, Math.max(0, Date.parse(state.expiresAt) - Date.now()));
     return () => window.clearTimeout(timer);
-  }, [state.expiresAt, state.user]);
-  return <AuthContext value={{ ...state, refresh, logout: () => endSession(false), deleteAccount: () => endSession(true) }}>{children}</AuthContext>;
+  }, [epoch, state.expiresAt, state.user]);
+  return <AuthContext value={{ ...state, refresh, logout: () => transition('logout'), deleteAccount: () => transition('delete'),
+    sendCode, signIn: (email, otp) => transition('login', { email, otp }), captureOperation: () => epoch.ticket() }}>{children}</AuthContext>;
 }

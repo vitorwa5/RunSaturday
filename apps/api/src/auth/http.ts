@@ -3,10 +3,12 @@ import { z } from 'zod';
 import { deliveryStatus, type Auth } from './auth';
 import type { Db } from '../db/prisma';
 import type { RequestContext } from '../http/context';
-import { currentUserId, currentUser, identities } from '../http/context';
+import { currentUserId, identities } from '../http/context';
 import { AppError, parseInput } from '../http/errors';
 import { usesSecureAuthCookies } from '../config/env';
 import { consumeEmailBudget } from './emailBudget';
+import { summarizePerformances } from '../services/userPerformance';
+import { currentRunnerForm } from '../services/runnerForm';
 
 export interface AuthRuntime { auth: Auth; db: Db; emailBudgetNow?: () => Date }
 const Email = z.string().trim().toLowerCase().pipe(z.email().max(254));
@@ -109,13 +111,23 @@ export async function accountRoutes(app: FastifyInstance, ctx: RequestContext, r
   app.get('/api/account/export', async () => {
     const id = currentUserId(ctx);
     const user = await runtime.db.user.findUniqueOrThrow({ where: { id }, select: { id: true, email: true, emailVerified: true, displayName: true, homeLat: true, homeLon: true, homeLabel: true, defaultTravelMinutes: true, preferredGoal: true, createdAt: true } });
-    const derived = await currentUser(ctx);
     const [performances, favourites, snapshots] = await Promise.all([
       ctx.store.listUserPerformances(id),
       runtime.db.userEvent.findMany({ where: { userId: id, favourite: true }, select: { eventId: true } }),
       runtime.db.runnerFormSnapshot.findMany({ where: { userId: id }, select: { asOfDate: true, calculationVersion: true, performanceRevision: true, components: true } }),
     ]);
-    return { format: '5k-compass-account-v1', exportedAt: new Date().toISOString(), profile: user, performances, favourites, summaries: { performance: derived?.performance, currentForm: derived?.currentForm }, derivedSnapshots: snapshots };
+    // Recorded facts do not depend on successful recalculation of modelled Current Form.
+    let currentForm: Awaited<ReturnType<typeof currentRunnerForm>> | null = null;
+    let derivedStatus: { status: string; asOfDate: string; code?: string };
+    try {
+      currentForm = await currentRunnerForm(ctx.store, id, ctx.today());
+      derivedStatus = { status: currentForm.status, asOfDate: ctx.today() };
+    } catch {
+      derivedStatus = { status: 'error', asOfDate: ctx.today(), code: 'calculation_unavailable' };
+    }
+    return { format: '5k-compass-account-v1', exportedAt: new Date().toISOString(), profile: user, performances, favourites,
+      summaries: { performance: summarizePerformances(performances, ctx.today()), currentForm },
+      derivedStatus: { currentForm: derivedStatus }, derivedSnapshots: snapshots };
   });
   app.delete('/api/account', async (request, reply) => {
     parseInput(z.object({ confirmation: z.literal('DELETE MY ACCOUNT') }).strict(), request.body);

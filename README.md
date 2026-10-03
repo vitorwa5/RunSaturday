@@ -73,7 +73,7 @@ cp apps/api/.env.example apps/api/.env   # local config (git-ignored)
 
 npm run db:up        # start PostgreSQL in Docker
 npm run db:migrate   # apply migrations
-APP_MODE=demo npm run db:seed # development-only fictional DEMO dataset
+APP_MODE=demo ALLOW_DESTRUCTIVE_DEMO_SEED=true npm run db:seed # development-only fictional DEMO dataset
 
 npm run dev          # API on :3001, web on http://localhost:5173
 ```

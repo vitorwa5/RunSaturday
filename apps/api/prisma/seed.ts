@@ -13,14 +13,13 @@ import { summarizeResults } from '../src/domain/occurrenceSummary';
 import { buildDemoDataset, DEMO_WINDOW_DAYS } from '../src/demo/buildDemoDataset';
 import { demoUserPerformances } from '../src/demo/demoUserPerformances';
 import { performanceDuplicateKey } from '../src/domain/performanceKey';
+import { assertDemoSeedDatabase, requireDemoSeedOptIn } from '../src/demo/seedGuard';
 
 const RESULT_BATCH_SIZE = 5000;
 const toDate = (iso: string) => new Date(`${iso}T00:00:00Z`);
 
 async function main() {
-  if (process.env.APP_MODE !== 'demo' || process.env.NODE_ENV === 'production') {
-    throw new Error('Demo seed requires explicit APP_MODE=demo and is forbidden in production. Beta uses migrations only.');
-  }
+  requireDemoSeedOptIn(process.env);
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL is not set. Copy apps/api/.env.example to apps/api/.env.');
 
@@ -29,6 +28,7 @@ async function main() {
   const dataset = buildDemoDataset(today);
 
   try {
+    await assertDemoSeedDatabase(db);
     // The demo user first: its performances reference demo events (events are delete-restricted
     // so that removing an event can never silently delete someone's history).
     await db.user.deleteMany({ where: { isDemo: true } });

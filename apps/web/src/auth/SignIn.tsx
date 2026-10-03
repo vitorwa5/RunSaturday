@@ -1,5 +1,4 @@
 import { useState, type FormEvent } from 'react';
-import { apiSend } from '../api/client';
 import { useAuth } from './AuthProvider';
 export function SignIn() {
   const auth = useAuth();
@@ -10,16 +9,15 @@ export function SignIn() {
   const [error, setError] = useState<string | null>(null);
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError(null);
+    const ticket = auth.captureOperation();
     try {
       if (sent) {
-        await apiSend('POST', '/auth/sign-in/email-otp', { email, otp: code });
-        await auth.refresh(true);
+        await auth.signIn(email, code);
       } else {
-        await apiSend('POST', '/auth/email-otp/send-verification-otp', { email });
-        setSent(true);
+        if (await auth.sendCode(email)) setSent(true);
       }
-    } catch (err) { setError(err instanceof Error ? err.message : 'Please try again.'); }
-    finally { setBusy(false); }
+    } catch (err) { if (ticket.isCurrent()) setError(err instanceof Error ? err.message : 'Please try again.'); }
+    finally { if (ticket.isCurrent()) setBusy(false); }
   }
   return <main className="mx-auto max-w-md space-y-6 px-4 py-10">
     <div><p className="font-semibold text-brand-700">5K Compass</p><h1 className="mt-3 text-2xl font-bold">Sign in</h1><p className="mt-2 text-sm text-muted">Use your email to create or access your account. No password needed.</p></div>

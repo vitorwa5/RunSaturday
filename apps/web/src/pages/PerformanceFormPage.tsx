@@ -9,6 +9,7 @@ import { SearchX, Trash2 } from "lucide-react";
 import { useId, useState, type FormEvent, type ReactNode } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError } from "../api/client";
+import { useAuth } from "../auth/AuthProvider";
 import { AlertBanner } from "../components/ui/AlertBanner";
 import { Button } from "../components/ui/Button";
 import { ChoiceChips } from "../components/ui/ChoiceChips";
@@ -89,6 +90,7 @@ function PerformanceForm({
   const navigate = useNavigate();
   const { data: events } = useEvents();
   const save = useSavePerformance(existing?.id);
+  const auth = useAuth();
   const remove = useDeletePerformance();
   const [kind, setKind] = useState<Kind>(
     existing && existing.eventId == null ? "other" : "parkrun",
@@ -128,6 +130,7 @@ function PerformanceForm({
     setErrors(next);
     setFormError(null);
     if (Object.keys(next).length > 0) return;
+    const ticket = auth.captureOperation();
     try {
       await save.mutateAsync(
         kind === "parkrun"
@@ -143,8 +146,9 @@ function PerformanceForm({
               time: time.trim(),
             },
       );
-      navigate("/profile", { replace: true });
+      if (ticket.isCurrent()) navigate("/profile", { replace: true });
     } catch (error) {
+      if (!ticket.isCurrent()) return;
       const field =
         error instanceof ApiError
           ? error.code === "invalid_location"
@@ -164,10 +168,12 @@ function PerformanceForm({
 
   const doDelete = async () => {
     if (!existing) return;
+    const ticket = auth.captureOperation();
     try {
       await remove.mutateAsync(existing.id);
-      navigate("/profile", { replace: true });
+      if (ticket.isCurrent()) navigate("/profile", { replace: true });
     } catch (error) {
+      if (!ticket.isCurrent()) return;
       setConfirmDelete(false);
       setFormError(
         error instanceof Error
