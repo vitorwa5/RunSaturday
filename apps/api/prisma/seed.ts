@@ -97,6 +97,7 @@ async function main() {
       data: {
         ...user,
         isDemo: true,
+        onboardingCompletedAt: new Date('2026-10-01T00:00:00.000Z'),
         events: { create: favouriteEventIds.map((eventId) => ({ eventId, favourite: true })) },
       },
     });

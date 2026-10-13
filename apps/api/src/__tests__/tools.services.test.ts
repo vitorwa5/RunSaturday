@@ -25,6 +25,13 @@ describe('pbFinder', () => {
     expect(counts).toEqual({ total: 4, withinTravel: 3, matching: 3 });
     expect(results[0]!.rankedBy).toMatchObject({ key: 'pb_score', value: 92 });
   });
+  it('B3 never assigns a PB rank to catalogue-only events, but can sort their factual travel', () => {
+    const catalogue = [makeEvent({ id: 'catalogue-only', scores: null, travel: travel(10) })];
+    expect(pbFinder(catalogue, { maxTravelMinutes: 30, filters: noFilters, sort: 'pb' }).results).toEqual([]);
+    expect(pbFinder(catalogue, { maxTravelMinutes: 30, filters: noFilters, sort: 'travel' }).results.map((r) => r.event.id)).toEqual(['catalogue-only']);
+    const mixed = pbFinder([...catalogue, events[0]!], { maxTravelMinutes: 45, filters: noFilters, sort: 'pb' });
+    expect(mixed.results.map((r) => [r.event.id, r.rank, r.rankedBy.value])).toEqual([['fast', 1, 92]]);
+  });
 
   it.each([
     ['travel', ['near', 'new', 'fast']],

@@ -9,7 +9,7 @@ export function TravelBadge({ travel }: { travel: TravelEstimate | undefined }) 
   return (
     <span
       className="inline-flex items-center gap-1 text-xs font-medium text-muted whitespace-nowrap"
-      title={`Estimated from straight-line distance (${travel.distanceKm} km)`}
+      title={`Estimated from straight-line distance (${travel.distanceKm} km), not live traffic or routing`}
     >
       <Car className="size-3.5" aria-hidden />
       <span className="tabular-nums">~{travel.minutes} min</span>

@@ -1,4 +1,5 @@
 import { AccountControls } from '../auth/AccountControls';
+import { StartingAreaSettings } from '../components/profile/StartingArea';
 import { formatDateWithYear, formatFinishTime, GOALS, type UserPerformance, type UserProfile } from '@runsaturday/shared';
 import { ChevronRight, Heart, Link2, MapPin, Plus, ShieldCheck, Timer } from 'lucide-react';
 import { useId } from 'react';
@@ -192,6 +193,7 @@ export function ProfilePage() {
       <PageHeader title="Profile" subtitle={profile ? profile.displayName : undefined} actions={profile?.isDemo ? <DemoBadge /> : null} />
 
       <AccountControls />
+      <StartingAreaSettings />
       {isPending ? (
         <LoadingState variant="card" label="Loading profile" />
       ) : isError ? (
@@ -270,7 +272,7 @@ export function ProfilePage() {
             <DefinitionList
               items={[
                 {
-                  label: 'Home location',
+                  label: 'Approximate starting area',
                   value: profile.home ? (
                     <span className="inline-flex items-center gap-1">
                       <MapPin className="size-3.5" aria-hidden />
@@ -280,7 +282,7 @@ export function ProfilePage() {
                     'Not set'
                   ),
                 },
-                { label: 'Travel limit', value: `${profile.defaultTravelMinutes} min` },
+                { label: 'Approx. travel budget', value: profile.home ? `${profile.defaultTravelMinutes} min` : 'Unavailable until starting point is set' },
                 { label: 'Preferred goal', value: GOALS.find((g) => g.id === profile.preferredGoal)?.label ?? '—' },
                 {
                   label: 'Saved events',
@@ -293,7 +295,7 @@ export function ProfilePage() {
                 },
               ]}
             />
-            <p className="mt-2 text-xs text-muted">Editing preferences, challenges and tourism stats arrive with accounts.</p>
+            <p className="mt-2 text-xs text-muted">Edit your approximate starting area above. Travel is estimated from distance, not live traffic.</p>
           </section>
 
           <ConnectParkrun />

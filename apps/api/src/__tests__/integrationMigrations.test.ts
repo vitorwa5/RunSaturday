@@ -108,6 +108,9 @@ describe.skipIf(!url)('B1.1 + B2A clean and realistic upgrade migrations', () =>
     const before = new Map<string, Record<string, unknown>[]>();
     for (const table of tables) before.set(table, (await upgrade.db.$queryRawUnsafe<{ row: Record<string, unknown> }[]>(`SELECT row_to_json(t) AS row FROM "${table}" t`)).map(item => item.row));
     await cp(resolve('prisma/migrations', catalogue), join(upgrade.folder, 'migrations', catalogue), { recursive: true });
+    // Preserve the B1 upgrade regression while bringing both paths to the current B3 schema.
+    const onboarding = '20261013120000_onboarding_completion';
+    await cp(resolve('prisma/migrations', onboarding), join(upgrade.folder, 'migrations', onboarding), { recursive: true });
     await upgrade.migrate('deploy');
     expect((await upgrade.migrate('status')).stdout).toContain('Database schema is up to date');
     for (const table of tables) {

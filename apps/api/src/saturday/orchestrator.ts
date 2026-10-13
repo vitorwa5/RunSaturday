@@ -331,12 +331,16 @@ export async function orchestrateSaturday(store: DataStore, user: UserRecord | n
   }
 
   const n = req.alternatives ?? SATURDAY_V1.ALTERNATIVES;
+  // Catalogue absence takes priority over an intent-specific missing-item explanation.
+  if (events.length === 0) message = 'No events available yet.';
   if (!message) {
-    if (!req.origin) message = 'Choose a starting point to see events near you.';
+    if (!req.origin) message = 'Set your starting area to see nearby options. You can still browse Explore and Challenges.';
     else if (conflict) message = conflict;
     else if (withinTravel.length === 0) message = `No events within ${maxTravel} minutes. Try a longer travel limit.`;
     else if (matching.length === 0) message = 'No events match these filters.';
-    else if (ranked.length === 0) message = 'No events suit this goal with the current settings.';
+    else if (ranked.length === 0) message = intent === 'pb' || intent === 'place' || intent === 'quiet' || intent === 'hidden_gem'
+      ? 'Historical event data is not available for this goal yet. Adding a recent 5K can help personalise supported tools, but cannot replace public event evidence.'
+      : 'No events suit this goal with the current settings.';
   }
   const shown = req.origin && !conflict ? ranked : [];
   return {

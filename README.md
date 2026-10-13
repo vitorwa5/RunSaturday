@@ -6,7 +6,7 @@
 
 5K Compass is a mobile-first decision-support app for runners choosing *where* to run on Saturday. It turns event data into explained, goal-specific recommendations (PB, placing, hidden gems, new events, quiet events, challenges). It is an independent project and is **not affiliated with or endorsed by parkrun** or any event organiser.
 
-> **Status: Phase 3A (core analytics: Competition V1, Course Difficulty V1, Confidence V2). PB Score is still a demo value until Phase 3B.** All event data is **fictional DEMO data**. No real event statistics are included, and no data is collected from external sites.
+> **Status: B3 first-use flow on the approved B1/B1.1/B2A foundation.** Authenticated accounts can complete onboarding with no location or run history, and optionally save an approximate starting area. Beta uses trusted imported catalogue only; no real dataset or geocoder is bundled. Development DEMO data remains fictional. See [B3 onboarding and privacy](docs/B3-onboarding.md).
 
 ---
 

@@ -96,6 +96,8 @@ export const useCompare = (q: { ids: string[]; timeSeconds?: number; source?: st
   });
 
 export const useProfile = () => useQuery({ queryKey: personalKey(useAuth().user!.id, queryKeys.profile), queryFn: ({ signal }) => api.profile(signal) });
+export const useSettings = () => useQuery({ queryKey: personalKey(useAuth().user!.id, ['settings']), queryFn: ({ signal }) => api.settings(signal) });
+export const useSaveSettings = () => usePerformanceMutation((input: import('@runsaturday/shared').SettingsInput, signal) => api.saveSettings(input, signal));
 
 // Personal performances (Phase 4A). Derived values (PBs, visits, presets) come from the server.
 

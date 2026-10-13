@@ -16,11 +16,13 @@ import { ProfilePage } from '../pages/ProfilePage';
 import { SaturdayPage } from '../pages/SaturdayPage';
 import { WhereCouldIPlacePage } from '../pages/WhereCouldIPlacePage';
 import { AppLayout } from './AppLayout';
+import { OnboardingPage } from '../pages/OnboardingPage';
 
 export const router = createBrowserRouter([
   {
     element: <AppLayout />,
     children: [
+      { path: '/onboarding', element: <OnboardingPage /> },
       { path: '/', element: <HomePage /> },
       { path: '/explore', element: <ExplorePage /> },
       { path: '/saturday', element: <SaturdayPage /> },

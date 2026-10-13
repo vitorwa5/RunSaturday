@@ -16,6 +16,7 @@ import type {
   PerformanceSummary,
   PerformanceType,
   RunnerForm,
+  AccountSettings,
 } from '@runsaturday/shared';
 import type { CourseFactorResult, PerformanceInput } from '../analytics/courseSpeed';
 import type { CompetitionOccurrenceInput } from '../analytics/competition';
@@ -46,6 +47,7 @@ export interface StoredUser {
   preferredGoal: Goal;
   isDemo: boolean;
   favouriteEventIds: string[];
+  onboardingCompletedAt: string | null;
 }
 
 /**
@@ -131,6 +133,7 @@ export interface DataStore {
   listPlacementInputs(timeSeconds: number, eventIds: string[] | null, from: string | null, to: string): Promise<PlacementOccurrenceInput[]>;
   /** Stored settings only; use services/userPerformance.loadUser for derived values. */
   getUser(userId: string): Promise<StoredUser | null>;
+  updateUserSettings(userId: string, settings: Partial<AccountSettings>): Promise<void>;
   /**
    * PERSONAL DATA. Every performance method takes the owning userId and only ever reads or
    * changes that user's rows, so one user can never reach another's performances.

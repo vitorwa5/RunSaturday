@@ -163,8 +163,9 @@ export function SaturdayPage() {
           <p className="mb-2.5 flex items-center gap-1.5 text-sm">
             <Home className="size-4 text-subtle" aria-hidden />
             <span className="text-muted">Starting from</span>
-            <strong className="font-semibold">{data?.origin?.label ?? 'Home'}</strong>
+            <strong className="font-semibold">{data?.origin?.label ?? 'Not set'}</strong>
           </p>
+          {!data?.origin && <p className="mb-3 text-sm text-muted">Set your starting area in <Link className="font-semibold text-brand-700" to="/profile">Profile</Link> to see nearby options. You can still browse Explore and Challenges.</p>}
           <ChoiceChips
             label="Starting point"
             scroll

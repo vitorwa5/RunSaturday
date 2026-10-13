@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { coarseCoordinate, TRAVEL_BUDGETS, type AccountSettings } from '@runsaturday/shared';
 import { FIVE_K_METERS, formatShortDate, parsePerformanceTime, type PerformanceSummary, type RunnerForm, type UserPerformance, type UserPerformancesResponse, type UserProfile } from '@runsaturday/shared';
 import { z } from 'zod';
 import { currentUserId, currentUser, type RequestContext } from '../http/context';
@@ -32,6 +33,35 @@ const ListQuery = z.object({
 const isCalendarDate = (iso: string) => /^\d{4}-\d{2}-\d{2}$/.test(iso) && new Date(`${iso}T00:00:00Z`).toISOString().slice(0, 10) === iso;
 
 export async function profileRoutes(app: FastifyInstance, ctx: RequestContext) {
+  const SettingsBody = z.object({
+    homeLabel: z.string().trim().max(100).nullable().optional(),
+    homeLat: z.number().min(-90).max(90).nullable().optional(),
+    homeLon: z.number().min(-180).max(180).nullable().optional(),
+    defaultTravelMinutes: z.union(TRAVEL_BUDGETS.map((n) => z.literal(n))).optional(),
+    completeOnboarding: z.literal(true).optional(),
+  }).strict().refine((v) => (v.homeLat === undefined && v.homeLon === undefined) ||
+    (v.homeLat !== undefined && v.homeLon !== undefined && (v.homeLat === null) === (v.homeLon === null)),
+    'Supply both coordinates, or clear both.');
+  async function settings(): Promise<AccountSettings> {
+    const user = await ctx.store.getUser(currentUserId(ctx));
+    if (!user) throw notFound('Your profile');
+    return { homeLat: user.homeLat, homeLon: user.homeLon, homeLabel: user.homeLabel,
+      defaultTravelMinutes: user.defaultTravelMinutes, onboardingCompletedAt: user.onboardingCompletedAt };
+  }
+  app.get('/api/profile/settings', async (request) => { parseInput(z.object({}).strict(), request.query); return settings(); });
+  app.patch('/api/profile/settings', async (request) => {
+    const input = parseInput(SettingsBody, request.body);
+    const existing = await settings();
+    const { completeOnboarding, ...values } = input;
+    await ctx.store.updateUserSettings(currentUserId(ctx), {
+      ...values,
+      ...(input.homeLabel !== undefined ? { homeLabel: input.homeLabel || null } : {}),
+      ...(input.homeLat !== undefined ? { homeLat: input.homeLat === null ? null : coarseCoordinate(input.homeLat),
+        homeLon: input.homeLon === null ? null : coarseCoordinate(input.homeLon!) } : {}),
+      ...(completeOnboarding && !existing.onboardingCompletedAt ? { onboardingCompletedAt: new Date().toISOString() } : {}),
+    });
+    return settings();
+  });
   async function refreshForm() {
     try { await recalculateRunnerForm(ctx.store, currentUserId(ctx), ctx.today()); }
     catch { app.log.warn('Current Form recomputation deferred; invalidated snapshots cannot be served'); }

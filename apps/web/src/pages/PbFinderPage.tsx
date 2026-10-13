@@ -94,7 +94,7 @@ export function PbFinderPage() {
           <EmptyState
             icon={SearchX}
             title={data.message ?? 'No events found'}
-            description="Try removing a filter or increasing your travel limit."
+            description={data.message ?? 'Historical event evidence is needed for PB ranking. Try removing a filter or increasing your travel limit.'}
             action={
               data.counts.matching === 0 && data.counts.withinTravel > 0 ? (
                 <Button onClick={resetFilters}>

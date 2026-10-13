@@ -36,7 +36,9 @@ export function pbFinder(
 ): { results: Recommendation[]; counts: { total: number; withinTravel: number; matching: number } } {
   const withinTravel = events.filter((e) => e.travel && e.travel.minutes <= options.maxTravelMinutes);
   const matching = withinTravel.filter((e) => matchesFilters(e, { ...DEFAULT_PLANNER_FILTERS, ...options.filters }));
-  const sorted = [...matching].sort((a, b) => COMPARATORS[options.sort](a, b) || a.name.localeCompare(b.name));
+  // Catalogue facts alone cannot support a PB ranking. Other sorts may still use real facts.
+  const eligible = matching.filter((e) => options.sort !== 'pb' || e.scores?.pbScore != null);
+  const sorted = [...eligible].sort((a, b) => COMPARATORS[options.sort](a, b) || a.name.localeCompare(b.name));
   return {
     results: sorted.map((e, i) => ({
       rank: i + 1,

@@ -106,6 +106,7 @@ function toOccurrenceSummaries(b: DemoEventBundle): OccurrenceSummary[] {
 }
 
 export class MemoryDataStore implements DataStore {
+  private settings: Partial<import('@runsaturday/shared').AccountSettings> = {};
   readonly catalogueMode = 'demo' as const;
   readonly kind = 'demo-memory' as const;
   private readonly dataset: DemoDataset;
@@ -263,11 +264,19 @@ export class MemoryDataStore implements DataStore {
       homeLat: u.homeLat,
       homeLon: u.homeLon,
       homeLabel: u.homeLabel,
+      onboardingCompletedAt: '2026-10-01T00:00:00.000Z',
       defaultTravelMinutes: u.defaultTravelMinutes,
       preferredGoal: 'pb',
       isDemo: true,
       favouriteEventIds: [...u.favouriteEventIds].sort(),
+      ...this.settings,
     };
+  }
+
+  async updateUserSettings(userId: string, settings: Partial<import('@runsaturday/shared').AccountSettings>): Promise<void> {
+    if (userId !== this.dataset.user.id) throw new Error('User not found');
+    // Demo settings are intentionally disposable and never used for real accounts.
+    Object.assign(this.settings, settings);
   }
 
   // Personal performances: an in-memory copy per store instance, always filtered by userId.

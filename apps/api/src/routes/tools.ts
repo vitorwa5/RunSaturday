@@ -273,8 +273,11 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
     const { results, counts } = pbFinder(events, { maxTravelMinutes, filters, sort });
 
     let message: string | undefined;
-    if (counts.withinTravel === 0) message = `No events within ${maxTravelMinutes} minutes. Try a longer travel limit.`;
+    if (events.length === 0) message = 'No events available yet.';
+    else if (!resolveOrigin(origin, user)) message = 'Set your starting area to see nearby options.';
+    else if (counts.withinTravel === 0) message = `No events within ${maxTravelMinutes} minutes. Try a longer travel limit.`;
     else if (counts.matching === 0) message = 'No events match these filters.';
+    else if (sort === 'pb' && results.length === 0) message = 'PB Score unavailable: historical matched-runner/course evidence is not available yet.';
 
     return {
       sort,
@@ -318,7 +321,7 @@ export async function toolRoutes(app: FastifyInstance, ctx: RequestContext) {
       maxTravelMinutes,
       timeSeconds,
       results,
-      ...(results.length === 0 ? { message: 'No events match this mode within your travel limit.' } : {}),
+      ...(results.length === 0 ? { message: events.length === 0 ? 'No events available yet.' : !resolveOrigin(origin, user) ? 'Set your starting area to see nearby options.' : 'No events match this mode with the available historical event evidence and travel limit.' } : {}),
       notes: [
         'Gem Score is a 5K Compass ranking (hidden_gem_v1), not an official parkrun metric.',
         form

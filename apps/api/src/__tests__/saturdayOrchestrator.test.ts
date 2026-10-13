@@ -309,9 +309,9 @@ describe('Constraints, fallbacks and empty states', () => {
   it('says why there is nothing to show', async () => {
     expect((await w.ask('pb', { maxTravelMinutes: 1 })).message).toBe('No events within 1 minutes. Try a longer travel limit.');
     expect((await w.ask('pb', { filters: filters({ surface: 'grass' }) })).message).toBe('No events match these filters.');
-    expect((await w.ask('pb', { origin: null })).message).toBe('Choose a starting point to see events near you.');
+    expect((await w.ask('pb', { origin: null })).message).toBe('Set your starting area to see nearby options. You can still browse Explore and Challenges.');
     const empty = await w.ask('quiet');
-    expect([empty.results, empty.message]).toEqual([[], 'No events suit this goal with the current settings.']);
+    expect([empty.results, empty.message]).toEqual([[], 'Historical event data is not available for this goal yet. Adding a recent 5K can help personalise supported tools, but cannot replace public event evidence.']);
   });
 
   it('always returns a best match plus up to three alternatives, from the same ranked list', async () => {

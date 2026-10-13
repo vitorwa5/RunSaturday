@@ -164,6 +164,11 @@ export function HomePage() {
         <p className="mt-5 text-sm font-semibold text-muted">{formatLongDate(upcomingSaturday())}</p>
         <h1 className="mt-0.5 text-[2rem] leading-tight font-extrabold tracking-tight">Where are you running?</h1>
       </header>
+      {profile && profile.runsCompleted === 0 && <section className="space-y-3 rounded-2xl border border-line p-4" aria-label="Getting started">
+        <p className="text-sm text-muted">No performances recorded yet. PB, Recent Best and Current Form are not established. You can still explore events and start challenges.</p>
+        <div className="flex flex-wrap gap-2"><ButtonLink to="/explore" variant="secondary">Explore events</ButtonLink><ButtonLink to="/challenges" variant="secondary">View challenges</ButtonLink><ButtonLink to="/profile/performances/new" variant="secondary">Add a recent 5K</ButtonLink></div>
+        {!profile.home && <ButtonLink to="/profile" variant="ghost">Set starting area for approx. travel</ButtonLink>}
+      </section>}
 
       <section aria-labelledby="intent-heading">
         <SectionHeading>

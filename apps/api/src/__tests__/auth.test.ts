@@ -71,6 +71,75 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     await db.$disconnect();
   });
 
+  it('B3 settings belong only to the session, accept label-only and completion without history', async () => {
+    const a = await login(); const b = await login();
+    const empty = { homeLat: null, homeLon: null, homeLabel: null, defaultTravelMinutes: 30, onboardingCompletedAt: null };
+    expect((await get('/api/profile/settings', a.cookie)).json()).toEqual(empty);
+    expect((await get('/api/profile/settings')).statusCode).toBe(401);
+    expect((await get(`/api/profile/settings?userId=${b.user.id}`, a.cookie)).statusCode).toBe(400);
+    for (const extra of [{ userId: b.user.id }, { onboardingCompletedAt: '2000-01-01' }, { completeOnboarding: false }]) {
+      expect((await mutation('PATCH', '/api/profile/settings', a.cookie, { homeLabel: 'A area', ...extra })).statusCode).toBe(400);
+    }
+    const saved = (await mutation('PATCH', '/api/profile/settings', a.cookie, { homeLabel: ' WA12 ', completeOnboarding: true })).json();
+    expect(saved).toMatchObject({ homeLabel: 'WA12', homeLat: null, homeLon: null, defaultTravelMinutes: 30 });
+    expect(saved.onboardingCompletedAt).toEqual(expect.any(String));
+    expect((await get('/api/profile/settings', b.cookie)).json()).toEqual(empty);
+    expect((await get('/api/profile', a.cookie)).json()).toMatchObject({ runsCompleted: 0, uniqueEventsVisited: 0, lifetimePbSeconds: null, recentPbSeconds: null, currentForm: { status: 'unavailable', formSeconds: null }, savedEventIds: [] });
+    expect((await get('/api/profile/challenges', a.cookie)).json().challenges.find((c: { id: string }) => c.id === 'alphabet').progress).toMatchObject({ current: 0, target: 25 });
+    const events = (await get('/api/events', a.cookie)).json();
+    expect(events.every((e: { travel?: unknown; visited: boolean; favourite: boolean }) => !e.travel && !e.visited && !e.favourite)).toBe(true);
+    for (const intent of ['pb', 'place', 'new_event', 'challenge', 'quiet', 'hidden_gem', 'surprise']) {
+      const saturday = (await get(`/api/saturday/recommendations?intent=${intent}`, a.cookie)).json();
+      expect(saturday).toMatchObject({ origin: null, results: [], bestPick: null });
+      expect(saturday.message).toContain('starting area');
+    }
+    const bSettings = (await mutation('PATCH', '/api/profile/settings', b.cookie, { homeLabel: 'B area', homeLat: 54.6, homeLon: -5.9, defaultTravelMinutes: 90, completeOnboarding: true })).json();
+    // Both imported fixtures are catalogue-only: a saved origin cannot invent a PB ranking.
+    const atCatalogue = (await mutation('PATCH', '/api/profile/settings', a.cookie, { homeLat: 53.4, homeLon: -2.6 })).json();
+    expect(atCatalogue.homeLat).toBe(53.4);
+    expect((await get('/api/pb-finder?sort=pb', a.cookie)).json()).toMatchObject({ results: [], message: 'PB Score unavailable: historical matched-runner/course evidence is not available yet.' });
+    const noCatalogue = vi.spyOn(store, 'listActiveEvents').mockResolvedValue([]);
+    try {
+      for (const intent of ['pb', 'place', 'new_event', 'challenge', 'quiet', 'hidden_gem', 'surprise']) {
+        expect((await get(`/api/saturday/recommendations?intent=${intent}`, a.cookie)).json()).toMatchObject({ results: [], bestPick: null, message: 'No events available yet.' });
+      }
+    } finally { noCatalogue.mockRestore(); }
+    for (const operation of [{ homeLabel: 'Stolen' }, { homeLat: null, homeLon: null, homeLabel: null }, { homeLat: 0, homeLon: 0 }, { completeOnboarding: true }, { defaultTravelMinutes: 15 }]) {
+      expect((await mutation('PATCH', '/api/profile/settings', a.cookie, { ...operation, userId: b.user.id })).statusCode).toBe(400);
+      expect((await get('/api/profile/settings', b.cookie)).json()).toEqual(bSettings);
+    }
+    expect((await get(`/api/profile/settings/${b.user.id}`, a.cookie)).statusCode).toBe(404);
+  });
+
+  it('B3 validates, quantises, exports and clears only coarse settings without deleting runs or completion', async () => {
+    const a = await login(); const b = await login();
+    for (const body of [{ homeLat: 91, homeLon: 0 }, { homeLat: 0, homeLon: -181 }, { homeLat: 0 }, { homeLat: null, homeLon: 0 }, { homeLat: 'NaN', homeLon: 'Infinity' }, { defaultTravelMinutes: 31 }, { homeLabel: 'x'.repeat(101) }]) {
+      expect((await mutation('PATCH', '/api/profile/settings', a.cookie, body)).statusCode).toBe(400);
+    }
+    for (const number of ['NaN', 'Infinity', '-Infinity', '1e999']) {
+      expect((await req({ method: 'PATCH', url: '/api/profile/settings', headers: { cookie: a.cookie }, payload: `{"homeLat":${number},"homeLon":0}` })).statusCode).toBe(400);
+    }
+    for (const [lat, lon] of [[-90, -180], [90, 180]]) {
+      expect((await mutation('PATCH', '/api/profile/settings', a.cookie, { homeLat: lat, homeLon: lon })).json()).toMatchObject({ homeLat: lat, homeLon: lon });
+    }
+    const settings = (await mutation('PATCH', '/api/profile/settings', a.cookie, { homeLat: 53.41234567, homeLon: -2.61234567, homeLabel: 'A private area', defaultTravelMinutes: 45, completeOnboarding: true })).json();
+    expect(settings).toMatchObject({ homeLat: 53.4, homeLon: -2.6, defaultTravelMinutes: 45 });
+    expect(await db.user.findUnique({ where: { id: a.user.id } })).toMatchObject({ homeLat: 53.4, homeLon: -2.6 });
+    await mutation('POST', '/api/profile/performances', a.cookie, input);
+    const exported = (await get('/api/account/export', a.cookie)).json();
+    expect(exported.profile).toMatchObject(settings);
+    expect(exported.performances).toHaveLength(1);
+    const cleared = (await mutation('PATCH', '/api/profile/settings', a.cookie, { homeLat: null, homeLon: null, homeLabel: null })).json();
+    expect(cleared).toMatchObject({ homeLat: null, homeLon: null, homeLabel: null, defaultTravelMinutes: 45, onboardingCompletedAt: settings.onboardingCompletedAt });
+    expect((await get('/api/profile/performances', a.cookie)).json().total).toBe(1);
+    expect((await get('/api/profile/settings', b.cookie)).json()).toMatchObject({ homeLat: null, homeLon: null, homeLabel: null, defaultTravelMinutes: 30, onboardingCompletedAt: null });
+    const relogin = await login(a.email, a.cookie);
+    expect((await get('/api/profile/settings', relogin.cookie)).json()).toEqual(cleared);
+    expect((await mutation('DELETE', '/api/account', relogin.cookie, { confirmation: 'DELETE MY ACCOUNT' })).statusCode).toBe(204);
+    expect(await db.user.findUnique({ where: { id: a.user.id } })).toBeNull();
+    expect((await get('/api/profile/settings', relogin.cookie)).statusCode).toBe(401);
+  });
+
   it('verifies normalized email once, creates an empty persistent user and sets an opaque HttpOnly cookie', async () => {
     const e = email();
     expect((await send(`  ${e.toUpperCase()}  `)).statusCode).toBe(200);

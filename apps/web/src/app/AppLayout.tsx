@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
-import { Outlet, useLocation } from 'react-router';
+import { Link, Navigate, Outlet, useLocation } from 'react-router';
 import { BottomNavigation } from '../components/navigation/BottomNavigation';
-import { useEvents } from '../hooks/queries';
+import { useEvents, useSettings } from '../hooks/queries';
+import { useAuth } from '../auth/AuthProvider';
 
 /** Global strip shown while the app is serving fictional DEMO data. */
 function DemoDataStrip() {
@@ -16,12 +17,16 @@ function DemoDataStrip() {
 
 export function AppLayout() {
   const { pathname } = useLocation();
+  const auth = useAuth();
+  const settings = useSettings();
   useEffect(() => window.scrollTo(0, 0), [pathname]);
+  if (auth.mode !== 'demo' && settings.data && !settings.data.onboardingCompletedAt && pathname === '/') return <Navigate to="/onboarding" replace />;
 
   return (
     <div className="min-h-dvh">
       <DemoDataStrip />
       <main className="mx-auto max-w-md px-4 pb-28">
+        {auth.mode !== 'demo' && settings.data && !settings.data.onboardingCompletedAt && pathname !== '/onboarding' && <p className="py-3 text-sm"><Link className="font-semibold text-brand-700" to="/onboarding">Finish your welcome setup</Link> · optional location and run history</p>}
         <Outlet />
       </main>
       <BottomNavigation />

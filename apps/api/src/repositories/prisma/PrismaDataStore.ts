@@ -304,11 +304,18 @@ export class PrismaDataStore implements DataStore {
       homeLat: user.homeLat,
       homeLon: user.homeLon,
       homeLabel: user.homeLabel,
+      onboardingCompletedAt: user.onboardingCompletedAt?.toISOString() ?? null,
       defaultTravelMinutes: user.defaultTravelMinutes,
       preferredGoal: mapGoal(user.preferredGoal),
       isDemo: user.isDemo,
       favouriteEventIds: user.events.map((ue) => ue.eventId).sort(),
     };
+  }
+
+  async updateUserSettings(userId: string, settings: Partial<import('@runsaturday/shared').AccountSettings>): Promise<void> {
+    const { onboardingCompletedAt, ...rest } = settings;
+    await this.db.user.update({ where: { id: userId }, data: { ...rest,
+      ...(onboardingCompletedAt !== undefined ? { onboardingCompletedAt: onboardingCompletedAt ? new Date(onboardingCompletedAt) : null } : {}) } });
   }
 
   // Personal performances: every query is filtered by userId.

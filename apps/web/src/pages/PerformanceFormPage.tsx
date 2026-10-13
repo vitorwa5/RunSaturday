@@ -88,6 +88,8 @@ function PerformanceForm({
   defaultEventId?: string;
 }) {
   const navigate = useNavigate();
+  const [returnParams] = useSearchParams();
+  const returnPath = returnParams.get('returnTo') === 'onboarding' ? '/onboarding?step=6' : '/profile';
   const { data: events } = useEvents();
   const save = useSavePerformance(existing?.id);
   const auth = useAuth();
@@ -146,7 +148,7 @@ function PerformanceForm({
               time: time.trim(),
             },
       );
-      if (ticket.isCurrent()) navigate("/profile", { replace: true });
+      if (ticket.isCurrent()) navigate(returnPath, { replace: true });
     } catch (error) {
       if (!ticket.isCurrent()) return;
       const field =

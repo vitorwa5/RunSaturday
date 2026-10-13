@@ -4,7 +4,7 @@ const WEB_PORT = 5175;
 const launchOptions = process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : {};
 if (!process.env.TEST_DATABASE_URL) throw new Error('B1 browser tests require the supplied TEST_DATABASE_URL');
 export default defineConfig({
-  testDir: './e2e', testMatch: 'auth.spec.ts', fullyParallel: false, workers: 1,
+  testDir: './e2e', testMatch: ['auth.spec.ts', 'onboarding.spec.ts'], fullyParallel: false, workers: 1,
   timeout: 60_000, reporter: 'list',
   use: { baseURL: `http://127.0.0.1:${WEB_PORT}`, trace: 'off', screenshot: 'only-on-failure', launchOptions },
   projects: [360, 390, 430].map((width) => ({ name: `auth-${width}`, use: { ...devices['Pixel 5'], viewport: { width, height: 844 }, launchOptions } })),

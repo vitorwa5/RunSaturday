@@ -111,7 +111,7 @@ export async function accountRoutes(app: FastifyInstance, ctx: RequestContext, r
   }
   app.get('/api/account/export', async () => {
     const id = currentUserId(ctx);
-    const user = await runtime.db.user.findUniqueOrThrow({ where: { id }, select: { id: true, email: true, emailVerified: true, displayName: true, homeLat: true, homeLon: true, homeLabel: true, defaultTravelMinutes: true, preferredGoal: true, createdAt: true } });
+    const user = await runtime.db.user.findUniqueOrThrow({ where: { id }, select: { id: true, email: true, emailVerified: true, displayName: true, homeLat: true, homeLon: true, homeLabel: true, defaultTravelMinutes: true, onboardingCompletedAt: true, preferredGoal: true, createdAt: true } });
     const [performances, favourites, snapshots] = await Promise.all([
       ctx.store.listUserPerformances(id),
       runtime.db.userEvent.findMany({ where: { userId: id, favourite: true }, select: { eventId: true } }),

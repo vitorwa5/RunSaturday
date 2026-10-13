@@ -29,6 +29,7 @@ import type {
 } from '@runsaturday/shared';
 import { saturdayApiQuery, type PlannerSelection } from '../lib/plannerParams';
 import { apiGet, apiSend } from './client';
+import type { AccountSettings, SettingsInput } from '@runsaturday/shared';
 
 /** "current_form": the server uses the user's own Current Form (course-adjusted reference) instead of a time. */
 export type PlacementBasis = 'time' | 'current_form';
@@ -45,6 +46,8 @@ export interface PlacementQuery {
 }
 
 export const api = {
+  settings: (signal?: AbortSignal) => apiGet<AccountSettings>('/profile/settings', {}, signal),
+  saveSettings: (input: SettingsInput, signal?: AbortSignal) => apiSend<AccountSettings>('PATCH', '/profile/settings', input, signal),
   events: (signal?: AbortSignal) => apiGet<EventSummary[]>('/events', {}, signal),
   searchEvents: (q: string, signal?: AbortSignal) => apiGet<EventSummary[]>('/events/search', { q }, signal),
   nearbyEvents: (limit: number, signal?: AbortSignal) => apiGet<EventSummary[]>('/events/nearby', { limit }, signal),

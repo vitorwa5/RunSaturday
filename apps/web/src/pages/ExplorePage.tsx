@@ -29,7 +29,7 @@ const SHOW_FILTER: Record<Show, (e: EventSummary) => boolean> = {
 };
 
 const EMPTY_TEXT: Record<Show, string> = {
-  all: 'No events',
+  all: 'No events available yet',
   not_visited: 'You have visited every event here',
   visited: 'No visited events here yet',
   favourites: 'No saved events here yet',

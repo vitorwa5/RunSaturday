@@ -259,6 +259,7 @@ model User {
   homeLat   Float?
   homeLon   Float?
   homeLabel String?
+  onboardingCompletedAt DateTime?
 
   defaultTravelMinutes     Int     @default(30)
   /// TRANSITIONAL (Phase 4A): no longer read or written. Lifetime PB, recent best and their
