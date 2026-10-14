@@ -1,0 +1,32 @@
+// @vitest-environment jsdom
+import { act } from 'react';
+import { MemoryRouter } from 'react-router';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, expect, it, vi } from 'vitest';
+import { AuthEpoch } from '../auth/epoch';
+import { HistoryImportPage } from '../pages/HistoryImportPage';
+const mocks = vi.hoisted(() => ({ preview: vi.fn(), commit: vi.fn(), remove: vi.fn(), capture: vi.fn(), read: vi.fn() }));
+vi.mock('../api/endpoints', () => ({ api: { previewHistory: mocks.preview } }));
+vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ captureOperation: mocks.capture }) }));
+vi.mock('../auth/AccountControls', () => ({ AccountControls: () => null }));
+vi.mock('../hooks/queries', () => ({ useCommitHistory: () => ({ mutateAsync: mocks.commit, isPending: false }), useDeleteCsvHistory: () => ({ mutateAsync: mocks.remove, isPending: false }) }));
+vi.mock('../history/csv', () => ({ HISTORY_TEMPLATE: 'date,event_name,time', readHistoryFile: mocks.read }));
+vi.mock('../components/ui/Button', () => ({ Button: (p: React.ComponentProps<'button'>) => <button {...p} />, ButtonLink: ({ children }: { children: React.ReactNode }) => <span>{children}</span> }));
+let root: Root; let element: HTMLDivElement;
+afterEach(async () => { await act(async () => root?.unmount()); element?.remove(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
+it('rejects a delayed preview after account generation changes and remounts without A history', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const epoch = new AuthEpoch(); mocks.capture.mockImplementation(() => epoch.ticket());
+  const candidate = { row: 2, date: '2026-09-05', eventName: 'A private race', time: '24:31' };
+  mocks.read.mockResolvedValue([candidate]);
+  let resolve!: (value: unknown) => void; mocks.preview.mockReturnValue(new Promise(r => { resolve = r; }));
+  element = document.createElement('div'); document.body.append(element); root = createRoot(element);
+  await act(async () => root.render(<MemoryRouter><HistoryImportPage key="A" /></MemoryRouter>));
+  const input = element.querySelector<HTMLInputElement>('input[type=file]')!;
+  Object.defineProperty(input, 'files', { value: [{}] });
+  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  epoch.advance(); await act(async () => root.render(<MemoryRouter><HistoryImportPage key="B" /></MemoryRouter>));
+  await act(async () => resolve({ rows: [{ candidate, status: 'NEW', eventId: null, matches: [] }], counts: { NEW: 1, UPDATE: 0, UNCHANGED: 0, INVALID: 0, CONFLICT: 0 } }));
+  expect(element.textContent).not.toContain('A private race'); expect(element.querySelector('input[type=checkbox]')?.hasAttribute('checked')).toBe(false);
+  expect(mocks.commit).not.toHaveBeenCalled();
+});

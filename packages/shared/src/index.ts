@@ -5,3 +5,4 @@ export * from './planner';
 export * from './types';
 export * from './tools';
 export * from './startingArea';
+export * from './historyImport';
