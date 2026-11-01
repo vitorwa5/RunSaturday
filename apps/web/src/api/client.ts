@@ -39,6 +39,8 @@ export async function apiSend<T>(method: 'POST' | 'PATCH' | 'DELETE', path: stri
   if (response.status === 401) window.dispatchEvent(new Event('compass-session-expired'));
   if (!response.ok) {
     const errorBody = (await response.json().catch(() => null)) as ApiErrorBody | null;
+    signal?.throwIfAborted();
+    if (response.status === 409 && errorBody?.error.code === 'session_changed') window.dispatchEvent(new Event('compass-session-expired'));
     throw new ApiError(response.status, errorBody?.error.code ?? 'unknown_error', errorBody?.error.message ?? 'Something went wrong. Please try again.');
   }
   const result = (response.status === 204 ? null : await response.json()) as T;

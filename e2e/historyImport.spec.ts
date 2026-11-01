@@ -44,6 +44,12 @@ test('B4 private import, reimport, correction, mixed rows, ambiguous mapping and
     expect(bodies.every(body => !JSON.stringify(body).includes('date,event_name,time') && !JSON.stringify(body).includes('synthetic-history.csv'))).toBe(true);
     await upload(page, csv); await expect(page.getByRole('heading', { name: 'Preview: 3 rows' })).toBeVisible(); await confirm(page);
     await expect(page.getByRole('status')).toContainText('Unchanged 2'); expect(await db.userPerformance.count({ where: { userId: user.id } })).toBe(2);
+    const edited = records.find(r => r.date.toISOString().startsWith('2026-09-05'))!;
+    const dateEdit = await context.request.patch('/api/profile/performances/' + edited.id, { headers: { origin: 'http://127.0.0.1:5175' }, data: { date: '2026-09-04', externalEventName: 'Private race, West', time: '24:31' } });
+    expect(dateEdit.status()).toBe(200);
+    await upload(page, csv); await expect(page.getByText('Row 2: UPDATE', { exact: true })).toBeVisible(); await confirm(page);
+    expect(await db.userPerformance.count({ where: { userId: user.id } })).toBe(2);
+    expect(await db.userPerformance.findUniqueOrThrow({ where: { id: edited.id } })).toMatchObject({ date: edited.date, externalResultId: edited.externalResultId });
     await upload(page, csv.replace('24:31', '22:31')); await expect(page.getByText('Row 2: UPDATE', { exact: true })).toBeVisible(); await confirm(page);
     expect(await db.userPerformance.findUnique({ where: { id: records.find(r => r.date.toISOString().startsWith('2026-09-05'))!.id } })).toMatchObject({ finishTimeSeconds: 1351 });
     // Persist an ambiguous choice, then replay the file without repeating the decision.
@@ -90,5 +96,44 @@ for (const operation of ['preview', 'commit'] as const) test(`B4 delayed A ${ope
     await expect(page.getByRole('heading', { name: 'Import complete' })).toHaveCount(0);
   } finally {
     release?.(); await db.user.deleteMany({ where: { email: { in: [a, b] } } }); await db.verification.deleteMany({ where: { identifier: { contains: run } } }); await db.emailAuthBudget.deleteMany({ where: { email: { contains: run } } }); await db.$disconnect();
+  }
+});
+
+for (const operation of ['preview', 'commit', 'delete'] as const) test(`B4 stale tab cannot ${operation} using another tab's cookie`, async ({ page, context }) => {
+  const run = randomUUID(); const a = `b4-${run}-a@example.test`; const b = `b4-${run}-b@example.test`;
+  const db = createPrismaClient(process.env.TEST_DATABASE_URL!); const other = await context.newPage();
+  try {
+    await clearIp(db);
+    // Model missed/delayed cross-tab notifications. The server must protect even a stale UI.
+    await page.addInitScript(() => {
+      window.BroadcastChannel = class { onmessage = null; postMessage() {} close() {} } as unknown as typeof BroadcastChannel;
+      window.addEventListener('focus', event => event.stopImmediatePropagation(), true);
+    });
+    await page.goto('/profile/import-history'); await signIn(page, a);
+    const aSession = await (await context.request.get('/api/account/session')).json();
+    const csv = 'date,event_name,time\n2026-09-05,A private stale race,24:31';
+    if (operation === 'commit') { await upload(page, csv); await expect(page.getByText('Row 2: NEW', { exact: true })).toBeVisible(); await page.getByRole('checkbox', { name: /I confirm this file/ }).check(); }
+    if (operation === 'delete') await page.getByRole('checkbox', { name: /Remove all my CSV/ }).check();
+    await other.goto('/profile/import-history');
+    await other.getByRole('button', { name: 'Sign out', exact: true }).click();
+    await expect(other.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible(); await signIn(other, b);
+    const bSession = await (await context.request.get('/api/account/session')).json();
+    expect(bSession.sessionBinding).not.toBe(aSession.sessionBinding);
+    const seeded = await context.request.post('/api/profile/history-import/commit', { headers: { origin: 'http://127.0.0.1:5175' }, data: { sessionBinding: bSession.sessionBinding, rows: [{ row: 2, date: '2026-09-05', eventName: 'B private preserved race', time: '25:00' }], confirmation: 'IMPORT MY OWN HISTORY' } });
+    expect(seeded.status()).toBe(200);
+    const before = await db.userPerformance.findMany({ where: { userId: { in: [aSession.user.id, bSession.user.id] } } });
+    const responsePromise = page.waitForResponse(r => r.url().endsWith('/history-import' + (operation === 'delete' ? '' : '/' + operation)) && r.request().method() === (operation === 'delete' ? 'DELETE' : 'POST'));
+    if (operation === 'preview') await upload(page, csv);
+    else await page.getByRole('button', { name: operation === 'commit' ? 'Confirm import' : 'Remove my CSV history', exact: true }).click();
+    const response = await responsePromise;
+    expect(response.request().postDataJSON().sessionBinding).toBe(aSession.sessionBinding);
+    expect(response.status()).toBe(409); expect((await response.json()).error.code).toBe('session_changed');
+    await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+    await expect(page.getByText('B private preserved race', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Import complete' })).toHaveCount(0);
+    expect(await db.userPerformance.findMany({ where: { userId: { in: [aSession.user.id, bSession.user.id] } } })).toEqual(before);
+  } finally {
+    await other.close(); await db.user.deleteMany({ where: { email: { in: [a, b] } } });
+    await db.verification.deleteMany({ where: { identifier: { contains: run } } }); await db.emailAuthBudget.deleteMany({ where: { email: { contains: run } } }); await db.$disconnect();
   }
 });

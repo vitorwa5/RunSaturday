@@ -17,7 +17,7 @@ export function HistoryImportPage() {
   async function previewRows(input: HistoryCandidate[]) {
     const ticket = auth.captureOperation(); const current = ++generation.current;
     setBusy(true); setError(''); setPreview(null); setResult(null); setConfirmed(false);
-    try { const data = await api.previewHistory(input, ticket.signal); if (ticket.isCurrent() && lifetime.current && generation.current === current) { setRows(input); setPreview(data); } }
+    try { const data = await api.previewHistory(input, ticket.signal, auth.sessionBinding); if (ticket.isCurrent() && lifetime.current && generation.current === current) { setRows(input); setPreview(data); } }
     catch (e) { if (ticket.isCurrent() && lifetime.current && generation.current === current) setError(e instanceof Error ? e.message : 'Could not preview.'); }
     finally { if (ticket.isCurrent() && lifetime.current && generation.current === current) setBusy(false); }
   }

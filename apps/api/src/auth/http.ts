@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { deliveryStatus, type Auth } from './auth';
@@ -40,7 +41,7 @@ export function installIdentity(app: FastifyInstance, ctx: RequestContext, runti
     // Verify the internal row as well: deleted, unverified and demo users cannot act as real users.
     const owner = session && session.user.id !== 'demo-user' ? await runtime!.db.user.findFirst({ where: { id: session.user.id, emailVerified: true, isDemo: false }, select: { id: true, email: true } }) : null;
     const valid = !!owner && !!session && session.session.expiresAt.getTime() > Date.now();
-    resolved.set(request, valid ? { userId: owner.id, session: { user: owner, expiresAt: session.session.expiresAt.toISOString() } } : { userId: null });
+    resolved.set(request, valid ? { userId: owner.id, session: { user: owner, sessionBinding: createHash('sha256').update('history-import-v1:' + session.session.id).digest('hex'), expiresAt: session.session.expiresAt.toISOString() } } : { userId: null });
     if (!valid && (request.url.startsWith('/api/profile') || request.url.startsWith('/api/account/export') || (request.url === '/api/account' && request.method === 'DELETE'))) {
       throw new AppError(401, 'authentication_required', 'Sign in to access your account.');
     }

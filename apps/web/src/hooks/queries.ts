@@ -146,5 +146,11 @@ export const useSavePerformance = (id?: string) =>
 
 export const useDeletePerformance = () => usePerformanceMutation((id: string, signal) => api.deletePerformance(id, signal));
 
-export const useCommitHistory = () => usePerformanceMutation((rows: import('@runsaturday/shared').HistoryCandidate[], signal) => api.commitHistory(rows, signal));
-export const useDeleteCsvHistory = () => usePerformanceMutation((_: undefined, signal) => api.deleteCsvHistory(signal));
+export const useCommitHistory = () => {
+  const { sessionBinding } = useAuth();
+  return usePerformanceMutation((rows: import('@runsaturday/shared').HistoryCandidate[], signal) => api.commitHistory(rows, signal, sessionBinding));
+};
+export const useDeleteCsvHistory = () => {
+  const { sessionBinding } = useAuth();
+  return usePerformanceMutation((_: undefined, signal) => api.deleteCsvHistory(signal, sessionBinding));
+};

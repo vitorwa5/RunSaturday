@@ -46,9 +46,9 @@ export interface PlacementQuery {
 }
 
 export const api = {
-  previewHistory: (rows: import('@runsaturday/shared').HistoryCandidate[], signal?: AbortSignal) => apiSend<import('@runsaturday/shared').HistoryPreview>('POST', '/profile/history-import/preview', { rows }, signal),
-  commitHistory: (rows: import('@runsaturday/shared').HistoryCandidate[], signal?: AbortSignal) => apiSend<import('@runsaturday/shared').HistoryResult>('POST', '/profile/history-import/commit', { rows, confirmation: 'IMPORT MY OWN HISTORY' }, signal),
-  deleteCsvHistory: (signal?: AbortSignal) => apiSend<{ deleted: number; formStatus: string }>('DELETE', '/profile/history-import', { confirmation: 'REMOVE MY CSV HISTORY' }, signal),
+  previewHistory: (rows: import('@runsaturday/shared').HistoryCandidate[], signal?: AbortSignal, sessionBinding?: string) => apiSend<import('@runsaturday/shared').HistoryPreview>('POST', '/profile/history-import/preview', { rows, sessionBinding }, signal),
+  commitHistory: (rows: import('@runsaturday/shared').HistoryCandidate[], signal?: AbortSignal, sessionBinding?: string) => apiSend<import('@runsaturday/shared').HistoryResult>('POST', '/profile/history-import/commit', { rows, sessionBinding, confirmation: 'IMPORT MY OWN HISTORY' }, signal),
+  deleteCsvHistory: (signal?: AbortSignal, sessionBinding?: string) => apiSend<{ deleted: number; formStatus: string }>('DELETE', '/profile/history-import', { sessionBinding, confirmation: 'REMOVE MY CSV HISTORY' }, signal),
   settings: (signal?: AbortSignal) => apiGet<AccountSettings>('/profile/settings', {}, signal),
   saveSettings: (input: SettingsInput, signal?: AbortSignal) => apiSend<AccountSettings>('PATCH', '/profile/settings', input, signal),
   events: (signal?: AbortSignal) => apiGet<EventSummary[]>('/events', {}, signal),

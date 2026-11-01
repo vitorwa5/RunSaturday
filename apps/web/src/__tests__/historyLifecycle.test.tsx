@@ -7,7 +7,7 @@ import { AuthEpoch } from '../auth/epoch';
 import { HistoryImportPage } from '../pages/HistoryImportPage';
 const mocks = vi.hoisted(() => ({ preview: vi.fn(), commit: vi.fn(), remove: vi.fn(), capture: vi.fn(), read: vi.fn() }));
 vi.mock('../api/endpoints', () => ({ api: { previewHistory: mocks.preview } }));
-vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ captureOperation: mocks.capture }) }));
+vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ sessionBinding: 'session-A', captureOperation: mocks.capture }) }));
 vi.mock('../auth/AccountControls', () => ({ AccountControls: () => null }));
 vi.mock('../hooks/queries', () => ({ useCommitHistory: () => ({ mutateAsync: mocks.commit, isPending: false }), useDeleteCsvHistory: () => ({ mutateAsync: mocks.remove, isPending: false }) }));
 vi.mock('../history/csv', () => ({ HISTORY_TEMPLATE: 'date,event_name,time', readHistoryFile: mocks.read }));
@@ -25,6 +25,7 @@ it('rejects a delayed preview after account generation changes and remounts with
   const input = element.querySelector<HTMLInputElement>('input[type=file]')!;
   Object.defineProperty(input, 'files', { value: [{}] });
   await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  expect(mocks.preview).toHaveBeenCalledWith([candidate], expect.any(AbortSignal), 'session-A');
   epoch.advance(); await act(async () => root.render(<MemoryRouter><HistoryImportPage key="B" /></MemoryRouter>));
   await act(async () => resolve({ rows: [{ candidate, status: 'NEW', eventId: null, matches: [] }], counts: { NEW: 1, UPDATE: 0, UNCHANGED: 0, INVALID: 0, CONFLICT: 0 } }));
   expect(element.textContent).not.toContain('A private race'); expect(element.querySelector('input[type=checkbox]')?.hasAttribute('checked')).toBe(false);
