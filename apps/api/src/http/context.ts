@@ -10,7 +10,7 @@ import { AppError } from './errors';
 /** Handler-local identity, populated only by the validated HTTP session boundary. */
 export interface RequestIdentity {
   userId: string | null;
-  session?: { user: { id: string; email: string | null }; expiresAt: string };
+  session?: { user: { id: string; email: string | null }; expiresAt: string; sessionBinding: string };
 }
 export const identities = new AsyncLocalStorage<RequestIdentity>();
 export function currentUserId(ctx: RequestContext): string {
