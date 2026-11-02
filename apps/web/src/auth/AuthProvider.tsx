@@ -53,6 +53,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (ticket.isCurrent()) applySession(session);
     } catch (error) {
       if (ticket.isCurrent() && (error as Error).name !== 'AbortError') {
+        // The displayed signed-out view must not retain authority from a failed refresh.
+        sessionIntent.current = { mode: 'beta', user: null };
         setState({ mode: 'beta', user: null, ready: true, error: 'We could not check your session. Please try again.' });
       }
     }

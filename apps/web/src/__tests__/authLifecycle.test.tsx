@@ -61,6 +61,15 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => { for (const root of roots.splice(0)) root.unmount(); }); document.body.innerHTML = ''; Channel.channels.clear(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('auth generation across deliberately delayed responses', () => {
+  it('binds login from a failed refresh view to signed-out even while the old cookie remains valid', async () => {
+    await mount();
+    vi.mocked(apiGet).mockRejectedValueOnce(new Error('Session bootstrap unavailable'));
+    await act(async () => auth.refresh());
+    expect(auth.ready).toBe(true); expect(auth.user).toBeNull(); expect(auth.error).toContain('check your session');
+    expect(server.user?.id).toBe('A');
+    await act(async () => { await expect(auth.signIn('B@example.test', '123456')).rejects.toMatchObject({ name: 'AbortError' }); });
+    expect(apiSend).not.toHaveBeenCalled(); expect(server.user?.id).toBe('A');
+  });
   it.each(['logout', 'deleteAccount', 'signIn'] as const)('retains the rendered origin of an old %s callback', async operation => {
     await mount(); const old = auth;
     server = session('B'); await act(async () => auth.refresh());

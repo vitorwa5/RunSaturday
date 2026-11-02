@@ -495,7 +495,7 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     const app2 = await buildApp({ config: secureConfig, store: new PrismaDataStore(db2, 'demo_v0'), authRuntime: { db: db2, auth: createAuth(db2, secureConfig, { async send(email, code) { codes.set(email, code); } }) }, logger: false });
     const e = email();
     try {
-      const headers = { origin: secureOrigin, 'content-type': 'application/json' };
+      const headers = { origin: secureOrigin, 'content-type': 'application/json', 'x-compass-session-binding': 'signed-out' };
       expect((await app2.inject({ method: 'POST', url: '/api/auth/email-otp/send-verification-otp', headers, payload: { email: e } })).statusCode).toBe(200);
       const response = await app2.inject({ method: 'POST', url: '/api/auth/sign-in/email-otp', headers, payload: { email: e, otp: codes.get(e)! } });
       expect(response.statusCode).toBe(200);
@@ -516,7 +516,10 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     expect(secureConfig.NODE_ENV).toBe('development');
     const db2 = createPrismaClient(url!);
     const app2 = await buildApp({ config: secureConfig, store: new PrismaDataStore(db2, 'demo_v0'), authRuntime: { db: db2, auth: createAuth(db2, secureConfig, { async send(email, code) { codes.set(email, code); } }) }, logger: false });
-    const request = (method: 'POST' | 'DELETE', path: string, payload: object, cookie?: string) => app2.inject({ method, url: path, headers: { origin: secureOrigin, 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, payload });
+    const request = async (method: 'POST' | 'DELETE', path: string, payload: object, cookie?: string) => {
+      const session = cookie ? (await app2.inject({ url: '/api/account/session', headers: { cookie } })).json() : null;
+      return app2.inject({ method, url: path, headers: { origin: secureOrigin, 'content-type': 'application/json', ...(cookie ? { cookie } : {}), 'x-compass-session-binding': session?.sessionBinding ?? 'signed-out' }, payload });
+    };
     try {
       for (const ending of ['logout', 'delete'] as const) {
         const e = email();
@@ -584,7 +587,8 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     const a = await login(); await mutation('POST', '/api/profile/performances', a.cookie, input);
     const db2 = createPrismaClient(url!); const app2 = await buildApp({ config: config(), store: new PrismaDataStore(db2, 'demo_v0'), authRuntime: { db: db2, auth: createAuth(db2, config(), { async send() {} }) }, logger: false });
     try {
-      const response = await app2.inject({ url: '/api/profile', headers: { cookie: a.cookie } });
+      const session = (await app2.inject({ url: '/api/account/session', headers: { cookie: a.cookie } })).json();
+      const response = await app2.inject({ url: '/api/profile', headers: { cookie: a.cookie, 'x-compass-session-binding': session.sessionBinding } });
       expect(response.json()).toMatchObject({ id: a.user.id, runsCompleted: 1, lifetimePbSeconds: 1175 });
     } finally { await app2.close(); }
   });
