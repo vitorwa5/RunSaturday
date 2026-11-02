@@ -176,7 +176,8 @@ describe('auth generation across deliberately delayed responses', () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
     await act(async () => { [...container.querySelectorAll('button')].find((b) => b.textContent === 'Export my data')!.click(); });
     const request = vi.mocked(apiGet).mock.calls.find(([path]) => path === '/account/export')!;
-    await act(async () => { await auth.logout(); await auth.signIn('B@example.test', '123456'); });
+    await act(async () => { await auth.logout(); });
+    await act(async () => { await auth.signIn('B@example.test', '123456'); });
     expect(auth.user?.id).toBe('B'); expect(request[2]).toBeUndefined(); expect(request[3]).toBe('A-session');
     await act(async () => delayed.resolve({ profile: { id: 'A' }, performances: ['private-A'] }));
     expect(blob).not.toHaveBeenCalled(); expect(click).not.toHaveBeenCalled(); expect(container.textContent).not.toContain('private-A');
