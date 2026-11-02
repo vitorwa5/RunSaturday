@@ -1,3 +1,4 @@
+import { boundGet } from './sessionRequests';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
@@ -42,9 +43,9 @@ test('B1: empty account, persistence, safe switch without a personal-data flash,
     await page.goto('/profile');
     await login(page, a);
     await expect(page.getByText('No performances yet').first()).toBeVisible();
-    const initial = await context.request.get('/api/profile');
+    const initial = await boundGet(context.request, '/api/profile');
     expect(await initial.json()).toMatchObject({ runsCompleted: 0, uniqueEventsVisited: 0, lifetimePbSeconds: null, recentPbSeconds: null, savedEventIds: [], currentForm: { status: 'unavailable' } });
-    const challenge = await context.request.get('/api/profile/challenges');
+    const challenge = await boundGet(context.request, '/api/profile/challenges');
     expect((await challenge.json()).challenges.find((c: { id: string }) => c.id === 'alphabet').progress).toMatchObject({ current: 0, target: 25 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.goto(`/event/${eventId}`);
@@ -56,7 +57,7 @@ test('B1: empty account, persistence, safe switch without a personal-data flash,
     await expect(page.getByText('Synthetic browser test source', { exact: true })).toBeVisible();
     await expect(page.getByText('Europe/London', { exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    expect(await (await context.request.get(`/api/events/${eventId}/analytics`)).json()).toMatchObject({ pb: null, competition: null, courseSpeed: null, difficulty: null });
+    expect(await (await boundGet(context.request, `/api/events/${eventId}/analytics`)).json()).toMatchObject({ pb: null, competition: null, courseSpeed: null, difficulty: null });
     await page.goto('/profile');
     await page.getByRole('link', { name: 'Add performance' }).first().click();
     const form = page.getByRole('form', { name: 'Add performance' });
@@ -66,8 +67,8 @@ test('B1: empty account, persistence, safe switch without a personal-data flash,
     await form.getByRole('button', { name: 'Add performance', exact: true }).click();
     await page.goto('/profile');
     await expect(page.getByText('19:37', { exact: true }).first()).toBeVisible();
-    const dataA = await (await context.request.get('/api/profile')).json();
-    const performanceId = (await (await context.request.get('/api/profile/performances')).json()).performances[0].id;
+    const dataA = await (await boundGet(context.request, '/api/profile')).json();
+    const performanceId = (await (await boundGet(context.request, '/api/profile/performances')).json()).performances[0].id;
     await new CatalogueImportService(db, 'beta').import({ ...catalogue, records: catalogue.records.map((r) => ({ ...r, active: false })) });
     await page.goto(`/profile/performances/${performanceId}/edit`);
     const edit = page.getByRole('form', { name: 'Edit performance' });
@@ -83,11 +84,11 @@ test('B1: empty account, persistence, safe switch without a personal-data flash,
     await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
     await expect(otherTab.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
     await expect(otherTab.getByText('19:37', { exact: true })).toHaveCount(0);
-    expect((await context.request.get('/api/profile')).status()).toBe(401);
+    expect((await boundGet(context.request, '/api/profile')).status()).toBe(401);
     await login(page, a);
     await expect(page.getByText('19:37', { exact: true }).first()).toBeVisible();
     await expect(otherTab.getByText('19:37', { exact: true }).first()).toBeVisible();
-    expect(await (await context.request.get('/api/profile')).json()).toMatchObject({ id: dataA.id, runsCompleted: 1, lifetimePbSeconds: 1177 });
+    expect(await (await boundGet(context.request, '/api/profile')).json()).toMatchObject({ id: dataA.id, runsCompleted: 1, lifetimePbSeconds: 1177 });
     let captured!: () => void; let release!: () => void; let completed!: () => void;
     const exportCaptured = new Promise<void>((resolve) => { captured = resolve; });
     const releaseExport = new Promise<void>((resolve) => { release = resolve; });
@@ -128,7 +129,7 @@ test('B1: empty account, persistence, safe switch without a personal-data flash,
     await expect(page.getByText('No performances yet').first()).toBeVisible();
     await expect(page.getByText('19:37', { exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => (window as typeof window & { personalFlash?: boolean }).personalFlash)).toBe(false);
-    const bProfile = await (await context.request.get('/api/profile')).json();
+    const bProfile = await (await boundGet(context.request, '/api/profile')).json();
     expect(bProfile).toMatchObject({ runsCompleted: 0, lifetimePbSeconds: null, recentPbSeconds: null, currentForm: { status: 'unavailable' } });
     expect(bProfile.id).not.toBe(dataA.id);
     expect(downloads).toEqual([]);
@@ -137,7 +138,7 @@ test('B1: empty account, persistence, safe switch without a personal-data flash,
     await page.getByLabel('Type DELETE MY ACCOUNT to confirm').fill('DELETE MY ACCOUNT');
     await page.getByRole('button', { name: 'Permanently delete my account' }).click();
     await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
-    expect((await context.request.get('/api/profile')).status()).toBe(401);
+    expect((await boundGet(context.request, '/api/profile')).status()).toBe(401);
     expect(await db.user.findUnique({ where: { email: b } })).toBeNull();
     expect(await db.runnerFormSnapshot.count({ where: { userId: bProfile.id } })).toBe(0);
   } finally {
@@ -180,7 +181,8 @@ for (const operation of ['delete', 'logout'] as const) {
           channel.postMessage({ type: 'transition-start', id: 'browser-B-replacement' });
           try {
             for (const [path, body] of [['/api/auth/sign-out', {}], ['/api/auth/sign-in/email-otp', { email, otp }]] as const) {
-              const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+              const session = await (await fetch('/api/account/session')).json();
+              const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-compass-session-binding': session.sessionBinding ?? 'signed-out' }, body: JSON.stringify(body) });
               if (!response.ok) throw new Error('Test account transition failed');
             }
             w.authChanged = true; await release;
@@ -199,8 +201,8 @@ for (const operation of ['delete', 'logout'] as const) {
       await expect(page.getByText(`Signed in as ${b}`, { exact: true })).toBeVisible();
       await expect(other.getByText(`Signed in as ${b}`, { exact: true })).toBeVisible();
       expect(sent).toEqual([]);
-      expect((await context.request.get('/api/account/session')).status()).toBe(200);
-      expect((await (await context.request.get('/api/account/session')).json()).user.email).toBe(b);
+      expect((await boundGet(context.request, '/api/account/session')).status()).toBe(200);
+      expect((await (await boundGet(context.request, '/api/account/session')).json()).user.email).toBe(b);
       expect(await db.user.findUnique({ where: { email: b } })).not.toBeNull();
       expect(await db.user.findUnique({ where: { email: a } })).not.toBeNull();
       await other.close();

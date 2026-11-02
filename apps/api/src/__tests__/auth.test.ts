@@ -36,7 +36,7 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
   const email = () => `auth-b1-${run}-${++counter}@example.test`;
   const req = (options: InjectOptions) => app.inject({ remoteAddress: `10.45.${Math.floor(ip / 250)}.${++ip % 250 + 1}`, ...options, headers: { origin, 'content-type': 'application/json', ...options.headers } });
   const send = (email: string) => req({ method: 'POST', url: '/api/auth/email-otp/send-verification-otp', payload: { email } });
-  const verify = (email: string, otp: string, cookie?: string) => req({ method: 'POST', url: '/api/auth/sign-in/email-otp', payload: { email, otp }, headers: cookie ? { cookie } : {} });
+  const verify = async (email: string, otp: string, cookie?: string) => req({ method: 'POST', url: '/api/auth/sign-in/email-otp', payload: { email, otp }, headers: { ...(cookie ? { cookie } : {}), 'x-compass-session-binding': cookie ? (await get('/api/account/session', cookie)).json().sessionBinding ?? 'signed-out' : 'signed-out' } });
   const cookieOf = (response: Awaited<ReturnType<typeof verify>>) => response.cookies.find((c) => c.name.endsWith('.session_token'))!;
   const login = async (address = email(), oldCookie?: string) => {
     expect((await send(address)).statusCode).toBe(200);
@@ -46,10 +46,10 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     const c = cookieOf(response);
     return { email: address, cookie: `${c.name}=${c.value}`, user: await db.user.findUniqueOrThrow({ where: { email: address } }), response };
   };
-  const get = (path: string, cookie?: string) => req({ method: 'GET', url: path, headers: cookie ? { cookie } : {} });
+  const get = async (path: string, cookie?: string): Promise<Awaited<ReturnType<typeof req>>> => req({ method: 'GET', url: path, headers: { ...(cookie ? { cookie } : {}), ...(cookie && path !== '/api/account/session' ? { 'x-compass-session-binding': (await get('/api/account/session', cookie)).json().sessionBinding ?? 'signed-out' } : {}) } });
   const mutation = async (method: 'POST' | 'PATCH' | 'DELETE', path: string, cookie: string, payload?: object) => {
-    const session = path.startsWith('/api/profile/history-import') ? (await get('/api/account/session', cookie)).json() : null;
-    return req({ method, url: path, headers: { cookie }, payload: { ...(session ? { sessionBinding: session.sessionBinding } : {}), ...payload } });
+    const session = (await get('/api/account/session', cookie)).json();
+    return req({ method, url: path, headers: { cookie, 'x-compass-session-binding': session.sessionBinding ?? 'signed-out' }, payload: { ...(path.startsWith('/api/profile/history-import') ? { sessionBinding: session.sessionBinding } : {}), ...payload } });
   };
   const input = { get eventId() { return eventA; }, date: '2026-09-20', time: '19:35' };
   beforeAll(async () => {
@@ -273,7 +273,7 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
       expect((await mutation('PATCH', '/api/profile/settings', a.cookie, body)).statusCode).toBe(400);
     }
     for (const number of ['NaN', 'Infinity', '-Infinity', '1e999']) {
-      expect((await req({ method: 'PATCH', url: '/api/profile/settings', headers: { cookie: a.cookie }, payload: `{"homeLat":${number},"homeLon":0}` })).statusCode).toBe(400);
+      expect((await req({ method: 'PATCH', url: '/api/profile/settings', headers: { cookie: a.cookie, 'x-compass-session-binding': (await get('/api/account/session', a.cookie)).json().sessionBinding }, payload: `{"homeLat":${number},"homeLon":0}` })).statusCode).toBe(400);
     }
     for (const [lat, lon] of [[-90, -180], [90, 180]]) {
       expect((await mutation('PATCH', '/api/profile/settings', a.cookie, { homeLat: lat, homeLon: lon })).json()).toMatchObject({ homeLat: lat, homeLon: lon });
@@ -355,7 +355,7 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     const e2 = email();
     let limited = false;
     for (let i = 0; i < 12; i++) {
-      const r = await req({ remoteAddress: '10.99.99.99', method: 'POST', url: '/api/auth/sign-in/email-otp', headers: { 'x-compass-client-ip': `10.8.8.${i}` }, payload: { email: `${i}-${e2}`, otp: '123456' } });
+      const r = await req({ remoteAddress: '10.99.99.99', method: 'POST', url: '/api/auth/sign-in/email-otp', headers: { 'x-compass-session-binding': 'signed-out', 'x-compass-client-ip': `10.8.8.${i}` }, payload: { email: `${i}-${e2}`, otp: '123456' } });
       limited ||= r.statusCode === 429;
     }
     expect(limited).toBe(true);

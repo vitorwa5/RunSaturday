@@ -57,11 +57,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [epoch, reset]);
-  const transition = useCallback((operation: 'logout' | 'delete' | 'login', input?: { email: string; otp: string }) => {
+  const transition = useCallback((operation: 'logout' | 'delete' | 'login', origin: SessionState, input?: { email: string; otp: string }) => {
     let stale = false;
     const id = crypto.randomUUID();
-    const intendedUserId = sessionIntent.current.user?.id ?? null;
-    const intendedExpiry = sessionIntent.current.user ? sessionIntent.current.expiresAt : undefined;
+    const intendedUserId = origin.user?.id ?? null;
+    const intendedExpiry = origin.user ? origin.expiresAt : undefined;
+    const intendedBinding = origin.sessionBinding ?? 'signed-out';
     const result = epoch.transition(async (ticket) => {
       try {
         await withAuthLock(async () => {
@@ -72,18 +73,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           assertIntent();
           const current = await apiGet<SessionState>('/account/session', {}, ticket.signal);
           assertIntent();
-          if ((current.user?.id ?? null) !== intendedUserId || (intendedExpiry && current.expiresAt !== intendedExpiry)) {
+          if ((current.user?.id ?? null) !== intendedUserId || (intendedExpiry && current.expiresAt !== intendedExpiry) || (current.sessionBinding ?? 'signed-out') !== intendedBinding) {
             epoch.advance();
             throw new DOMException('Account session changed', 'AbortError');
           }
           // No await between this check and sending the cookie-mutating request.
           assertIntent();
           if (operation === 'login') {
-            await apiSend('POST', '/auth/sign-in/email-otp', input);
+            await apiSend('POST', '/auth/sign-in/email-otp', input, undefined, intendedBinding);
             const session = await apiGet<SessionState>('/account/session');
             if (ticket.isCurrent()) applySession(session);
           } else {
-            await apiSend(operation === 'delete' ? 'DELETE' : 'POST', operation === 'delete' ? '/account' : '/auth/sign-out', operation === 'delete' ? { confirmation: 'DELETE MY ACCOUNT' } : {});
+            await apiSend(operation === 'delete' ? 'DELETE' : 'POST', operation === 'delete' ? '/account' : '/auth/sign-out', operation === 'delete' ? { confirmation: 'DELETE MY ACCOUNT' } : {}, undefined, intendedBinding);
             if (ticket.isCurrent()) setState({ mode: 'beta', user: null, ready: true, error: null });
           }
         }, undefined, true);
@@ -150,6 +151,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, Math.max(0, Date.parse(state.expiresAt) - Date.now()));
     return () => window.clearTimeout(timer);
   }, [epoch, state.expiresAt, state.user]);
-  return <AuthContext value={{ ...state, refresh, logout: () => transition('logout'), deleteAccount: () => transition('delete'),
-    sendCode, signIn: (email, otp) => transition('login', { email, otp }), captureOperation: () => epoch.ticket() }}>{children}</AuthContext>;
+  // Old callbacks must retain their rendered intention even after another render signs in.
+  const origin = { ...sessionIntent.current, user: sessionIntent.current.user ? { ...sessionIntent.current.user } : null };
+  return <AuthContext value={{ ...state, refresh, logout: () => transition('logout', origin), deleteAccount: () => transition('delete', origin),
+    sendCode, signIn: (email, otp) => transition('login', origin, { email, otp }), captureOperation: () => epoch.ticket() }}>{children}</AuthContext>;
 }

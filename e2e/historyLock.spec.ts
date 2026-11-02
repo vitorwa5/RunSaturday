@@ -47,7 +47,8 @@ for (const operation of ['preview', 'commit', 'withdrawal'] as const) for (const
           state.entered = true;
           await new Promise<void>(resolve => { state.change = resolve; });
           // The holder performs the cookie-changing request inside the real shared lock.
-          const response = await fetch('/api/auth/sign-in/email-otp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, otp: code }) });
+          const session = await (await fetch('/api/account/session')).json();
+          const response = await fetch('/api/auth/sign-in/email-otp', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-compass-session-binding': session.sessionBinding ?? 'signed-out' }, body: JSON.stringify({ email, otp: code }) });
           state.status = response.status; await response.json(); state.changed = true;
           await new Promise<void>(resolve => { state.release = resolve; });
         });
@@ -64,7 +65,7 @@ for (const operation of ['preview', 'commit', 'withdrawal'] as const) for (const
       const current = await (await context.request.get('/api/account/session')).json();
       expect(current.sessionBinding).not.toBe(origin.sessionBinding);
       expect(current.user.id === origin.user.id).toBe(replacement === 'same-account');
-      const seeded = await context.request.post('/api/profile/history-import/commit', { headers: { origin: 'http://127.0.0.1:5175' }, data: { sessionBinding: current.sessionBinding, confirmation: 'IMPORT MY OWN HISTORY', rows: [{ row: 2, date: '2026-09-12', eventName: 'Replacement private run', time: '25:00' }] } });
+      const seeded = await context.request.post('/api/profile/history-import/commit', { headers: { origin: 'http://127.0.0.1:5175', 'x-compass-session-binding': current.sessionBinding }, data: { sessionBinding: current.sessionBinding, confirmation: 'IMPORT MY OWN HISTORY', rows: [{ row: 2, date: '2026-09-12', eventName: 'Replacement private run', time: '25:00' }] } });
       expect(seeded.status()).toBe(200);
       const where = { userId: { in: [origin.user.id, current.user.id] } }; const orderBy = { id: 'asc' as const };
       const before = await db.userPerformance.findMany({ where, orderBy });

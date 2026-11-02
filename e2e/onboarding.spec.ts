@@ -1,3 +1,4 @@
+import { boundGet } from './sessionRequests';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
@@ -71,25 +72,25 @@ for (const scenario of ['skip', 'location', 'denied'] as const) {
       expect(user).toMatchObject({ homeLat: scenario === 'location' ? 53.4 : null, homeLon: scenario === 'location' ? -2.6 : null });
       expect(user.onboardingCompletedAt).not.toBeNull();
       expect(await db.userPerformance.count({ where: { userId: user.id } })).toBe(0);
-      const profile = await (await context.request.get('/api/profile')).json();
+      const profile = await (await boundGet(context.request, '/api/profile')).json();
       expect(profile).toMatchObject({ runsCompleted: 0, uniqueEventsVisited: 0, savedEventIds: [], lifetimePbSeconds: null, recentPbSeconds: null, currentForm: { status: 'unavailable', formSeconds: null } });
-      const challenges = await (await context.request.get('/api/profile/challenges')).json();
+      const challenges = await (await boundGet(context.request, '/api/profile/challenges')).json();
       expect(challenges.challenges.find((c: { id: string }) => c.id === 'alphabet').progress).toMatchObject({ current: 0, target: 25 });
-      const events = await (await context.request.get('/api/events')).json();
+      const events = await (await boundGet(context.request, '/api/events')).json();
       expect(events.every((e: { source: string }) => e.source !== 'demo')).toBe(true);
       // This suite creates no imported catalogue. Seeded DEMO rows must never fill the gap.
       expect(events).toEqual([]);
       await expect(page.getByText('No events available yet', { exact: true })).toBeVisible();
       if (scenario === 'location') {
         for (const intent of ['pb', 'place', 'new_event', 'challenge', 'quiet', 'hidden_gem', 'surprise']) {
-          const saturday = await (await context.request.get(`/api/saturday/recommendations?intent=${intent}`)).json();
+          const saturday = await (await boundGet(context.request, `/api/saturday/recommendations?intent=${intent}`)).json();
           expect(saturday).toMatchObject({ bestPick: null, results: [], message: 'No events available yet.' });
         }
       }
       await page.goto('/profile'); await page.getByRole('button', { name: 'Sign out', exact: true }).click();
       await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
       await signIn(page, a); await expect(page.getByRole('heading', { name: 'Profile', exact: true })).toBeVisible();
-      expect(await (await context.request.get('/api/profile/settings')).json()).toMatchObject({ onboardingCompletedAt: user.onboardingCompletedAt!.toISOString(), homeLat: user.homeLat, homeLon: user.homeLon });
+      expect(await (await boundGet(context.request, '/api/profile/settings')).json()).toMatchObject({ onboardingCompletedAt: user.onboardingCompletedAt!.toISOString(), homeLat: user.homeLat, homeLon: user.homeLon });
       await page.goto('/'); await expect(page.getByRole('heading', { name: 'Where are you running?' })).toBeVisible();
       if (scenario === 'location') {
         await page.goto('/profile');
@@ -103,7 +104,7 @@ for (const scenario of ['skip', 'location', 'denied'] as const) {
         await signIn(page, b); await page.getByRole('link', { name: 'Finish your welcome setup', exact: true }).click(); await startingArea(page);
         expect(await page.evaluate(() => (window as typeof window & { b3Flash?: boolean }).b3Flash)).toBe(false);
         await expect(page.getByLabel('Town or postcode district')).toHaveValue('');
-        const other = await (await context.request.get('/api/profile/settings')).json();
+        const other = await (await boundGet(context.request, '/api/profile/settings')).json();
         expect(other).toEqual({ homeLat: null, homeLon: null, homeLabel: null, defaultTravelMinutes: 30, onboardingCompletedAt: null });
       }
     } finally {
@@ -130,9 +131,9 @@ test('B3 optional manual 5K reuses the existing form and returns safely to welco
     await form.getByLabel('Finish time').fill('19:35');
     await form.getByRole('button', { name: 'Add performance', exact: true }).click();
     await expect(page.getByRole('heading', { name: "You're ready", exact: true })).toBeVisible();
-    const profile = await (await context.request.get('/api/profile')).json();
+    const profile = await (await boundGet(context.request, '/api/profile')).json();
     expect(profile).toMatchObject({ runsCompleted: 1, lifetimePbSeconds: 1175, uniqueEventsVisited: 0, currentForm: { status: 'unavailable', formSeconds: null } });
-    expect(await (await context.request.get('/api/profile/settings')).json()).toMatchObject({ onboardingCompletedAt: null, homeLat: null, homeLon: null });
+    expect(await (await boundGet(context.request, '/api/profile/settings')).json()).toMatchObject({ onboardingCompletedAt: null, homeLat: null, homeLon: null });
     await page.getByRole('button', { name: 'Explore events', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Explore', exact: true })).toBeVisible();
     const user = await db.user.findUniqueOrThrow({ where: { email } });
