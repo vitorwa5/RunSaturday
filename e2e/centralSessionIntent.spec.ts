@@ -38,16 +38,20 @@ for (const replacement of ['another-account', 'same-account'] as const) {
         const seed = await context.request.post('/api/profile/performances', { headers: { origin: 'http://127.0.0.1:5175', [bindingHeader]: original.sessionBinding }, data: { date: '2026-09-20', externalEventName: 'Origin private synthetic run', time: '24:31' } });
         expect(seed.status()).toBe(201); const performanceId = (await seed.json()).id;
         if (operation === 'edit' || operation === 'delete-performance') {
+          const catalogue = page.waitForResponse(response => new URL(response.url()).pathname === '/api/events' && response.request().method() === 'GET');
           await page.goto(`/profile/performances/${performanceId}/edit`);
+          expect((await catalogue).status()).toBe(200);
           await expect(page.getByRole('form', { name: 'Edit performance' })).toBeVisible();
-          if (operation === 'edit') await page.getByLabel('Finish time').fill('10:00');
+          if (operation === 'edit') await page.getByLabel('Finish time').fill('20:00');
           else await page.getByRole('button', { name: 'Delete performance', exact: true }).click();
         } else if (operation === 'add') {
+          const catalogue = page.waitForResponse(response => new URL(response.url()).pathname === '/api/events' && response.request().method() === 'GET');
           await page.goto('/profile/performances/new');
+          expect((await catalogue).status()).toBe(200);
           await page.getByRole('radio', { name: 'Other 5K race', exact: true }).click();
           await page.getByLabel('Race name').fill('Queued stale new run');
           await page.getByLabel('Date', { exact: true }).fill('2026-09-21');
-          await page.getByLabel('Finish time').fill('10:00');
+          await page.getByLabel('Finish time').fill('20:00');
         } else {
           await page.goto('/profile');
           await expect(page.getByRole('button', { name: 'Export my data', exact: true })).toBeVisible();
@@ -61,6 +65,12 @@ for (const replacement of ['another-account', 'same-account'] as const) {
         await expect(holder.getByText(`Signed in as ${a}`, { exact: true })).toBeVisible();
         expect((await context.request.post('/api/auth/email-otp/send-verification-otp', { headers: { origin: 'http://127.0.0.1:5175' }, data: { email: b } })).status()).toBe(200);
         let code = ''; await expect.poll(async () => { code = await codeFor(b); return code.length; }).toBe(6);
+        // Finish initial contextual reads before acquiring the holder's lock, so only
+        // the action below can account for the subsequent pending-lock assertion.
+        await expect.poll(() => page.evaluate(async () => {
+          const locks = await navigator.locks.query();
+          return [...locks.held, ...locks.pending].filter(lock => lock.name === '5k-compass-auth').length;
+        })).toBe(0);
         await holder.evaluate(({ email, otp, binding }) => {
           const state = { entered: false, changed: false } as NonNullable<Holder['centralLock']>;
           (window as Holder).centralLock = state;
@@ -72,6 +82,7 @@ for (const replacement of ['another-account', 'same-account'] as const) {
           });
         }, { email: b, otp: code, binding: original.sessionBinding });
         await expect.poll(() => holder.evaluate(() => (window as Holder).centralLock?.entered)).toBe(true);
+        expect(await page.evaluate(async () => (await navigator.locks.query()).pending.filter(lock => lock.name === '5k-compass-auth'))).toEqual([]);
         const sent: string[] = [];
         page.on('request', r => {
           const isAuthAction = operation === 'logout' || operation === 'delete-account';
@@ -80,7 +91,8 @@ for (const replacement of ['another-account', 'same-account'] as const) {
         });
         if (operation === 'contextual-read') {
           // Client navigation retains the mounted originating auth view; full reload would bootstrap B.
-          await page.getByRole('link', { name: 'Add performance', exact: true }).first().evaluate((link: HTMLAnchorElement) => link.click());
+          // Unlike the form's event catalogue, this endpoint is not already cached by Profile.
+          await page.getByRole('link', { name: 'Current Form unavailable: how is it calculated?', exact: true }).evaluate((link: HTMLAnchorElement) => link.click());
         } else {
           const name = { settings: 'Save starting area', add: 'Add performance', edit: 'Save changes', 'delete-performance': 'Delete', export: 'Export my data', 'delete-account': 'Permanently delete my account', logout: 'Sign out' }[operation];
           await page.getByRole('button', { name, exact: true }).evaluate((button: HTMLButtonElement) => button.click());
