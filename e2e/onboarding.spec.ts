@@ -60,7 +60,9 @@ for (const scenario of ['skip', 'location', 'denied'] as const) {
         await expect(page.getByText('Approximate coordinates:', { exact: false })).toContainText('53.40, -2.60');
         await page.getByLabel('Town or postcode district').fill('A private starting area');
         await page.getByLabel('Approx. travel budget').selectOption('45');
+        const savedSettings = page.waitForResponse((response) => response.url().endsWith('/api/profile/settings') && response.request().method() === 'PATCH');
         await page.getByRole('button', { name: 'Continue', exact: true }).click();
+        expect((await savedSettings).ok()).toBe(true);
         expect(settingsBodies[0]).toMatchObject({ homeLat: 53.4, homeLon: -2.6, defaultTravelMinutes: 45 });
         expect(JSON.stringify(settingsBodies)).not.toContain('41234567');
       } else {

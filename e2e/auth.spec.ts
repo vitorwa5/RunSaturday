@@ -65,6 +65,9 @@ test('B1: empty account, persistence, safe switch without a personal-data flash,
     await form.getByLabel('Date', { exact: true }).fill('2026-09-20');
     await form.getByLabel('Finish time').fill('19:37');
     await form.getByRole('button', { name: 'Add performance', exact: true }).click();
+    // Wait for the save's successful navigation before testing reload persistence.
+    await expect(page.getByRole('heading', { level: 1, name: 'Profile', exact: true })).toBeVisible();
+    await expect(page.getByText('19:37', { exact: true }).first()).toBeVisible();
     await page.goto('/profile');
     await expect(page.getByText('19:37', { exact: true }).first()).toBeVisible();
     const dataA = await (await boundGet(context.request, '/api/profile')).json();
@@ -110,6 +113,15 @@ test('B1: empty account, persistence, safe switch without a personal-data flash,
     await page.getByRole('button', { name: 'Export my data', exact: true }).click();
     await exportCaptured;
     await otherTab.getByRole('button', { name: 'Sign out', exact: true }).click();
+    // The transition hides personal UI immediately, but must wait for the
+    // dispatched export response before it can acquire the cookie-write lock.
+    await expect.poll(() => otherTab.evaluate(async () => (await navigator.locks.query()).pending.some((lock) => lock.name === '5k-compass-auth'))).toBe(true);
+    await expect(page.getByText('19:37', { exact: true })).toHaveCount(0);
+    await expect(otherTab.getByText('19:37', { exact: true })).toHaveCount(0);
+    expect(downloads).toEqual([]);
+    release();
+    await exportCompleted;
+    await page.unroute('**/api/account/export');
     await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
     await expect(otherTab.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
     // Record every DOM mutation throughout B's login, rather than checking only the settled UI.
@@ -120,9 +132,6 @@ test('B1: empty account, persistence, safe switch without a personal-data flash,
       w.personalObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
     });
     await login(page, b);
-    release();
-    await exportCompleted;
-    await page.unroute('**/api/account/export');
     await expect(otherTab.getByText(`Signed in as ${b}`, { exact: true })).toBeVisible();
     await expect(otherTab.getByText('19:37', { exact: true })).toHaveCount(0);
     await otherTab.close();
