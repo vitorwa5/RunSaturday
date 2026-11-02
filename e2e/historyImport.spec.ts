@@ -3,11 +3,15 @@ import { randomUUID } from 'node:crypto';
 import { test, expect, type Page } from '@playwright/test';
 import { createPrismaClient } from '../apps/api/src/db/prisma';
 import { CatalogueImportService } from '../apps/api/src/catalogue/importService';
+async function codeFor(email: string) {
+  const text = await readFile('/tmp/runsaturday-b1-browser-inbox.jsonl', 'utf8').catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return ''; throw error; });
+  return text.split('\n').filter(line => line.trim()).map(line => JSON.parse(line)).filter(row => row.email === email).at(-1)?.code ?? '';
+}
 async function signIn(page: Page, email: string) {
   await page.getByLabel('Email address').fill(email);
   await page.getByRole('button', { name: 'Send code', exact: true }).click();
   let code = '';
-  await expect.poll(async () => { code = (await readFile('/tmp/runsaturday-b1-browser-inbox.jsonl', 'utf8')).trim().split('\n').map(l => JSON.parse(l)).filter(r => r.email === email).at(-1)?.code ?? ''; return code.length; }).toBe(6);
+  await expect.poll(async () => { code = await codeFor(email); return code.length; }).toBe(6);
   await page.getByLabel('Sign-in code').fill(code); await page.getByRole('button', { name: 'Verify code', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Import my 5K history', exact: true })).toBeVisible();
 }
@@ -75,19 +79,26 @@ test('B4 private import, reimport, correction, mixed rows, ambiguous mapping and
   }
 });
 
-for (const operation of ['preview', 'commit'] as const) test(`B4 delayed A ${operation} cannot appear or be committed under B`, async ({ page }) => {
+for (const operation of ['preview', 'commit', 'delete'] as const) test(`B4 delayed A ${operation} cannot appear or be committed under B`, async ({ page, context }) => {
   const run = randomUUID(); const a = `b4-${run}-a@example.test`; const b = `b4-${run}-b@example.test`; const db = createPrismaClient(process.env.TEST_DATABASE_URL!);
   let release!: () => void; let arrived!: () => void;
   const barrier = new Promise<void>(r => { release = r; }); const intercepted = new Promise<void>(r => { arrived = r; });
   try {
     await clearIp(db); await page.goto('/profile/import-history'); await signIn(page, a);
     if (operation === 'commit') { await upload(page, 'date,event_name,time\n2026-09-05,A private delayed race,24:31'); await expect(page.getByRole('heading', { name: 'Preview: 1 rows' })).toBeVisible(); }
-    await page.route(`**/api/profile/history-import/${operation}`, async route => { const response = await route.fetch(); arrived(); await barrier; await route.fulfill({ response }).catch(() => undefined); });
+    if (operation === 'delete') { await upload(page, 'date,event_name,time\n2026-09-05,A private delayed race,24:31'); await expect(page.getByRole('heading', { name: 'Preview: 1 rows' })).toBeVisible(); await confirm(page); }
+    await page.route(operation === 'delete' ? '**/api/profile/history-import' : `**/api/profile/history-import/${operation}`, async route => { const response = await route.fetch(); arrived(); await barrier; await route.fulfill({ response }).catch(() => undefined); });
     if (operation === 'preview') await upload(page, 'date,event_name,time\n2026-09-05,A private delayed race,24:31');
-    else { await page.getByRole('checkbox', { name: /I confirm this file/ }).check(); await page.getByRole('button', { name: 'Confirm import', exact: true }).click(); }
+    else if (operation === 'commit') { await page.getByRole('checkbox', { name: /I confirm this file/ }).check(); await page.getByRole('button', { name: 'Confirm import', exact: true }).click(); }
+    else { await page.getByRole('checkbox', { name: /Remove all my CSV/ }).check(); await page.getByRole('button', { name: 'Remove my CSV history', exact: true }).click(); }
     await intercepted;
-    await page.getByRole('button', { name: 'Sign out', exact: true }).click(); await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
-    await signIn(page, b); release();
+    const logouts: string[] = []; page.on('request', r => { if (r.url().endsWith('/api/auth/sign-out')) logouts.push(r.url()); });
+    await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+    await expect.poll(() => page.evaluate(async () => (await navigator.locks.query()).pending?.some(lock => lock.name === '5k-compass-auth') ?? false)).toBe(true);
+    expect(logouts).toHaveLength(0);
+    expect((await (await context.request.get('/api/account/session')).json()).user.email).toBe(a);
+    release(); await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+    await signIn(page, b);
     await page.unrouteAll({ behavior: 'wait' });
     await expect(page.getByText('A private delayed race', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Confirm import', exact: true })).toHaveCount(0);
@@ -122,13 +133,15 @@ for (const operation of ['preview', 'commit', 'delete'] as const) test(`B4 stale
     const seeded = await context.request.post('/api/profile/history-import/commit', { headers: { origin: 'http://127.0.0.1:5175' }, data: { sessionBinding: bSession.sessionBinding, rows: [{ row: 2, date: '2026-09-05', eventName: 'B private preserved race', time: '25:00' }], confirmation: 'IMPORT MY OWN HISTORY' } });
     expect(seeded.status()).toBe(200);
     const before = await db.userPerformance.findMany({ where: { userId: { in: [aSession.user.id, bSession.user.id] } } });
-    const responsePromise = page.waitForResponse(r => r.url().endsWith('/history-import' + (operation === 'delete' ? '' : '/' + operation)) && r.request().method() === (operation === 'delete' ? 'DELETE' : 'POST'));
+    const historyRequests: string[] = [];
+    page.on('request', r => { if (r.url().includes('/api/profile/history-import')) historyRequests.push(r.url()); });
+    const responsePromise = page.waitForResponse(r => r.url().endsWith('/api/account/session') && r.request().method() === 'GET');
     if (operation === 'preview') await upload(page, csv);
     else await page.getByRole('button', { name: operation === 'commit' ? 'Confirm import' : 'Remove my CSV history', exact: true }).click();
     const response = await responsePromise;
-    expect(response.request().postDataJSON().sessionBinding).toBe(aSession.sessionBinding);
-    expect(response.status()).toBe(409); expect((await response.json()).error.code).toBe('session_changed');
+    expect(response.status()).toBe(200); expect((await response.json()).sessionBinding).toBe(bSession.sessionBinding);
     await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+    expect(historyRequests).toHaveLength(0);
     await expect(page.getByText('B private preserved race', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Import complete' })).toHaveCount(0);
     expect(await db.userPerformance.findMany({ where: { userId: { in: [aSession.user.id, bSession.user.id] } } })).toEqual(before);

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { historyName, type HistoryCandidate, type HistoryPreview, type HistoryResult } from '@runsaturday/shared';
 import { useAuth } from '../auth/AuthProvider';
+import { captureHistorySession, withHistorySession } from '../auth/historyOperation';
 import { AccountControls } from '../auth/AccountControls';
 import { api } from '../api/endpoints';
 import { useCommitHistory, useDeleteCsvHistory } from '../hooks/queries';
@@ -17,7 +18,7 @@ export function HistoryImportPage() {
   async function previewRows(input: HistoryCandidate[]) {
     const ticket = auth.captureOperation(); const current = ++generation.current;
     setBusy(true); setError(''); setPreview(null); setResult(null); setConfirmed(false);
-    try { const data = await api.previewHistory(input, ticket.signal, auth.sessionBinding); if (ticket.isCurrent() && lifetime.current && generation.current === current) { setRows(input); setPreview(data); } }
+    try { const data = await withHistorySession(captureHistorySession(auth), ticket, () => api.previewHistory(input, undefined, auth.sessionBinding)); if (ticket.isCurrent() && lifetime.current && generation.current === current) { setRows(input); setPreview(data); } }
     catch (e) { if (ticket.isCurrent() && lifetime.current && generation.current === current) setError(e instanceof Error ? e.message : 'Could not preview.'); }
     finally { if (ticket.isCurrent() && lifetime.current && generation.current === current) setBusy(false); }
   }
