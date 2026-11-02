@@ -100,6 +100,21 @@ describe.skipIf(!url)('CENTRAL independent originating-session API regressions',
     });
   }
 
+  it('rejects a cached signed-out client login without the new binding contract before consuming its OTP', async () => {
+    const email = `central-qa-${run}-${++counter}@example.test`;
+    const sent = await send(email); expect(sent.statusCode).toBe(200);
+    expect(sent.cookies.some(c => c.name.endsWith('.session_token'))).toBe(false);
+    const before = await db.verification.findMany({ where: { identifier: `sign-in-otp-${email}` } });
+    const response = await request({ method: 'POST', url: '/api/auth/sign-in/email-otp', payload: { email, otp: codes.get(email)! } });
+    expect(response.statusCode).toBe(409); expect(response.json().error.code).toBe('session_changed');
+    expect(response.headers['set-cookie']).toBeUndefined();
+    expect(await db.verification.findMany({ where: { identifier: `sign-in-otp-${email}` } })).toEqual(before);
+    expect(await db.user.findUnique({ where: { email } })).toBeNull();
+    const accepted = await request({ method: 'POST', url: '/api/auth/sign-in/email-otp', headers: { [header]: 'signed-out' }, payload: { email, otp: codes.get(email)! } });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.cookies.some(c => c.name.endsWith('.session_token'))).toBe(true);
+  });
+
   it('rejects stale login/logout without consuming OTP, revoking the replacement, or emitting cookies', async () => {
     const a = await login(); const b = await login(undefined, a);
     const target = `central-qa-${run}-${++counter}@example.test`;
