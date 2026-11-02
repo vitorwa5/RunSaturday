@@ -1,13 +1,12 @@
 /**
- * Integration test against a real, seeded PostgreSQL database. Skipped unless
+ * Integration test against a disposable schema in the supplied PostgreSQL test database. Skipped unless
  * TEST_DATABASE_URL is set, e.g.:
  *
  *   TEST_DATABASE_URL=postgresql://runsaturday:runsaturday@localhost:5432/runsaturday npm test -w @runsaturday/api
  */
-import { calendarDateIn } from '@runsaturday/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { recalculateAnalytics } from '../analytics/recalculate';
-import { createPrismaClient } from '../db/prisma';
+import { seededDemoFixture } from './fixtures/seededDemo';
 import { MemoryDataStore } from '../repositories/memory/MemoryDataStore';
 import { PrismaDataStore } from '../repositories/prisma/PrismaDataStore';
 import { DuplicatePerformanceError } from '../repositories/DataStore';
@@ -20,11 +19,13 @@ const url = process.env.TEST_DATABASE_URL;
 const FIVE_K_PARKRUN = { externalEventName: null, performanceType: 'parkrun' as const, distanceMeters: 5000 };
 
 describe.skipIf(!url)('PrismaDataStore (seeded database)', () => {
-  const today = calendarDateIn(new Date(), 'Europe/London');
-  const db = url ? createPrismaClient(url) : null;
+  const today = '2026-10-03';
+  const fixture = url ? seededDemoFixture(url, today) : null;
+  const db = fixture?.db ?? null;
   const store = db ? new PrismaDataStore(db, 'demo_v0', 'demo') : null;
   const memory = new MemoryDataStore(today);
-  afterAll(async () => db?.$disconnect());
+  beforeAll(async () => fixture!.setup(), 120_000);
+  afterAll(async () => fixture?.cleanup(), 30_000);
 
   it('is reachable', async () => {
     expect(await store!.ping()).toBe(true);
