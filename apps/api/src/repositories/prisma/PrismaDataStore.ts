@@ -1,3 +1,4 @@
+import { planHistory } from '../../history/planner';
 import { addDays, type OccurrenceSummary } from '@runsaturday/shared';
 import { DEFAULT_SCORE_WINDOW_DAYS } from '../../config/analysis';
 import type { PlacementOccurrenceInput } from '../../domain/placementEngine';
@@ -312,6 +313,25 @@ export class PrismaDataStore implements DataStore {
     };
   }
 
+  async listHistoryEvents() {
+    return this.db.event.findMany({ where: this.eventScope, select: { id: true, name: true, active: true, town: true, region: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }] });
+  }
+  async commitCsvHistory(userId: string, rows: import('@runsaturday/shared').HistoryCandidate[], today: string) {
+    return this.mutate(userId, async tx => {
+      const existing = (await tx.userPerformance.findMany({ where: { userId }, include: PERFORMANCE_INCLUDE })).map(mapPerformance);
+      const events = await tx.event.findMany({ where: this.eventScope, select: { id: true, name: true, active: true, town: true, region: true } });
+      const plan = planHistory(rows, existing, events, today);
+      for (const write of plan.writes) {
+        const data = { ...performanceData(write.input), source: 'CSV' as const, externalResultId: write.externalResultId, verified: false };
+        if (write.id) await tx.userPerformance.update({ where: { id: write.id, userId, source: 'CSV' }, data });
+        else await tx.userPerformance.create({ data: { ...data, userId } });
+      }
+      return plan.result;
+    }, 120_000);
+  }
+  async deleteCsvHistory(userId: string) {
+    return this.mutate(userId, async tx => (await tx.userPerformance.deleteMany({ where: { userId, source: 'CSV' } })).count);
+  }
   async updateUserSettings(userId: string, settings: Partial<import('@runsaturday/shared').AccountSettings>): Promise<void> {
     const { onboardingCompletedAt, ...rest } = settings;
     await this.db.user.update({ where: { id: userId }, data: { ...rest,
@@ -335,14 +355,14 @@ export class PrismaDataStore implements DataStore {
   }
 
   /** Mutations, revision increment and removal of every historical derived copy are atomic. */
-  private async mutate<T>(userId: string, write: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  private async mutate<T>(userId: string, write: (tx: Prisma.TransactionClient) => Promise<T>, timeout?: number): Promise<T> {
     return uniqueOrDuplicate(() => this.db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
       const result = await write(tx);
       await tx.user.update({ where: { id: userId }, data: { performanceRevision: { increment: 1 } } });
       await tx.runnerFormSnapshot.deleteMany({ where: { userId } });
       return result;
-    }));
+    }, timeout ? { timeout } : undefined));
   }
   async createUserPerformance(userId: string, input: NewPerformance): Promise<PerformanceRecord> {
     return this.mutate(userId, async (tx) => mapPerformance(await tx.userPerformance.create({

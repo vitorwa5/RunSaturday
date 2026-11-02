@@ -671,3 +671,5 @@ Phase 1 is complete (foundation and shell). Next phases follow the master specif
 10. Saturday Planner
 
 Weather, travel-time APIs, notifications and Android packaging come after the data pipeline is reliable.
+
+Private user-prepared history import: see [B4 Personal History CSV v1](docs/B4-personal-history-csv.md) for local parsing, privacy, mapping, replay and removal semantics.

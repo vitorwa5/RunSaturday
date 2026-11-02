@@ -1,3 +1,4 @@
+import { historyRoutes } from './history/routes';
 import { installIdentity, accountRoutes, type AuthRuntime } from './auth/http';
 import cors from '@fastify/cors';
 import Fastify, { type FastifyServerOptions } from 'fastify';
@@ -44,6 +45,7 @@ export async function buildApp({ config, store, now = () => new Date(), logger, 
   await toolRoutes(app, ctx);
   await analyticsRoutes(app, ctx);
   await profileRoutes(app, ctx);
+  await historyRoutes(app, ctx);
   await challengeRoutes(app, ctx);
 
   app.addHook('onClose', async () => store.close());

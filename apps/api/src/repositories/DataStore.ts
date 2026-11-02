@@ -133,6 +133,9 @@ export interface DataStore {
   listPlacementInputs(timeSeconds: number, eventIds: string[] | null, from: string | null, to: string): Promise<PlacementOccurrenceInput[]>;
   /** Stored settings only; use services/userPerformance.loadUser for derived values. */
   getUser(userId: string): Promise<StoredUser | null>;
+  listHistoryEvents(): Promise<import("@runsaturday/shared").HistoryEvent[]>;
+  commitCsvHistory(userId: string, rows: import("@runsaturday/shared").HistoryCandidate[], today: string): Promise<import("@runsaturday/shared").HistoryResult>;
+  deleteCsvHistory(userId: string): Promise<number>;
   updateUserSettings(userId: string, settings: Partial<AccountSettings>): Promise<void>;
   /**
    * PERSONAL DATA. Every performance method takes the owning userId and only ever reads or

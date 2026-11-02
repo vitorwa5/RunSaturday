@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { CatalogueImportService } from '../catalogue/importService';
 import type { CourseFactorResult } from '../analytics/courseSpeed';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -47,7 +47,10 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     return { email: address, cookie: `${c.name}=${c.value}`, user: await db.user.findUniqueOrThrow({ where: { email: address } }), response };
   };
   const get = (path: string, cookie?: string) => req({ method: 'GET', url: path, headers: cookie ? { cookie } : {} });
-  const mutation = (method: 'POST' | 'PATCH' | 'DELETE', path: string, cookie: string, payload?: object) => req({ method, url: path, headers: { cookie }, payload: payload ?? {} });
+  const mutation = async (method: 'POST' | 'PATCH' | 'DELETE', path: string, cookie: string, payload?: object) => {
+    const session = path.startsWith('/api/profile/history-import') ? (await get('/api/account/session', cookie)).json() : null;
+    return req({ method, url: path, headers: { cookie }, payload: { ...(session ? { sessionBinding: session.sessionBinding } : {}), ...payload } });
+  };
   const input = { get eventId() { return eventA; }, date: '2026-09-20', time: '19:35' };
   beforeAll(async () => {
     await new CatalogueImportService(db, 'beta').import({ format: '5k-compass-catalogue-v1', source: { namespace: catalogueNamespace, kind: 'imported', attribution: 'Synthetic auth integration fixtures' }, records: [
@@ -69,6 +72,159 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     await db.catalogueImportRun.deleteMany({ where: { sourceNamespace: catalogueNamespace } });
     await app?.close();
     await db.$disconnect();
+  });
+
+  it('B4 rejects missing, stale and cross-account session bindings before reads or writes', async () => {
+    const a = await login(); const b = await login();
+    const aBinding = (await get('/api/account/session', a.cookie)).json().sessionBinding;
+    const bBinding = (await get('/api/account/session', b.cookie)).json().sessionBinding;
+    const rows = [{ row: 2, date: '2026-09-20', eventName: 'Private session fixture', time: '24:31' }];
+    await mutation('POST', '/api/profile/history-import/commit', b.cookie, { rows, confirmation: 'IMPORT MY OWN HISTORY' });
+    const before = await db.userPerformance.findMany({ where: { userId: { in: [a.user.id, b.user.id] } } });
+    const reads = vi.spyOn(store, 'listUserPerformances');
+    const writes = vi.spyOn(store, 'commitCsvHistory');
+    const deletes = vi.spyOn(store, 'deleteCsvHistory');
+    for (const sessionBinding of [undefined, aBinding, 'stale-session']) {
+      for (const operation of ['preview', 'commit', 'delete']) {
+        const response = await req({ method: operation === 'delete' ? 'DELETE' : 'POST',
+          url: '/api/profile/history-import' + (operation === 'delete' ? '' : '/' + operation), headers: { cookie: b.cookie },
+          payload: operation === 'delete' ? { sessionBinding, confirmation: 'REMOVE MY CSV HISTORY' } : { rows, sessionBinding, ...(operation === 'commit' ? { confirmation: 'IMPORT MY OWN HISTORY' } : {}) } });
+        expect(response.statusCode).toBe(409); expect(response.json().error.code).toBe('session_changed');
+      }
+    }
+    expect(reads).not.toHaveBeenCalled(); expect(writes).not.toHaveBeenCalled(); expect(deletes).not.toHaveBeenCalled();
+    expect(await db.userPerformance.findMany({ where: { userId: { in: [a.user.id, b.user.id] } } })).toEqual(before);
+    // Another session of the same user must also reject the old binding.
+    const renewed = await login(b.email, b.cookie);
+    expect((await mutation('POST', '/api/profile/history-import/preview', renewed.cookie, { rows, sessionBinding: bBinding })).statusCode).toBe(409);
+  });
+
+  it('B4 reimport restores a manually edited date on the original CSV record', async () => {
+    const a = await login(); const rows = [{ row: 2, date: '2026-09-20', eventName: 'Private date fixture', time: '24:31' }];
+    const body = { rows, confirmation: 'IMPORT MY OWN HISTORY' };
+    expect((await mutation('POST', '/api/profile/history-import/commit', a.cookie, body)).json().created).toBe(1);
+    const record = await db.userPerformance.findFirstOrThrow({ where: { userId: a.user.id } });
+    expect((await mutation('PATCH', '/api/profile/performances/' + record.id, a.cookie, { date: '2026-09-19', externalEventName: rows[0]!.eventName, time: '24:31' })).statusCode).toBe(200);
+    expect((await mutation('POST', '/api/profile/history-import/preview', a.cookie, { rows })).json().counts.UPDATE).toBe(1);
+    expect((await mutation('POST', '/api/profile/history-import/commit', a.cookie, body)).json().updated).toBe(1);
+    expect(await db.userPerformance.findMany({ where: { userId: a.user.id } })).toEqual([expect.objectContaining({ id: record.id, date: record.date, externalResultId: record.externalResultId })]);
+    expect((await mutation('POST', '/api/profile/history-import/commit', a.cookie, body)).json().unchanged).toBe(1);
+  });
+
+  it('B4 preview is read-only, commit is private/idempotent/correctable and CSV withdrawal preserves manual/public data', async () => {
+    const a = await login(); const b = await login();
+    const row = { row: 2, date: '2026-09-20', eventName: 'Riverside Synthetic Saturday 5K', time: '24:31' };
+    const external = { row: 3, date: '2026-09-19', eventName: 'Private external run', time: '25:00' };
+    const publicCounts = async () => [await db.event.count(), await db.eventOccurrence.count(), await db.result.count(), await db.eventScore.count(), await db.courseFactorSnapshot.count()];
+    const before = await publicCounts();
+    expect((await get('/api/profile/performances', a.cookie)).json().total).toBe(0);
+    const preview = await mutation('POST', '/api/profile/history-import/preview', a.cookie, { rows: [row, external] });
+    expect(preview.statusCode).toBe(200); expect(preview.json().counts.NEW).toBe(2);
+    expect(await db.userPerformance.count({ where: { userId: a.user.id } })).toBe(0);
+    expect(await db.runnerFormSnapshot.count({ where: { userId: a.user.id } })).toBe(0);
+    expect(preview.json().rows[0].eventId).toBe(eventA);
+    const body = { rows: [row, external], confirmation: 'IMPORT MY OWN HISTORY' };
+    expect((await mutation('POST', '/api/profile/history-import/commit', a.cookie, body)).json()).toMatchObject({ created: 2, updated: 0 });
+    const record = await db.userPerformance.findFirstOrThrow({ where: { userId: a.user.id, eventId: eventA } });
+    expect(record).toMatchObject({ source: 'CSV', verified: false, finishTimeSeconds: 1471 });
+    expect((await mutation('POST', '/api/profile/history-import/commit', a.cookie, body)).json()).toMatchObject({ created: 0, unchanged: 2 });
+    const corrected = { rows: [{ ...row, time: '23:00' }, external], confirmation: 'IMPORT MY OWN HISTORY' };
+    expect((await mutation('POST', '/api/profile/history-import/preview', a.cookie, { rows: corrected.rows })).json().counts.UPDATE).toBe(1);
+    expect((await mutation('POST', '/api/profile/history-import/commit', a.cookie, corrected)).json()).toMatchObject({ updated: 1, unchanged: 1 });
+    expect(await db.userPerformance.findUnique({ where: { id: record.id } })).toMatchObject({ finishTimeSeconds: 1380 });
+    expect((await get('/api/profile', a.cookie)).json()).toMatchObject({ runsCompleted: 2, uniqueEventsVisited: 1, lifetimePbSeconds: 1380, currentForm: { status: 'unavailable' } });
+    expect((await get('/api/profile/challenges', a.cookie)).json().challenges.find((c: { id: string }) => c.id === 'alphabet').progress.current).toBe(1);
+    expect((await get('/api/account/export', a.cookie)).json().performances.every((p: { source: string }) => p.source === 'csv')).toBe(true);
+    await mutation('POST', '/api/profile/performances', a.cookie, { date: '2026-09-18', externalEventName: 'Manual race', time: '22:00' });
+    const conflict = { ...external, date: '2026-09-18', eventName: 'Manual race' };
+    expect((await mutation('POST', '/api/profile/history-import/preview', a.cookie, { rows: [conflict] })).json().counts.CONFLICT).toBe(1);
+    expect((await mutation('POST', '/api/profile/history-import/commit', a.cookie, { rows: [conflict], confirmation: 'IMPORT MY OWN HISTORY' })).json()).toMatchObject({ created: 0, skipped: 1 });
+    expect(await publicCounts()).toEqual(before);
+    await mutation('POST', '/api/profile/history-import/commit', b.cookie, { rows: [external], confirmation: 'IMPORT MY OWN HISTORY' });
+    for (const path of ['preview', 'commit']) {
+      expect((await mutation('POST', `/api/profile/history-import/${path}`, a.cookie, { ...body, userId: b.user.id })).statusCode).toBe(400);
+      expect((await mutation('POST', `/api/profile/history-import/${path}?userId=${b.user.id}`, a.cookie, body)).statusCode).toBe(400);
+    }
+    expect((await mutation('DELETE', '/api/profile/history-import', a.cookie, { userId: b.user.id, confirmation: 'REMOVE MY CSV HISTORY' })).statusCode).toBe(400);
+    expect((await get('/api/profile/performances', b.cookie)).json().total).toBe(1);
+    expect((await mutation('DELETE', '/api/profile/history-import', a.cookie, { confirmation: 'REMOVE MY CSV HISTORY' })).json()).toMatchObject({ deleted: 2 });
+    expect((await get('/api/profile/performances', a.cookie)).json()).toMatchObject({ total: 1, performances: [{ source: 'manual' }] });
+    expect(await publicCounts()).toEqual(before);
+    expect((await get('/api/profile/performances', b.cookie)).json().total).toBe(1);
+  });
+
+  it('B4 rejects untrusted mapping, handles inactive/ambiguous events, validates rows and never promotes CSV to public evidence', async () => {
+    const a = await login();
+    await new CatalogueImportService(db, 'beta').import({ format: '5k-compass-catalogue-v1', source: { namespace: catalogueNamespace, kind: 'imported', attribution: 'Synthetic B4 fixtures' }, records: ['old', 'amb1', 'amb2'].map(id => ({ externalId: id, name: id === 'old' ? 'Old Trusted Park' : 'Ambiguous Park', countryCode: 'GB', timezone: 'Europe/London', latitude: 53, longitude: -2, active: id !== 'old' })) });
+    const old = await db.event.findUniqueOrThrow({ where: { sourceNamespace_externalId: { sourceNamespace: catalogueNamespace, externalId: 'old' } } });
+    const demo = await db.event.findFirstOrThrow({ where: { source: 'DEMO' } });
+    const row = { row: 2, date: '2026-09-20', eventName: 'Old Trusted Park', time: '24:31' };
+    const amb = { ...row, row: 3, eventName: 'Ambiguous Park' };
+    const preview = (await mutation('POST', '/api/profile/history-import/preview', a.cookie, { rows: [row, amb] })).json();
+    expect(preview.rows[0]).toMatchObject({ eventId: old.id, status: 'NEW' });
+    expect(preview.rows[1]).toMatchObject({ eventId: null, status: 'NEW' }); expect(preview.rows[1].matches).toHaveLength(2);
+    expect((await mutation('POST', '/api/profile/history-import/commit', a.cookie, { rows: [row, amb], confirmation: 'IMPORT MY OWN HISTORY' })).json().created).toBe(2);
+    expect((await get('/api/profile', a.cookie)).json().uniqueEventsVisited).toBe(1);
+    expect((await get('/api/events', a.cookie)).json().some((e: { id: string }) => e.id === old.id)).toBe(false);
+    expect((await mutation('POST', '/api/profile/history-import/preview', a.cookie, { rows: [{ ...row, eventId: demo.id }] })).json().counts.INVALID).toBe(1);
+    const legacy = await db.event.create({ data: { id: `b4-legacy-${run}`, slug: `b4-legacy-${run}`, name: 'Legacy Park', country: 'United Kingdom', latitude: 53, longitude: -2, source: 'IMPORTED' } });
+    try {
+      const untrusted = (await mutation('POST', '/api/profile/history-import/preview', a.cookie, { rows: [{ ...row, eventName: demo.name }, { ...row, row: 3, eventName: legacy.name }] })).json();
+      expect(untrusted.rows.every((r: { eventId: string | null; matches: unknown[] }) => r.eventId === null && r.matches.length === 0)).toBe(true);
+      expect((await mutation('POST', '/api/profile/history-import/commit', a.cookie, { rows: [{ ...row, eventId: legacy.id }], confirmation: 'IMPORT MY OWN HISTORY' })).json().invalid).toBe(1); }
+    finally { await db.event.delete({ where: { id: legacy.id } }); }
+    const bad = [{ ...row, time: '0:00' }, { ...row, row: 4, date: '2026-02-30' }, { ...row, row: 5, distance: '10000' }];
+    expect((await mutation('POST', '/api/profile/history-import/preview', a.cookie, { rows: bad })).json().counts.INVALID).toBe(3);
+    expect((await mutation('POST', '/api/profile/history-import/preview', a.cookie, { rows: Array(5001).fill(row) })).statusCode).toBe(400);
+    expect((await mutation('POST', '/api/profile/history-import/commit', a.cookie, { rows: [row] })).statusCode).toBe(400);
+    for (const forbidden of [{ verified: true }, { source: 'PARKRUN_API' }, { externalResultId: 'client-hash' }]) expect((await mutation('POST', '/api/profile/history-import/preview', a.cookie, { rows: [{ ...row, ...forbidden }] })).statusCode).toBe(400);
+    expect((await req({ method: 'POST', url: '/api/profile/history-import/preview', payload: { rows: [row] } })).statusCode).toBe(401);
+  });
+
+  it('B4 serialises concurrent imports, skips every non-CSV source and remains honest after form failure', async () => {
+    const a = await login();
+    const row = { row: 2, date: '2026-09-20', eventName: 'Concurrent private race', time: '24:31' };
+    const body = { rows: [row], confirmation: 'IMPORT MY OWN HISTORY' };
+    const responses = await Promise.all([mutation('POST', '/api/profile/history-import/commit', a.cookie, body), mutation('POST', '/api/profile/history-import/commit', a.cookie, body)]);
+    expect(responses.map(r => r.json().created).sort()).toEqual([0, 1]);
+    expect(await db.userPerformance.count({ where: { userId: a.user.id } })).toBe(1);
+    for (const source of ['GARMIN', 'STRAVA', 'PARKRUN_API'] as const) {
+      const name = `${source} private race`;
+      const existing = await db.userPerformance.create({ data: { userId: a.user.id, externalEventName: name, date: new Date('2026-09-18'), finishTimeSeconds: 1300, performanceType: 'OTHER_RACE', duplicateKey: `external:${name.toLowerCase()}|2026-09-18|5000`, source, verified: true } });
+      expect((await mutation('POST', '/api/profile/history-import/commit', a.cookie, { rows: [{ ...row, eventName: name, date: '2026-09-18' }], confirmation: 'IMPORT MY OWN HISTORY' })).json().skipped).toBe(1);
+      expect(await db.userPerformance.findUnique({ where: { id: existing.id } })).toMatchObject({ source, verified: true, finishTimeSeconds: 1300 });
+    }
+    // Choosing external cannot bypass a manual record at the same named trusted event.
+    await mutation('POST', '/api/profile/performances', a.cookie, input);
+    expect((await mutation('POST', '/api/profile/history-import/commit', a.cookie, { rows: [{ ...row, eventName: 'Riverside Synthetic Saturday 5K', eventId: null }], confirmation: 'IMPORT MY OWN HISTORY' })).json().skipped).toBe(1);
+    const mappingRow = { ...row, date: '2026-09-15', eventName: 'Riverside Synthetic Saturday 5K', eventId: null };
+    await mutation('POST', '/api/profile/history-import/commit', a.cookie, { rows: [mappingRow], confirmation: 'IMPORT MY OWN HISTORY' });
+    const unmapped = await db.userPerformance.findFirstOrThrow({ where: { userId: a.user.id, date: new Date('2026-09-15') } });
+    expect((await mutation('POST', '/api/profile/history-import/commit', a.cookie, { rows: [{ ...mappingRow, eventId: eventA }], confirmation: 'IMPORT MY OWN HISTORY' })).json().updated).toBe(1);
+    expect(await db.userPerformance.findUnique({ where: { id: unmapped.id } })).toMatchObject({ eventId: eventA, externalResultId: unmapped.externalResultId });
+    const revision = await store.getPerformanceRevision(a.user.id);
+    vi.spyOn(store, 'listCourseFactors').mockRejectedValue(new Error('Synthetic derivation failure'));
+    expect((await mutation('POST', '/api/profile/history-import/commit', a.cookie, { rows: [{ ...row, eventName: 'New private race', date: '2026-09-17' }], confirmation: 'IMPORT MY OWN HISTORY' })).json()).toMatchObject({ created: 1, formStatus: 'deferred' });
+    expect(await store.getPerformanceRevision(a.user.id)).toBe(revision + 1);
+    expect(await db.runnerFormSnapshot.count({ where: { userId: a.user.id } })).toBe(0);
+  });
+
+  it('B4 rolls back the whole selected batch and revision when the second database write fails', async () => {
+    const a = await login(); const revision = await store.getPerformanceRevision(a.user.id);
+    const original = db.$transaction.bind(db);
+    const wrapped = (async (callback: (tx: import('../generated/prisma/client').Prisma.TransactionClient) => Promise<unknown>, options: object) => original(async tx => {
+      const create = tx.userPerformance.create.bind(tx.userPerformance); let writes = 0;
+      vi.spyOn(tx.userPerformance, 'create').mockImplementation(args => { if (++writes === 2) throw new Error('Synthetic second-write failure'); return create(args); });
+      return callback(tx);
+    }, options)) as typeof db.$transaction;
+    vi.spyOn(db, '$transaction').mockImplementation(wrapped);
+    const result = await mutation('POST', '/api/profile/history-import/commit', a.cookie, { confirmation: 'IMPORT MY OWN HISTORY', rows: [
+      { row: 2, date: '2026-09-05', eventName: 'First private race', time: '24:31' },
+      { row: 3, date: '2026-09-12', eventName: 'Second private race', time: '24:31' },
+    ] });
+    expect(result.statusCode).toBe(500);
+    expect(await db.userPerformance.count({ where: { userId: a.user.id } })).toBe(0);
+    expect(await store.getPerformanceRevision(a.user.id)).toBe(revision);
   });
 
   it('B3 settings belong only to the session, accept label-only and completion without history', async () => {
@@ -241,7 +397,7 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     const lookup = vi.spyOn(auth.api, 'getSession').mockResolvedValueOnce(validated).mockResolvedValueOnce(null);
     const signedIn = (await get('/api/account/session', a.cookie)).json();
     expect(lookup).toHaveBeenCalledTimes(1);
-    expect(signedIn).toEqual({ mode: 'beta', user: { id: a.user.id, email: a.email }, expiresAt: validated!.session.expiresAt.toISOString() });
+    expect(signedIn).toEqual({ mode: 'beta', user: { id: a.user.id, email: a.email }, sessionBinding: createHash('sha256').update('history-import-v1:' + validated!.session.id).digest('hex'), expiresAt: validated!.session.expiresAt.toISOString() });
     expect((await get('/api/account/session', a.cookie)).json()).toEqual({ mode: 'beta', user: null });
     expect(lookup).toHaveBeenCalledTimes(2);
   });

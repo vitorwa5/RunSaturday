@@ -15,12 +15,14 @@
     "@runsaturday/shared": "*",
     "@tanstack/react-query": "^5.104.0",
     "lucide-react": "^1.49.0",
+    "papaparse": "^5.7.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router": "^7.18.4"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "@types/papaparse": "^5.5.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",

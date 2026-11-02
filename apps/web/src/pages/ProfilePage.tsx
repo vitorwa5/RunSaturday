@@ -193,6 +193,7 @@ export function ProfilePage() {
       <PageHeader title="Profile" subtitle={profile ? profile.displayName : undefined} actions={profile?.isDemo ? <DemoBadge /> : null} />
 
       <AccountControls />
+      <ButtonLink to="/profile/import-history" variant="secondary">Import my 5K history</ButtonLink>
       <StartingAreaSettings />
       {isPending ? (
         <LoadingState variant="card" label="Loading profile" />

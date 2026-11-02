@@ -8,7 +8,7 @@ const launchOptions = process.env.PW_CHROMIUM_PATH ? { executablePath: process.e
 
 export default defineConfig({
   testDir: './e2e',
-  testIgnore: ['auth.spec.ts', 'onboarding.spec.ts'],
+  testIgnore: ['auth.spec.ts', 'onboarding.spec.ts', 'historyImport.spec.ts', 'historyLock.spec.ts'],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
@@ -25,17 +25,17 @@ export default defineConfig({
   ],
   webServer: [
     {
-      // DEMO in-memory data: e2e tests need no database.
-      command: `npm run dev:demo -w @runsaturday/api`,
-      env: { PORT: String(API_PORT), LOG_LEVEL: 'warn', DATA_SOURCE: 'demo' },
+      // Test-only fixed dataset/request clock; exact analytics assertions must not depend on today's date.
+      command: 'node node_modules/tsx/dist/cli.mjs apps/api/scripts/e2e-demo-server.ts',
+      env: { NODE_ENV: 'test', PORT: String(API_PORT) },
       url: `http://127.0.0.1:${API_PORT}/api/health`,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
     },
     {
       command: `npm run dev -w @runsaturday/web -- --port ${WEB_PORT} --strictPort`,
       env: { VITE_API_PROXY_TARGET: `http://127.0.0.1:${API_PORT}` },
       url: `http://127.0.0.1:${WEB_PORT}`,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
     },
   ],
 });

@@ -87,11 +87,11 @@ describe('derived performance values', () => {
     expect(summarizePerformances([perf('a', '2026-10-03', 900)], AS_OF).lifetimePb).toBeNull();
   });
 
-  it('marks only manual performances as editable', () => {
+  it('marks manual and user-provided CSV performances as editable', () => {
     const s = summarizePerformances([perf('a', '2026-09-26', 1200), perf('b', '2026-09-19', 1300, { source: 'csv', verified: true })], AS_OF);
     expect(s.events.map((e) => [e.eventId, e.pb.editable, e.pb.source])).toEqual([
       ['a', true, 'manual'],
-      ['b', false, 'csv'],
+      ['b', true, 'csv'],
     ]);
   });
 });

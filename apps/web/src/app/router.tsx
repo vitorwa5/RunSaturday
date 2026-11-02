@@ -1,3 +1,4 @@
+import { HistoryImportPage } from '../pages/HistoryImportPage';
 import { createBrowserRouter } from 'react-router';
 import { ChallengeDetailPage } from '../pages/ChallengeDetailPage';
 import { ChallengesPage } from '../pages/ChallengesPage';
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
       { path: '/saturday', element: <SaturdayPage /> },
       { path: '/map', element: <MapPage /> },
       { path: '/profile', element: <ProfilePage /> },
+      { path: '/profile/import-history', element: <HistoryImportPage /> },
       { path: '/profile/current-form', element: <CurrentFormPage /> },
       { path: '/profile/performances', element: <PerformancesPage /> },
       { path: '/profile/performances/new', element: <PerformanceFormPage /> },

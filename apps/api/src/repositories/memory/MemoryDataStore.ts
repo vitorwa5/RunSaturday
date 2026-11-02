@@ -1,3 +1,4 @@
+import { planHistory } from '../../history/planner';
 /**
  * In-memory DataStore backed by the DEMO dataset (fictional). Lets the UI run without
  * PostgreSQL (DATA_SOURCE=demo) and gives API tests a deterministic fixture.
@@ -273,6 +274,23 @@ export class MemoryDataStore implements DataStore {
     };
   }
 
+  async listHistoryEvents() { return this.dataset.events.map(e => ({ id: e.id, name: e.def.name, active: true })); }
+  async commitCsvHistory(userId: string, rows: import('@runsaturday/shared').HistoryCandidate[], today: string) {
+    const plan = planHistory(rows, await this.listUserPerformances(userId), await this.listHistoryEvents(), today);
+    for (const write of plan.writes) {
+      const values = this.performanceValues(write.input);
+      const data = { ...values, source: 'csv' as const, externalResultId: write.externalResultId, verified: false };
+      const current = this.userPerformances.find(p => p.userId === userId && p.id === write.id);
+      if (current) Object.assign(current, data);
+      else this.userPerformances.push({ id: randomUUID(), userId, ...data });
+    }
+    this.invalidateForm(userId); return plan.result;
+  }
+  async deleteCsvHistory(userId: string) {
+    const old = this.userPerformances.length;
+    this.userPerformances.splice(0, this.userPerformances.length, ...this.userPerformances.filter(p => p.userId !== userId || p.source !== 'csv'));
+    this.invalidateForm(userId); return old - this.userPerformances.length;
+  }
   async updateUserSettings(userId: string, settings: Partial<import('@runsaturday/shared').AccountSettings>): Promise<void> {
     if (userId !== this.dataset.user.id) throw new Error('User not found');
     // Demo settings are intentionally disposable and never used for real accounts.

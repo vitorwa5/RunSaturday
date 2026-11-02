@@ -4,7 +4,7 @@ import { apiGet, apiSend } from '../api/client';
 import { clearPersonalData } from './cache';
 import { AuthEpoch, withAuthLock, type AuthTicket } from './epoch';
 
-interface SessionState { mode: 'demo' | 'beta'; user: { id: string; email: string | null } | null; expiresAt?: string }
+interface SessionState { mode: 'demo' | 'beta'; user: { id: string; email: string | null } | null; expiresAt?: string; sessionBinding?: string }
 interface AuthState extends SessionState {
   ready: boolean; error: string | null;
   refresh(): Promise<void>; logout(): Promise<void>; deleteAccount(): Promise<void>;

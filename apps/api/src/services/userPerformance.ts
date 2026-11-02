@@ -21,8 +21,8 @@ import type { DataStore, PerformanceRecord, UserEventRecord, UserRecord } from '
 import { scopedVisitHistory } from './personalVisits';
 import { currentRunnerForm, formReferenceOf } from './runnerForm';
 
-/** Only manually entered performances may be edited or deleted by the user. */
-export const isEditable = (p: Pick<PerformanceRecord, 'source'>) => p.source === 'manual';
+/** Manual and user-provided CSV performances may be edited or deleted by their owner. */
+export const isEditable = (p: Pick<PerformanceRecord, 'source'>) => p.source === 'manual' || p.source === 'csv';
 
 export function toPerformanceDto(p: PerformanceRecord): UserPerformance {
   return {
