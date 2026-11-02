@@ -32,6 +32,21 @@ Passed, no output.
 
 The 12 helper cases cover six delayed-acquisition replacements, three retained-lock completions after epoch cancellation, ignored queued AbortSignal, unsupported locks, and cancellation during session revalidation. Their operation names all exercise the same helper; these cases alone do not prove the three concrete UI call sites. Those call sites were inspected independently above.
 
-The browser regressions in `e2e/historyLock.spec.ts` cover preview, commit, and withdrawal under both A-to-B and same-A replacement sessions, with notification/focus recovery suppressed, and assert no history request and unchanged private database rows. `e2e/historyImport.spec.ts` additionally checks that logout stays queued until delayed preview/commit/withdrawal responses complete. These tests are inspected evidence until executed in the coordinator's exclusive database/browser lane; no browser or API pass is claimed here yet.
+The browser regressions in `e2e/historyLock.spec.ts` cover preview, commit, and withdrawal under both A-to-B and same-A replacement sessions, with notification/focus recovery suppressed, and assert no history request and unchanged private database rows. `e2e/historyImport.spec.ts` additionally checks that logout stays queued until delayed preview/commit/withdrawal responses complete.
+
+### Final coordinator execution evidence
+
+After the coordinator completed the exclusive sequential validation lane, this reviewer read all four raw logs in `/workspace/RunSaturday-b41-evidence/`. These checks were executed by the coordinator, not rerun by this reviewer. The coordinator confirmed exit 0 and no source/test drift from `8bb4fdf`.
+
+| Raw log | Command shown in log | Observed result |
+| --- | --- | --- |
+| `api.log` | API test script: `prisma generate && vitest run --maxWorkers=1 src/__tests__/auth.test.ts src/__tests__/historyPlanner.test.ts src/__tests__/userPerformance.test.ts` | 3 files, 52 tests passed. |
+| `typecheck.log` | `npm run typecheck --workspaces --if-present` | Shared, API, and web TypeScript checks completed without errors. |
+| `build.log` | `npm run build --workspaces --if-present` | API and web builds completed; Vite reported its nonfatal chunk-size warning. |
+| `browser.log` | `playwright test --config playwright.auth.config.ts` | 60 tests passed using one worker in 2.7 minutes, across auth-360, auth-390, and auth-430. |
+
+The browser log explicitly records all six queued H1 replacement cases at each viewport (18 passes), delayed preview/commit/delete completion cases at each viewport (9 passes), and stale-cookie preview/commit/delete cases at each viewport (9 passes). Including the normal B4 lifecycle case at each viewport gives 39 B4/B4.1 passes; the remaining 21 B1/B3 checks also passed. This supplies concrete-callsite execution evidence beyond the helper unit labels.
+
+Final scoped verdict remains **APPROVE H1 at `8bb4fdf`**, with no blocking security findings identified after reviewing the coordinator's raw execution evidence.
 
 This scoped approval addresses coordinated application requests and ordinary response completion. It does not claim browser locks provide server transactions across browser crashes or transport failure, or review unrelated auth/backend changes. No provider access, production data access, merge, or deployment was performed.
