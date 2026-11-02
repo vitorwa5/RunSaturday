@@ -96,6 +96,22 @@ describe('personal performances API', () => {
     expect((await patch(other.id, { eventId: 'demo-lakeside-5k', date: existing.date, time: '25:00' })).statusCode).toBe(409);
   });
 
+  it('rejects out-of-range calendar components on create and edit without changing personal history', async () => {
+    app = await buildTestApp();
+    const before = await list();
+    const existing = before.performances[0]!;
+    for (const date of ['2026-13-01', '2026-00-01', '2026-01-00', '2026-01-32', '2026-02-29', '2026-04-31']) {
+      for (const response of [
+        await post({ eventId: 'demo-heath-common-5k', date, time: '21:05' }),
+        await patch(existing.id, { eventId: existing.eventId, date, time: '21:05' }),
+      ]) {
+        expect(response.statusCode, date).toBe(400);
+        expect(response.json().error).toEqual({ code: 'invalid_date', message: 'Enter a valid date.' });
+      }
+    }
+    expect(await list()).toEqual(before);
+  });
+
   it('edits a manual performance, keeping the derived values in step', async () => {
     app = await buildTestApp();
     const pb = (await summary()).lifetimePb!;

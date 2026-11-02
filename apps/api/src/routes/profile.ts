@@ -30,7 +30,7 @@ const ListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
-const isCalendarDate = (iso: string) => /^\d{4}-\d{2}-\d{2}$/.test(iso) && new Date(`${iso}T00:00:00Z`).toISOString().slice(0, 10) === iso;
+const isCalendarDate = (iso: string) => /^\d{4}-\d{2}-\d{2}$/.test(iso) && Number.isFinite(Date.parse(`${iso}T00:00:00Z`)) && new Date(`${iso}T00:00:00Z`).toISOString().slice(0, 10) === iso;
 
 export async function profileRoutes(app: FastifyInstance, ctx: RequestContext) {
   const SettingsBody = z.object({
