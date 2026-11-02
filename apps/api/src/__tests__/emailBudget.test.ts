@@ -24,7 +24,7 @@ describe.skipIf(!url)('persistent product email budgets independent of Better Au
   const request = (action: 'send' | 'verify', address: string) => app.inject({ method: 'POST',
     remoteAddress: `10.72.${Math.floor(++ip / 250)}.${ip % 250 + 1}`,
     url: action === 'send' ? '/api/auth/email-otp/send-verification-otp' : '/api/auth/sign-in/email-otp',
-    headers: { origin }, payload: action === 'send' ? { email: address } : { email: address, otp: '123456' } });
+    headers: { origin, 'x-compass-session-binding': 'signed-out' }, payload: action === 'send' ? { email: address } : { email: address, otp: '123456' } });
 
   beforeAll(async () => {
     app = await buildApp({ config, store: new PrismaDataStore(db, 'demo_v0'), logger: false,
@@ -49,7 +49,7 @@ describe.skipIf(!url)('persistent product email budgets independent of Better Au
     expect(rows.map((row) => row.count).sort((a, b) => a - b)).toEqual([6, 16]);
     expect(rows.every((row) => row.expiresAt.getTime() === start.getTime() + 600_000)).toBe(true);
 
-    const cleanupRequest = () => app.inject({ method: 'POST', url: '/api/auth/sign-out', remoteAddress: '10.72.99.99', headers: { origin }, payload: {} });
+    const cleanupRequest = () => app.inject({ method: 'POST', url: '/api/auth/sign-out', remoteAddress: '10.72.99.99', headers: { origin, 'x-compass-session-binding': 'signed-out' }, payload: {} });
     expect((await cleanupRequest()).statusCode).toBe(200);
     const old = BigInt(Date.now() - 61_000);
     const aged = await db.rateLimit.updateMany({ where: { key: { startsWith: '10.72.99.99' } }, data: { lastRequest: old } });
