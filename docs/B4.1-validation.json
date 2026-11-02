@@ -1,0 +1,24 @@
+{
+  "tested_code_commit": "8bb4fdf",
+  "base_commit": "69d7289106e486fddbbfbc3872fc77333c22d6f9",
+  "api_tests_passed": 52,
+  "web_tests_passed": 86,
+  "browser_tests_passed": 60,
+  "browser_widths": [
+    360,
+    390,
+    430
+  ],
+  "typecheck": "passed",
+  "api_and_web_builds": "passed",
+  "reviews": {
+    "security": "APPROVE",
+    "qa": "APPROVE"
+  },
+  "log_sha256": {
+    "api.log": "0a673fd747b3ab9b7b253d4ff84c51ceed9a6a96098eaaf1d27c184da5bccc4b",
+    "typecheck.log": "e7c52414929df7ad7fe6c9edce8599592becc63ebcf7512d5ed77b00d56dcad5",
+    "build.log": "3972b154c07efe29594c63cf0d86e55279d54112cd296c918ab81bcf5d8b23cd",
+    "browser.log": "ba96c9d6bd785cfe08928acc1e5a11429bbec427504b2a46f758f31c233973ed"
+  }
+}
