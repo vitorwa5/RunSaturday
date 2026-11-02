@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { CatalogueImportService } from '../catalogue/importService';
 import type { CourseFactorResult } from '../analytics/courseSpeed';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -47,7 +47,10 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     return { email: address, cookie: `${c.name}=${c.value}`, user: await db.user.findUniqueOrThrow({ where: { email: address } }), response };
   };
   const get = (path: string, cookie?: string) => req({ method: 'GET', url: path, headers: cookie ? { cookie } : {} });
-  const mutation = (method: 'POST' | 'PATCH' | 'DELETE', path: string, cookie: string, payload?: object) => req({ method, url: path, headers: { cookie }, payload: payload ?? {} });
+  const mutation = async (method: 'POST' | 'PATCH' | 'DELETE', path: string, cookie: string, payload?: object) => {
+    const session = path.startsWith('/api/profile/history-import') ? (await get('/api/account/session', cookie)).json() : null;
+    return req({ method, url: path, headers: { cookie }, payload: { ...(session ? { sessionBinding: session.sessionBinding } : {}), ...payload } });
+  };
   const input = { get eventId() { return eventA; }, date: '2026-09-20', time: '19:35' };
   beforeAll(async () => {
     await new CatalogueImportService(db, 'beta').import({ format: '5k-compass-catalogue-v1', source: { namespace: catalogueNamespace, kind: 'imported', attribution: 'Synthetic auth integration fixtures' }, records: [
@@ -69,6 +72,43 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     await db.catalogueImportRun.deleteMany({ where: { sourceNamespace: catalogueNamespace } });
     await app?.close();
     await db.$disconnect();
+  });
+
+  it('B4 rejects missing, stale and cross-account session bindings before reads or writes', async () => {
+    const a = await login(); const b = await login();
+    const aBinding = (await get('/api/account/session', a.cookie)).json().sessionBinding;
+    const bBinding = (await get('/api/account/session', b.cookie)).json().sessionBinding;
+    const rows = [{ row: 2, date: '2026-09-20', eventName: 'Private session fixture', time: '24:31' }];
+    await mutation('POST', '/api/profile/history-import/commit', b.cookie, { rows, confirmation: 'IMPORT MY OWN HISTORY' });
+    const before = await db.userPerformance.findMany({ where: { userId: { in: [a.user.id, b.user.id] } } });
+    const reads = vi.spyOn(store, 'listUserPerformances');
+    const writes = vi.spyOn(store, 'commitCsvHistory');
+    const deletes = vi.spyOn(store, 'deleteCsvHistory');
+    for (const sessionBinding of [undefined, aBinding, 'stale-session']) {
+      for (const operation of ['preview', 'commit', 'delete']) {
+        const response = await req({ method: operation === 'delete' ? 'DELETE' : 'POST',
+          url: '/api/profile/history-import' + (operation === 'delete' ? '' : '/' + operation), headers: { cookie: b.cookie },
+          payload: operation === 'delete' ? { sessionBinding, confirmation: 'REMOVE MY CSV HISTORY' } : { rows, sessionBinding, ...(operation === 'commit' ? { confirmation: 'IMPORT MY OWN HISTORY' } : {}) } });
+        expect(response.statusCode).toBe(409); expect(response.json().error.code).toBe('session_changed');
+      }
+    }
+    expect(reads).not.toHaveBeenCalled(); expect(writes).not.toHaveBeenCalled(); expect(deletes).not.toHaveBeenCalled();
+    expect(await db.userPerformance.findMany({ where: { userId: { in: [a.user.id, b.user.id] } } })).toEqual(before);
+    // Another session of the same user must also reject the old binding.
+    const renewed = await login(b.email, b.cookie);
+    expect((await mutation('POST', '/api/profile/history-import/preview', renewed.cookie, { rows, sessionBinding: bBinding })).statusCode).toBe(409);
+  });
+
+  it('B4 reimport restores a manually edited date on the original CSV record', async () => {
+    const a = await login(); const rows = [{ row: 2, date: '2026-09-20', eventName: 'Private date fixture', time: '24:31' }];
+    const body = { rows, confirmation: 'IMPORT MY OWN HISTORY' };
+    expect((await mutation('POST', '/api/profile/history-import/commit', a.cookie, body)).json().created).toBe(1);
+    const record = await db.userPerformance.findFirstOrThrow({ where: { userId: a.user.id } });
+    expect((await mutation('PATCH', '/api/profile/performances/' + record.id, a.cookie, { date: '2026-09-19', externalEventName: rows[0]!.eventName, time: '24:31' })).statusCode).toBe(200);
+    expect((await mutation('POST', '/api/profile/history-import/preview', a.cookie, { rows })).json().counts.UPDATE).toBe(1);
+    expect((await mutation('POST', '/api/profile/history-import/commit', a.cookie, body)).json().updated).toBe(1);
+    expect(await db.userPerformance.findMany({ where: { userId: a.user.id } })).toEqual([expect.objectContaining({ id: record.id, date: record.date, externalResultId: record.externalResultId })]);
+    expect((await mutation('POST', '/api/profile/history-import/commit', a.cookie, body)).json().unchanged).toBe(1);
   });
 
   it('B4 preview is read-only, commit is private/idempotent/correctable and CSV withdrawal preserves manual/public data', async () => {
@@ -357,7 +397,7 @@ describe.skipIf(!url)('B1 PostgreSQL passwordless accounts and isolation', () =>
     const lookup = vi.spyOn(auth.api, 'getSession').mockResolvedValueOnce(validated).mockResolvedValueOnce(null);
     const signedIn = (await get('/api/account/session', a.cookie)).json();
     expect(lookup).toHaveBeenCalledTimes(1);
-    expect(signedIn).toEqual({ mode: 'beta', user: { id: a.user.id, email: a.email }, expiresAt: validated!.session.expiresAt.toISOString() });
+    expect(signedIn).toEqual({ mode: 'beta', user: { id: a.user.id, email: a.email }, sessionBinding: createHash('sha256').update('history-import-v1:' + validated!.session.id).digest('hex'), expiresAt: validated!.session.expiresAt.toISOString() });
     expect((await get('/api/account/session', a.cookie)).json()).toEqual({ mode: 'beta', user: null });
     expect(lookup).toHaveBeenCalledTimes(2);
   });

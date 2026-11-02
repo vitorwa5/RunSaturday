@@ -25,3 +25,19 @@ it('replay preserves confirmed ambiguous/internal and external mappings rather t
   expect(planHistory([row], [external], [events[0]!], '2026-10-01').preview.rows[0]).toMatchObject({ status: 'UNCHANGED', eventId: null });
   expect(planHistory([row], [existing], [], '2026-10-01').preview.rows[0]!.status).toBe('INVALID');
 });
+
+it('reimport compares dates and restores a manual correction without creating a second row', () => {
+  const first = planHistory([row], [], [], '2026-10-01').writes[0]!;
+  const existing = { ...first.input, id: 'csv-record', userId: 'A', eventName: null, externalResultId: first.externalResultId, verified: false, date: '2026-09-04' };
+  const plan = planHistory([row], [existing], [], '2026-10-01');
+  expect(plan.preview.counts).toMatchObject({ UPDATE: 1, UNCHANGED: 0, NEW: 0 });
+  expect(plan.writes).toEqual([{ id: existing.id, input: first.input, externalResultId: first.externalResultId }]);
+});
+
+it('skips restoration of an edited CSV date when another source occupies the original date', () => {
+  const first = planHistory([row], [], [], '2026-10-01').writes[0]!;
+  const own = { ...first.input, id: 'csv-record', userId: 'A', eventName: null, externalResultId: first.externalResultId, verified: false, date: '2026-09-04' };
+  const other = { ...own, id: 'manual-record', source: 'manual' as const, externalResultId: null, date: row.date };
+  const plan = planHistory([row], [own, other], [], '2026-10-01');
+  expect(plan.preview.counts.CONFLICT).toBe(1); expect(plan.writes).toEqual([]);
+});

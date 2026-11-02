@@ -39,7 +39,7 @@ export function planHistory(rows: HistoryCandidate[], existing: PerformanceRecor
     const collision = [...(destinations.get(key) ?? []), ...(participations.get(participationKey(candidate.date, valid.name)) ?? [])].find(p => p.id !== own?.id);
     if (collision || usedKeys.has(key)) return reject('CONFLICT', 'This participation already exists under another record/source or mapping. It will be skipped.');
     usedKeys.add(key);
-    const status = !own ? 'NEW' : own.eventId === input.eventId && own.externalEventName === input.externalEventName && own.finishTimeSeconds === input.finishTimeSeconds && own.performanceType === input.performanceType ? 'UNCHANGED' : 'UPDATE';
+    const status = !own ? 'NEW' : own.date === input.date && own.distanceMeters === input.distanceMeters && own.eventId === input.eventId && own.externalEventName === input.externalEventName && own.finishTimeSeconds === input.finishTimeSeconds && own.performanceType === input.performanceType ? 'UNCHANGED' : 'UPDATE';
     counts[status]++;
     if (status !== 'UNCHANGED') writes.push({ ...(own ? { id: own.id } : {}), input, externalResultId: identities[index]! });
     return { ...base, status, ...(!own && matches.length > 1 && candidate.eventId === undefined ? { message: 'Ambiguous name: kept external unless you choose an event.' } : {}) };

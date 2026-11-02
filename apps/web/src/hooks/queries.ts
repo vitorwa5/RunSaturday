@@ -1,6 +1,7 @@
 /** TanStack Query hooks: the only way pages obtain server data. */
 import { useAuth } from '../auth/AuthProvider';
 import type { AuthTicket } from '../auth/epoch';
+import { captureHistorySession, withHistorySession } from '../auth/historyOperation';
 import { personalKey } from '../auth/cache';
 import type { PerformanceInput, HiddenGemModeId, HistoryWindowId, PbFinderSortId, PlacementTargetId, PlannerFilters } from '@runsaturday/shared';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -113,19 +114,21 @@ export const usePerformanceSummary = () => useQuery({ queryKey: personalKey(useA
  * A performance change can move PBs, recent best, visits and every tool that uses them, so all
  * cached server data is invalidated afterwards.
  */
-function usePerformanceMutation<V>(fn: (variables: V, signal: AbortSignal) => Promise<unknown>) {
+function usePerformanceMutation<V>(fn: (variables: V, signal?: AbortSignal) => Promise<unknown>, history = false) {
   const client = useQueryClient();
   const auth = useAuth();
   const mutation = useMutation({
-    mutationFn: async ({ variables, ticket }: { variables: V; ticket: AuthTicket }) => {
+    mutationFn: async ({ variables, ticket, origin, dispatch }: { variables: V; ticket: AuthTicket; origin: ReturnType<typeof captureHistorySession>; dispatch: typeof fn }) => {
       ticket.signal.throwIfAborted();
-      const result = await fn(variables, ticket.signal);
+      const result = history
+        ? await withHistorySession(origin, ticket, () => dispatch(variables))
+        : await dispatch(variables, ticket.signal);
       ticket.signal.throwIfAborted();
       return result;
     },
     onSuccess: (_, { ticket }) => { if (ticket.isCurrent()) return client.invalidateQueries(); },
   });
-  return { ...mutation, mutateAsync: (variables: V) => mutation.mutateAsync({ variables, ticket: auth.captureOperation() }) };
+  return { ...mutation, mutateAsync: (variables: V) => mutation.mutateAsync({ variables, ticket: auth.captureOperation(), origin: captureHistorySession(auth), dispatch: fn }) };
 }
 
 /** Explore & Challenges (Phase 5A): all derived on the server from performances. */
@@ -146,5 +149,11 @@ export const useSavePerformance = (id?: string) =>
 
 export const useDeletePerformance = () => usePerformanceMutation((id: string, signal) => api.deletePerformance(id, signal));
 
-export const useCommitHistory = () => usePerformanceMutation((rows: import('@runsaturday/shared').HistoryCandidate[], signal) => api.commitHistory(rows, signal));
-export const useDeleteCsvHistory = () => usePerformanceMutation((_: undefined, signal) => api.deleteCsvHistory(signal));
+export const useCommitHistory = () => {
+  const { sessionBinding } = useAuth();
+  return usePerformanceMutation((rows: import('@runsaturday/shared').HistoryCandidate[], signal) => api.commitHistory(rows, signal, sessionBinding), true);
+};
+export const useDeleteCsvHistory = () => {
+  const { sessionBinding } = useAuth();
+  return usePerformanceMutation((_: undefined, signal) => api.deleteCsvHistory(signal, sessionBinding), true);
+};
