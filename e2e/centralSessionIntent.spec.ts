@@ -73,7 +73,11 @@ for (const replacement of ['another-account', 'same-account'] as const) {
         }, { email: b, otp: code, binding: original.sessionBinding });
         await expect.poll(() => holder.evaluate(() => (window as Holder).centralLock?.entered)).toBe(true);
         const sent: string[] = [];
-        page.on('request', r => { if (r.url().includes('/api/') && !r.url().includes('/api/account/session')) sent.push(`${r.method()} ${r.url()}`); });
+        page.on('request', r => {
+          const isAuthAction = operation === 'logout' || operation === 'delete-account';
+          const relevant = isAuthAction ? r.url().endsWith('/api/auth/sign-out') || (r.method() === 'DELETE' && r.url().endsWith('/api/account')) : r.url().includes('/api/') && !r.url().includes('/api/account/session');
+          if (relevant) sent.push(`${r.method()} ${r.url()}`);
+        });
         if (operation === 'contextual-read') {
           // Client navigation retains the mounted originating auth view; full reload would bootstrap B.
           await page.getByRole('link', { name: 'Add performance', exact: true }).first().evaluate((link: HTMLAnchorElement) => link.click());
@@ -98,9 +102,10 @@ for (const replacement of ['another-account', 'same-account'] as const) {
           sessions: await db.session.findMany({ where, orderBy: { id: 'asc' } }),
         };
         await holder.evaluate(() => (window as Holder).centralLock?.release?.());
-        await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+        if (operation === 'logout' || operation === 'delete-account') await expect(page.getByText(`Signed in as ${b}`, { exact: true })).toBeVisible();
+        else await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
         expect(sent).toEqual([]); expect(downloads).toEqual([]);
-        await expect(page.getByText('Replacement secret synthetic run', { exact: true })).toHaveCount(0);
+        if (operation !== 'logout' && operation !== 'delete-account') await expect(page.getByText('Replacement secret synthetic run', { exact: true })).toHaveCount(0);
         expect(await db.user.findMany({ where: { id: { in: where.userId.in } }, orderBy: { id: 'asc' } })).toEqual(before.users);
         expect(await db.userPerformance.findMany({ where, orderBy: { id: 'asc' } })).toEqual(before.runs);
         expect(await db.session.findMany({ where, orderBy: { id: 'asc' } })).toEqual(before.sessions);
@@ -129,6 +134,7 @@ for (const operation of ['settings', 'export'] as const) {
     const downloads: string[] = []; page.on('download', d => downloads.push(d.suggestedFilename()));
     try {
       await db.rateLimit.deleteMany({ where: { OR: ['127.0.0.1|', '::1|', '::ffff:127.0.0.1|'].map(prefix => ({ key: { startsWith: prefix } })) } });
+      await page.addInitScript(() => { window.BroadcastChannel = class { onmessage = null; postMessage() {} close() {} } as unknown as typeof BroadcastChannel; });
       await page.goto('/profile'); await login(page, email);
       await other.goto('/profile'); await expect(other.getByText(`Signed in as ${email}`, { exact: true })).toBeVisible();
       const session = await (await context.request.get('/api/account/session')).json();
