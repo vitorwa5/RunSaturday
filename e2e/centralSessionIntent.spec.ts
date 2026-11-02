@@ -172,3 +172,25 @@ for (const operation of ['settings', 'export'] as const) {
     }
   });
 }
+
+test('CENTRAL private export fails closed when cross-tab Web Locks are unavailable', async ({ page }) => {
+  const run = randomUUID(); const email = `central-no-lock-${run}@example.test`;
+  const db = createPrismaClient(process.env.TEST_DATABASE_URL!);
+  try {
+    await db.rateLimit.deleteMany({ where: { OR: ['127.0.0.1|', '::1|', '::ffff:127.0.0.1|'].map(prefix => ({ key: { startsWith: prefix } })) } });
+    await page.goto('/profile'); await login(page, email);
+    await expect(page.getByRole('button', { name: 'Export my data', exact: true })).toBeVisible();
+    await page.evaluate(() => Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined }));
+    const exports: string[] = []; const downloads: string[] = [];
+    page.on('request', r => { if (r.url().endsWith('/api/account/export')) exports.push(r.url()); });
+    page.on('download', d => downloads.push(d.suggestedFilename()));
+    await page.getByRole('button', { name: 'Export my data', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText('browser');
+    expect(exports).toEqual([]); expect(downloads).toEqual([]);
+    expect(await db.user.findUnique({ where: { email } })).not.toBeNull();
+  } finally {
+    await page.close(); await db.user.deleteMany({ where: { email } });
+    await db.verification.deleteMany({ where: { identifier: { contains: run } } });
+    await db.emailAuthBudget.deleteMany({ where: { email } }); await db.$disconnect();
+  }
+});
