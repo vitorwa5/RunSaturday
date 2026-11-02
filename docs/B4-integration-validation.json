@@ -1,0 +1,66 @@
+{
+  "recorded_at_utc": "2026-11-02T19:01:41.503851+00:00",
+  "scope": "B4 integration only; no production or merge approval",
+  "pr4_head": "aa0a36c2f862afe2e9f441639768a9560941eeae",
+  "reviewed_application_commit": "8bb4fdf",
+  "base_b4": "1fd215c2c3bcae0f7d039a6b6d9c98dbc245c3e6",
+  "main": "99165a0eb5e220d0213189708eb4ad94b6945239",
+  "full_regression_preparation": "423e842",
+  "final_browser_fixture_commit": "55fb273",
+  "assembled_commit_before_review_documents": "055219e6517a2c5a1a9cfb6bcc7c472d701df8f8",
+  "results": {
+    "api": {
+      "passed": 470,
+      "failed": 0,
+      "pending": 0,
+      "result_files": 37,
+      "demo_store": 23,
+      "migration_suites": [
+        1,
+        1
+      ]
+    },
+    "web": 86,
+    "shared": 82,
+    "typecheck": "passed, all workspaces, repeated after final test fixture",
+    "production_build": "API and web passed; old B4 web also built",
+    "browser": {
+      "demo": 189,
+      "authenticated": 60,
+      "real_cached_shell_upgrade": 1,
+      "exit_code": 0
+    },
+    "initial_browser_attempt": {
+      "passed": 162,
+      "failed": 27,
+      "cause": "live-clock DEMO fixture drift; corrected test-only using existing injected clock; exact assertions preserved"
+    }
+  },
+  "evidence_root": "/workspace/RunSaturday-b4-gate-evidence",
+  "evidence_sha256": {
+    "api.json": "bb9063d73de35ad6e65382fa720ffeae268d0c3bfabac1373a55eee43ff7af6a",
+    "api.log": "876053cff7bfd113d1c2bcb248dfa4e7bf10e0065dc034e2bb3cff3a3d673df6",
+    "web.log": "46b7cc22a19ffda79ed3650dd8e109b2c79ac7b62d747b4be04c91dc2186a593",
+    "shared.log": "bda08ac64321fc3d65a84b59b76c5784560b1139d2553d0d201fcbb6750b6158",
+    "typecheck.log": "9aa18997e1521b9a3d6fb47695ced117584b8c9a89cfe22960165cd8167bde2e",
+    "typecheck-final.log": "acd4e84bcfcd86f6871d7c2a72d215d20be94c43fab83affb0b99b100a13d95d",
+    "build.log": "0e6bf1f93e4d4568334db538f8e4ae15ca2c9743086ec7270c89f2def6600361",
+    "old-web-build.log": "62bc8039fb611990a14013a2020b1591382a0386bb68e825f29d960f35f39c64",
+    "browser.log": "0f4cbe1e0466c85590ef8da535b4ffdd15af187aaa567146de68c10aaa45728a",
+    "browser.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "browser-live-clock-failed.log": "29e9ec7345920d0a9354f5d65f6bb0e41d54933acfdcf48cca648e43f96de7b1"
+  },
+  "execution_constraints": [
+    "supplied TEST_DATABASE_URL only",
+    "shared DB/browser lane sequential",
+    "Vitest maxWorkers=1",
+    "pinned Playwright Chromium; no PW_CHROMIUM_PATH override",
+    "command-local IPv4-first DNS",
+    "no production data, scraping, merge or deployment"
+  ],
+  "limitations": [
+    "controlled fixture cache headers do not establish production CDN configuration",
+    "CENTRAL wider stale-session intention blocker remains outside B4",
+    "owner approval required for merges and deployment"
+  ]
+}
