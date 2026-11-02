@@ -26,7 +26,8 @@
     "test:e2e": "playwright test && playwright test --config playwright.auth.config.ts",
     "test:e2e:auth": "playwright test --config playwright.auth.config.ts",
     "check": "npm run typecheck && npm run test && npm run build",
-    "catalogue:import": "npm run catalogue:import -w @runsaturday/api --"
+    "catalogue:import": "npm run catalogue:import -w @runsaturday/api --",
+    "test:e2e:b4-gate": "playwright test --workers=1 && playwright test --config playwright.auth.config.ts && playwright test --config playwright.b4-cache.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",
