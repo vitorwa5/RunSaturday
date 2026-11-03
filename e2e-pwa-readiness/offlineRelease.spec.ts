@@ -124,7 +124,7 @@ test('real built SW hides private CSV offline and reconnects to the authoritativ
     await page.getByRole('link', { name: 'View recorded history', exact: true }).click();
     await expect(page.getByText(marker, { exact: false }).first()).toBeVisible();
     const before = await (await context.request.get('/api/profile/performances', { headers: { 'x-compass-session-binding': original.sessionBinding } })).json();
-    expect(before.performances).toEqual(expect.arrayContaining([expect.objectContaining({ externalEventName: marker, source: 'CSV', verified: false })]));
+    expect(before.performances).toEqual(expect.arrayContaining([expect.objectContaining({ externalEventName: marker, source: 'csv', verified: false })]));
 
     await context.setOffline(true);
     await expect(page.getByRole('heading', { name: 'You’re offline', exact: true })).toBeVisible();
