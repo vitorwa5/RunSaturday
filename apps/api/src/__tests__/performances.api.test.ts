@@ -2,6 +2,8 @@ import type { EventSummary, PlacementResponse, PerformanceSummary, UserPerforman
 import { afterEach, describe, expect, it } from 'vitest';
 import { MemoryDataStore } from '../repositories/memory/MemoryDataStore';
 import { buildTestApp } from './helpers';
+import { buildApp } from '../app';
+import { loadConfig } from '../config/env';
 
 let app: Awaited<ReturnType<typeof buildTestApp>>;
 afterEach(async () => app?.close());
@@ -100,7 +102,7 @@ describe('personal performances API', () => {
     app = await buildTestApp();
     const before = await list();
     const existing = before.performances[0]!;
-    for (const date of ['2026-13-01', '2026-00-01', '2026-01-00', '2026-01-32', '2026-02-29', '2026-04-31']) {
+    for (const date of ['2026-13-01', '2026-00-01', '2026-01-00', '2026-01-32', '2026-02-29', '2026-04-31', '2000-02-30', '2100-02-29', '2026-1-01', '2026-01-1', '2026-09-20+01:00']) {
       for (const response of [
         await post({ eventId: 'demo-heath-common-5k', date, time: '21:05' }),
         await patch(existing.id, { eventId: existing.eventId, date, time: '21:05' }),
@@ -108,6 +110,40 @@ describe('personal performances API', () => {
         expect(response.statusCode, date).toBe(400);
         expect(response.json().error).toEqual({ code: 'invalid_date', message: 'Enter a valid date.' });
       }
+    }
+    expect(await list()).toEqual(before);
+  });
+
+  it('preserves valid Gregorian leap dates on create and edit', async () => {
+    app = await buildTestApp();
+    for (const date of ['2000-02-29', '2024-02-29']) {
+      const created = await post({ eventId: 'demo-heath-common-5k', date, time: '21:05' });
+      expect(created.statusCode).toBe(201);
+      expect(created.json<UserPerformance>().date).toBe(date);
+      const edited = await patch(created.json<UserPerformance>().id, { eventId: 'demo-heath-common-5k', date, time: '22:05' });
+      expect(edited.statusCode).toBe(200);
+      expect(edited.json<UserPerformance>()).toMatchObject({ date, finishTimeSeconds: 1325 });
+    }
+  });
+
+  it.each([
+    { now: '2026-09-30T23:30:00Z', today: '2026-10-01', future: '2026-10-02' },
+    { now: '2026-10-31T23:30:00Z', today: '2026-10-31', future: '2026-11-01' },
+  ])('uses the application calendar at $now for future-date validation', async ({ now, today, future }) => {
+    app = await buildApp({
+      config: loadConfig({ APP_MODE: 'demo', DATA_SOURCE: 'demo', LOG_LEVEL: 'silent', APP_TIME_ZONE: 'Europe/London' }),
+      store: new MemoryDataStore('2026-10-01'), now: () => new Date(now), logger: false,
+    });
+    const created = await post({ eventId: 'demo-heath-common-5k', date: today, time: '21:05' });
+    expect(created.statusCode).toBe(201);
+    expect(created.json<UserPerformance>().date).toBe(today);
+    const before = await list();
+    for (const response of [
+      await post({ eventId: 'demo-heath-common-5k', date: future, time: '21:05' }),
+      await patch(created.json<UserPerformance>().id, { eventId: 'demo-heath-common-5k', date: future, time: '21:05' }),
+    ]) {
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.code).toBe('future_date');
     }
     expect(await list()).toEqual(before);
   });
