@@ -99,7 +99,7 @@ test('built install metadata/icons and real offline navigation expose only a saf
     const navigation = await page.goto('/explore');
     expect(navigation?.fromServiceWorker()).toBe(true);
     await expect(page.getByRole('heading', { name: 'You’re offline', exact: true })).toBeVisible();
-    await expect(page.getByRole('status')).toContainText('Your private history is not available offline');
+    await expect(page.getByRole('main').getByRole('status')).toContainText('Your private history is not available offline');
     await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toHaveCount(0);
     await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0);
     await expectNoPrivateCache(page, []);
