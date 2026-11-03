@@ -2,7 +2,15 @@
 # Pin reviewed image digests in the release record before production promotion.
 ARG NODE_IMAGE=node:22.22.0-bookworm-slim
 ARG CADDY_IMAGE=caddy:2.10.2-alpine
-FROM ${NODE_IMAGE} AS build
+FROM ${NODE_IMAGE} AS node-runtime
+# Prisma migration tooling must detect the actual OpenSSL 3 platform rather than
+# silently falling back to an incompatible engine. Keep signed APT verification.
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -f /run/secrets/proxy_ca ]; then printf 'Acquire::https::CaInfo "/run/secrets/proxy_ca";\n' > /etc/apt/apt.conf.d/99-build-ca; fi; \
+    apt-get update && apt-get install -y --no-install-recommends openssl && \
+    rm -rf /var/lib/apt/lists/* /etc/apt/apt.conf.d/99-build-ca
+
+FROM node-runtime AS build
 ARG RELEASE_COMMIT=unreviewed
 LABEL org.opencontainers.image.revision=${RELEASE_COMMIT}
 WORKDIR /app
@@ -27,17 +35,22 @@ CMD ["migrate", "deploy"]
 
 FROM build AS production-deps
 RUN --network=none --mount=type=cache,id=compass-phone-npm,target=/root/.npm,sharing=locked \
-    npm prune --omit=dev --ignore-scripts --offline --no-audit
+    npm prune --omit=dev --ignore-scripts --offline --no-audit && \
+    mkdir -p /runtime/apps/api /runtime/scripts/release && \
+    cp -al node_modules /runtime/node_modules && \
+    cp -al apps/api/dist /runtime/apps/api/dist && \
+    cp scripts/release/healthcheck.mjs /runtime/healthcheck.mjs && \
+    cp scripts/release/private-api.mjs scripts/release/private-database.mjs \
+       scripts/release/private-policy.mjs scripts/release/private-otp.mjs \
+       scripts/release/private-preflight.mjs scripts/release/private-catalogue.mjs \
+       scripts/release/private-import.mjs scripts/release/private-migrate.mjs /runtime/scripts/release/
 
-FROM ${NODE_IMAGE} AS api
+FROM node-runtime AS api
 ARG RELEASE_COMMIT=unreviewed
 LABEL org.opencontainers.image.revision=${RELEASE_COMMIT}
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3001
 WORKDIR /app
-COPY --from=production-deps /app/node_modules ./node_modules
-COPY --from=build /app/apps/api/dist ./apps/api/dist
-COPY scripts/release/healthcheck.mjs ./healthcheck.mjs
-COPY scripts/release/private-*.mjs ./scripts/release/
+COPY --from=production-deps /runtime/ ./
 USER node
 EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=6s --start-period=20s --retries=3 CMD ["node", "/app/healthcheck.mjs"]
