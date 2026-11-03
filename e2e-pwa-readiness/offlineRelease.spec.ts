@@ -125,6 +125,10 @@ test('real built SW hides private CSV offline and reconnects to the authoritativ
     await expect(page.getByText(marker, { exact: false }).first()).toBeVisible();
     const before = await (await context.request.get('/api/profile/performances', { headers: { 'x-compass-session-binding': original.sessionBinding } })).json();
     expect(before.performances).toEqual(expect.arrayContaining([expect.objectContaining({ externalEventName: marker, source: 'csv', verified: false })]));
+    // Profile exposes both account identity and recent history before and after reconnect.
+    await page.getByRole('navigation', { name: 'Main', exact: true }).getByRole('link', { name: 'Profile', exact: true }).click();
+    await expect(page.getByText(`Signed in as ${a}`, { exact: true })).toBeVisible();
+    await expect(page.getByText(marker, { exact: false }).first()).toBeVisible();
 
     await context.setOffline(true);
     await expect(page.getByRole('heading', { name: 'You’re offline', exact: true })).toBeVisible();
