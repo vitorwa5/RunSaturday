@@ -50,6 +50,22 @@ services:
       api: {condition: service_healthy}
     restart: 'no'
     networks: [backend]
+  catalogue:
+    image: ${MIGRATION_IMAGE:?Set reviewed immutable migration image}
+    profiles: [operations]
+    env_file: ${API_ENV_FILE:?Set external API env file}
+    entrypoint: [node, /app/scripts/release/private-import.mjs]
+    # Default is local validation only. Applying requires explicit CLI flags.
+    command: [--dry-run]
+    working_dir: /app
+    environment:
+      PRIVATE_STAGE_SYNTHETIC_ONLY: 'true'
+    read_only: true
+    tmpfs: [/tmp:rw,noexec,nosuid,size=64m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: 'no'
+    networks: [backend]
   migrate:
     image: ${MIGRATION_IMAGE:?Set reviewed immutable migration image}
     profiles: [operations]
