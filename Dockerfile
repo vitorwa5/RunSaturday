@@ -19,10 +19,13 @@ ARG VITE_PRIVATE_STAGING=false
 ENV VITE_PRIVATE_STAGING=${VITE_PRIVATE_STAGING}
 # Keep package tarballs out of image layers and avoid repeated full dependency
 # snapshots on VFS builders. The same isolated cache supports offline pruning.
+# Build contexts may have restrictive local umasks. Public source/configuration
+# must remain readable by the final non-root users; external secrets are excluded.
 # The public proxy CA remains a BuildKit secret; TLS verification stays enabled.
 RUN --mount=type=secret,id=proxy_ca \
     --mount=type=cache,id=compass-phone-npm,target=/root/.npm,sharing=locked \
     if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
+    chmod -R a+rX /app && \
     npm ci --ignore-scripts --strict-ssl=true && \
     npm run build -w @runsaturday/api && npm run build -w @runsaturday/web
 
@@ -60,11 +63,11 @@ FROM ${CADDY_IMAGE} AS web
 ARG RELEASE_COMMIT=unreviewed
 LABEL org.opencontainers.image.revision=${RELEASE_COMMIT}
 COPY --from=build /app/apps/web/dist /srv
-COPY deploy/Caddyfile /etc/caddy/Caddyfile
+COPY --chmod=0644 deploy/Caddyfile /etc/caddy/Caddyfile
 
 # Private variant has no ACME or public listeners. API remains the same beta app.
 FROM web AS private-web
-COPY deploy/Caddyfile.private /etc/caddy/Caddyfile
+COPY --chmod=0644 deploy/Caddyfile.private /etc/caddy/Caddyfile
 # Port 8443 needs no privileged bind capability. The base binary's file
 # capability prevents exec when the private runtime drops every capability.
 RUN setcap -r /usr/bin/caddy
