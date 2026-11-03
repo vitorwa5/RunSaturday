@@ -17,6 +17,7 @@ function SessionApp() {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    {import.meta.env.VITE_PRIVATE_STAGING === 'true' && <p role="status" className="bg-amber-100 p-2 text-center text-sm text-amber-950">Private test version · synthetic data</p>}
     <QueryClientProvider client={queryClient}>
       <AuthProvider><SessionApp /></AuthProvider>
     </QueryClientProvider>
