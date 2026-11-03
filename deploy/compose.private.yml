@@ -32,6 +32,7 @@ services:
     networks: [backend]
   web:
     image: ${WEB_IMAGE:?Set reviewed immutable private web image}
+    user: '1000:1000'
     env_file: ${ACCESS_ENV_FILE:?Set external hashed access env file}
     environment:
       STAGE_BIND_IP: ${STAGE_BIND_IP:-127.0.0.1}
