@@ -1,0 +1,53 @@
+{
+  "scope": "CENTRAL technical review only; merge/deployment not authorized",
+  "base_main": "fc7ca19f4a0ad5ddb1e72d32972943bdf4e57b4a",
+  "reviewed_source_head": "7e3da4597c74ed6a33be3ca2f8f6f3397b1c09fb",
+  "tested_heads": {
+    "api": "cdbbd040c234b9665a1cd3c48569efb707e566db",
+    "web": "dfceb6bd82636323bd87b75dc2370a742e79d9e7",
+    "general_browser": "dfceb6bd82636323bd87b75dc2370a742e79d9e7",
+    "authenticated_browser": "a49cb0f3647cb05d34f3435c6c2b2f96719b7399",
+    "cached_browser": "7e3da4597c74ed6a33be3ca2f8f6f3397b1c09fb"
+  },
+  "results": {
+    "api": 474,
+    "web": 106,
+    "shared": 82,
+    "general_browser": 189,
+    "authenticated_browser": 117,
+    "cached_browser": 1,
+    "cache_process_exit": 0,
+    "typecheck": "all workspaces passed",
+    "build": "API and web passed"
+  },
+  "initial_failures_preserved": {
+    "api": "470passed4failed, positive fixtures missing explicit intention; corrected",
+    "web": "105passed1failed, fixture reused old auth callback in same act; corrected",
+    "authenticated_browser": "93passed24failed, invalid time/cached read/premature navigation and request inspection; corrected",
+    "cached_browser": "1failed, post-import contextual session revalidation exceeded overly exact trace; test-only assertion correction"
+  },
+  "evidence_root": "/workspace/RunSaturday-central-evidence",
+  "sha256": {
+    "api.json": "2a99cdecb0ed9e02e6802730e6e5b3a4057f10158152f8e12f2a00f13fff8784",
+    "api.log": "7bb9df0b1ee8b7565f86491e3f60a3244c6f94b9aba59ad37e014d24835586a7",
+    "web.log": "95ab936b268a13de7e132b3a63ed32d164e76a9dd717cce4fb193288b0bdf3f0",
+    "shared.log": "49201d8bd27e8731caa48e83a313910290020481d60c4aa08e533c07b7db080f",
+    "typecheck.log": "590ee448c2cb6e466bbb51f65734b578623f42dd65a92dbf8d0e04f74818b7e1",
+    "build.log": "b2614cc2887b14b64f2538aff69b5a24a0a81b0b37c7bf9995994d5eda408099",
+    "browser-first-failed.log": "b0173dc8134936dde1cb9fb939819aa008a5f52006788937114c8b4a52f56753",
+    "browser-auth-final.log": "1cc11afe5dd8ddf9cbf37486c2b45a49171c8c30caabac39f56a19b9f741b141",
+    "browser-cache-final.log": "a61a68acb66ad073e5db9695805202079e291aefbff0052bcfb5789cea6a0e51",
+    "browser-cache-final.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "api-first-failed.json": "87b515f4186e7735c7b1253bf65e001947637e80fae5b0c3a15b587987e347d7",
+    "web-first-failed.log": "75a9f700a7159dc2e5f552a164d8a35eb4759441719f9a98a799862d2bd740f3",
+    "browser-cache-first-failed.log": "3b38cead23f2a18ad496bd87527a9070313725eb0ecf9d0c2390d9cff0050359",
+    "execution-metadata.json": "1e50dbef76c620b117ad0e356fb389a79a83d4f8f8e7d93fdf29348861f49c2c"
+  },
+  "limits": [
+    "Historical browser-final.exit and final-stage.exit1 retain initial failed-chain results; final cache process exit0 is recorded separately",
+    "General browser189 source unchanged after tested run; repeated only affected auth117 and cache1",
+    "Existing web bundle size advisory remains",
+    "Production CDN/HTTPS/email/authorized real data/backup monitoring still require approved live environment",
+    "No CENTRAL merge or production deployment performed"
+  ]
+}
