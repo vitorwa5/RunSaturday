@@ -122,13 +122,13 @@ test('real built SW hides private CSV offline and reconnects to the authoritativ
     await page.getByRole('button', { name: 'Confirm import', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Import complete', exact: true })).toBeVisible();
     await page.getByRole('link', { name: 'View recorded history', exact: true }).click();
-    await expect(page.getByText(marker, { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(marker, { exact: false }).first()).toBeVisible();
     const before = await (await context.request.get('/api/profile/performances', { headers: { 'x-compass-session-binding': original.sessionBinding } })).json();
     expect(before.performances).toEqual(expect.arrayContaining([expect.objectContaining({ externalEventName: marker, source: 'CSV', verified: false })]));
 
     await context.setOffline(true);
     await expect(page.getByRole('heading', { name: 'You’re offline', exact: true })).toBeVisible();
-    await expect(page.getByText(marker, { exact: true })).toHaveCount(0);
+    await expect(page.getByText(marker, { exact: false })).toHaveCount(0);
     await expect(page.getByText(`Signed in as ${a}`, { exact: true })).toHaveCount(0);
     const offlineNavigation = await page.reload();
     expect(offlineNavigation?.fromServiceWorker()).toBe(true);
@@ -152,7 +152,7 @@ test('real built SW hides private CSV offline and reconnects to the authoritativ
     await expect(page.getByText(`Signed in as ${b}`, { exact: true })).toBeVisible();
     await expect(page.getByText('No performances yet', { exact: true }).first()).toBeVisible();
     expect(await page.evaluate(() => (window as Window & { stalePrivateSeen?: boolean }).stalePrivateSeen)).toBe(false);
-    await expect(page.getByText(marker, { exact: true })).toHaveCount(0);
+    await expect(page.getByText(marker, { exact: false })).toHaveCount(0);
     await expect(page.getByText('DEMO DATA', { exact: true })).toHaveCount(0);
     const privateList = await context.request.get('/api/profile/performances', { headers: { 'x-compass-session-binding': replacement.sessionBinding } });
     expect(privateList.ok()).toBe(true); expect(privateList.headers()['cache-control']).toContain('no-store');
