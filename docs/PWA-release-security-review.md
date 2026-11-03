@@ -26,4 +26,8 @@ Existing test delivery creates an append-only operator inbox with mode 0600 only
 
 Keep the reconnect barrier closed through expiry events and arrange a fresh authoritative session check after any active write completes. Cover both a reconnect session 401 and a delayed unsignaled write error across offline/reconnect with a deferred successful session response. Require the gate to remain closed until that response succeeds and preserve a retryable failure on failed validation.
 
-Final disposition remains pending corrected implementation heads, independent diff inspection and coordinator-owned runtime evidence.
+The corrected PWA head `369cda6` adds a synchronous validation-required barrier initialized at bootstrap and set on disconnect, reconnect and failed checks. While that barrier is set, expiry events leave the gate closed and do not invalidate the session check queued behind the complete write response. Only a current successful session result clears the barrier. Added real-client coverage exercises bootstrap/reconnect 401 and delayed unsignaled 401/409 responses with a serialized lock and deferred subsequent session response. Static inspection finds the reported bypass addressed; independent final disposition still requires coordinator-owned raw verification of the exact integrated tree.
+
+Manual-date head `7b2e8f8` contains `afdef6c`: the finite parse guard precedes `toISOString`, while exact calendar roundtrip and existing ownership handling remain in place. Focus change `a24004e` adds a focusable main region and skip link. Both require final integrated test evidence.
+
+Staging preparation is still in progress. A VPN address declared by an operator is an assertion requiring independent network/interface verification before use, not proof of isolation. No runtime or deployment is authorized by this review.
