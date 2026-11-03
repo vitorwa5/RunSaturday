@@ -31,7 +31,7 @@ test('default and explicit dry run contact no database or child process', async 
 });
 
 test('target, confirmation and live provenance refusal prevent every write and child process', async () => {
-  for (const override of [{ env: { ...env, PRIVATE_STAGE_SYNTHETIC_ONLY: 'false' } }, { env: { ...env, DATABASE_URL: env.DATABASE_URL.replace('10.0.0.2', '8.8.8.8') } }, { env: { ...env, PRIVATE_STAGE_DATABASE: 'production' } }, { async checkDatabase() { throw new Error('nonfixture'); } }]) {
+  for (const override of [{ env: { ...env, PRIVATE_STAGE_SYNTHETIC_ONLY: 'false' } }, { env: { ...env, DATABASE_URL: env.DATABASE_URL.replace('10.0.0.2', '8.8.8.8') } }, { env: { ...env, PRIVATE_STAGE_DATABASE: 'production' } }, { env: { ...env, PGOPTIONS: '-c search_path=other' } }, { env: { ...env, PGSERVICE: 'other' } }, { async checkDatabase() { throw new Error('nonfixture'); } }]) {
     const { calls, dependencies } = stubs();
     await assert.rejects(privateImport(options, { ...dependencies, ...override }));
     assert.deepEqual(calls, []);
