@@ -6,20 +6,16 @@ FROM ${NODE_IMAGE} AS build
 ARG RELEASE_COMMIT=unreviewed
 LABEL org.opencontainers.image.revision=${RELEASE_COMMIT}
 WORKDIR /app
-COPY package.json package-lock.json ./
-COPY apps/api/package.json apps/api/package.json
-COPY apps/web/package.json apps/web/package.json
-COPY packages/shared/package.json packages/shared/package.json
-# Scripts run only after schema/source are present. Optional public proxy CA stays
-# in a BuildKit secret, never an image layer. TLS verification remains enabled.
-RUN --mount=type=secret,id=proxy_ca \
-    if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
-    npm ci --ignore-scripts --strict-ssl=true
 COPY . .
 ARG VITE_PRIVATE_STAGING=false
 ENV VITE_PRIVATE_STAGING=${VITE_PRIVATE_STAGING}
+# Keep package tarballs out of image layers and avoid repeated full dependency
+# snapshots on VFS builders. The same isolated cache supports offline pruning.
+# The public proxy CA remains a BuildKit secret; TLS verification stays enabled.
 RUN --mount=type=secret,id=proxy_ca \
+    --mount=type=cache,id=compass-phone-npm,target=/root/.npm,sharing=locked \
     if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
+    npm ci --ignore-scripts --strict-ssl=true && \
     npm run build -w @runsaturday/api && npm run build -w @runsaturday/web
 
 # Migration tooling deliberately separate from the minimal application runtime.
@@ -30,7 +26,8 @@ ENTRYPOINT ["/app/node_modules/.bin/prisma"]
 CMD ["migrate", "deploy"]
 
 FROM build AS production-deps
-RUN npm prune --omit=dev --ignore-scripts --offline --no-audit
+RUN --network=none --mount=type=cache,id=compass-phone-npm,target=/root/.npm,sharing=locked \
+    npm prune --omit=dev --ignore-scripts --offline --no-audit
 
 FROM ${NODE_IMAGE} AS api
 ARG RELEASE_COMMIT=unreviewed
