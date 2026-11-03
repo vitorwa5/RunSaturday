@@ -1,5 +1,7 @@
 # Release candidate product readiness matrix
 
+Execution update 2026-11-03: see [the independent final review](phone-test-rc-independent-qa.md) for the actual passing suite counts, reviewed candidate/image identities, residual risks and private-preparation-only disposition. The table below preserves the original planned evidence map; it is not a production or physical-phone readiness claim.
+
 Prepared 2026-11-03 by the independent QA agent. This is a planned evidence map, not a claim of passing execution or permission to merge/deploy. The coordinator owns the single PostgreSQL/browser lane and will record exact source/artifact heads and raw logs. New tests here are QA-authored fixtures, with application review and security disposition separate.
 
 | Surface | Required observable behavior | Existing complete coverage plus new regression evidence |
