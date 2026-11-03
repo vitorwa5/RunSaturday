@@ -28,6 +28,7 @@ export async function apiSend<T>(method: 'POST' | 'PATCH' | 'DELETE', path: stri
       method,
       signal,
       credentials: 'same-origin',
+      cache: 'no-store',
       headers: { Accept: 'application/json', ...(sessionBinding ? { 'X-Compass-Session-Binding': sessionBinding } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
@@ -57,7 +58,7 @@ export async function apiGet<T>(path: string, query: Record<string, QueryValue> 
 
   let response: Response;
   try {
-    response = await fetch(`${BASE_URL}${path}${qs}`, { signal, credentials: 'same-origin', headers: { Accept: 'application/json', ...(sessionBinding ? { 'X-Compass-Session-Binding': sessionBinding } : {}) } });
+    response = await fetch(`${BASE_URL}${path}${qs}`, { signal, credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json', ...(sessionBinding ? { 'X-Compass-Session-Binding': sessionBinding } : {}) } });
   } catch (error) {
     if ((error as Error).name === 'AbortError') throw error;
     throw new ApiError(0, 'network_error', 'We could not reach 5K Compass. Check your connection and try again.');
