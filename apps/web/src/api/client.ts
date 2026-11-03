@@ -21,14 +21,14 @@ export class ApiError extends Error {
 type QueryValue = string | number | boolean | null | undefined;
 
 /** POST / PATCH / DELETE with a JSON body. Returns null for 204 No Content. */
-export async function apiSend<T>(method: 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+export async function apiSend<T>(method: 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown, signal?: AbortSignal, sessionBinding?: string): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${BASE_URL}${path}`, {
       method,
       signal,
       credentials: 'same-origin',
-      headers: { Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { Accept: 'application/json', ...(sessionBinding ? { 'X-Compass-Session-Binding': sessionBinding } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch (error) {
@@ -48,7 +48,7 @@ export async function apiSend<T>(method: 'POST' | 'PATCH' | 'DELETE', path: stri
   return result;
 }
 
-export async function apiGet<T>(path: string, query: Record<string, QueryValue> = {}, signal?: AbortSignal): Promise<T> {
+export async function apiGet<T>(path: string, query: Record<string, QueryValue> = {}, signal?: AbortSignal, sessionBinding?: string): Promise<T> {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
     if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
@@ -57,7 +57,7 @@ export async function apiGet<T>(path: string, query: Record<string, QueryValue> 
 
   let response: Response;
   try {
-    response = await fetch(`${BASE_URL}${path}${qs}`, { signal, credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    response = await fetch(`${BASE_URL}${path}${qs}`, { signal, credentials: 'same-origin', headers: { Accept: 'application/json', ...(sessionBinding ? { 'X-Compass-Session-Binding': sessionBinding } : {}) } });
   } catch (error) {
     if ((error as Error).name === 'AbortError') throw error;
     throw new ApiError(0, 'network_error', 'We could not reach 5K Compass. Check your connection and try again.');
@@ -67,6 +67,8 @@ export async function apiGet<T>(path: string, query: Record<string, QueryValue> 
   if (response.status === 401) window.dispatchEvent(new Event('compass-session-expired'));
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as ApiErrorBody | null;
+    signal?.throwIfAborted();
+    if (response.status === 409 && body?.error.code === 'session_changed') window.dispatchEvent(new Event('compass-session-expired'));
     throw new ApiError(
       response.status,
       body?.error.code ?? 'unknown_error',

@@ -28,7 +28,7 @@ import type {
   UserPerformancesResponse,
 } from '@runsaturday/shared';
 import { saturdayApiQuery, type PlannerSelection } from '../lib/plannerParams';
-import { apiGet, apiSend } from './client';
+import { apiGet as rawGet, apiSend as rawSend } from './client';
 import type { AccountSettings, SettingsInput } from '@runsaturday/shared';
 
 /** "current_form": the server uses the user's own Current Form (course-adjusted reference) instead of a time. */
@@ -45,10 +45,14 @@ export interface PlacementQuery {
   source?: string;
 }
 
-export const api = {
-  previewHistory: (rows: import('@runsaturday/shared').HistoryCandidate[], signal?: AbortSignal, sessionBinding?: string) => apiSend<import('@runsaturday/shared').HistoryPreview>('POST', '/profile/history-import/preview', { rows, sessionBinding }, signal),
-  commitHistory: (rows: import('@runsaturday/shared').HistoryCandidate[], signal?: AbortSignal, sessionBinding?: string) => apiSend<import('@runsaturday/shared').HistoryResult>('POST', '/profile/history-import/commit', { rows, sessionBinding, confirmation: 'IMPORT MY OWN HISTORY' }, signal),
-  deleteCsvHistory: (signal?: AbortSignal, sessionBinding?: string) => apiSend<{ deleted: number; formStatus: string }>('DELETE', '/profile/history-import', { sessionBinding, confirmation: 'REMOVE MY CSV HISTORY' }, signal),
+/** A transport closes over one rendered session; it can never retarget old work to a new account. */
+export function createApi(binding?: string) {
+  const apiGet = <T>(path: string, query: Parameters<typeof rawGet>[1], signal?: AbortSignal) => rawGet<T>(path, query, signal, binding);
+  const apiSend = <T>(method: Parameters<typeof rawSend>[0], path: string, body?: unknown, signal?: AbortSignal, requestBinding = binding) => rawSend<T>(method, path, body, signal, requestBinding);
+  return {
+  previewHistory: (rows: import('@runsaturday/shared').HistoryCandidate[], signal?: AbortSignal, sessionBinding: string | undefined = binding) => apiSend<import('@runsaturday/shared').HistoryPreview>('POST', '/profile/history-import/preview', { rows, sessionBinding }, signal, sessionBinding),
+  commitHistory: (rows: import('@runsaturday/shared').HistoryCandidate[], signal?: AbortSignal, sessionBinding: string | undefined = binding) => apiSend<import('@runsaturday/shared').HistoryResult>('POST', '/profile/history-import/commit', { rows, sessionBinding, confirmation: 'IMPORT MY OWN HISTORY' }, signal, sessionBinding),
+  deleteCsvHistory: (signal?: AbortSignal, sessionBinding: string | undefined = binding) => apiSend<{ deleted: number; formStatus: string }>('DELETE', '/profile/history-import', { sessionBinding, confirmation: 'REMOVE MY CSV HISTORY' }, signal, sessionBinding),
   settings: (signal?: AbortSignal) => apiGet<AccountSettings>('/profile/settings', {}, signal),
   saveSettings: (input: SettingsInput, signal?: AbortSignal) => apiSend<AccountSettings>('PATCH', '/profile/settings', input, signal),
   events: (signal?: AbortSignal) => apiGet<EventSummary[]>('/events', {}, signal),
@@ -103,4 +107,8 @@ export const api = {
       signal,
     ),
   currentForm: (signal?: AbortSignal) => apiGet<RunnerForm>('/profile/current-form', {}, signal),
-};
+  };
+}
+
+// Unbound transport is for explicit anonymous/bootstrap callers only.
+export const api = createApi();

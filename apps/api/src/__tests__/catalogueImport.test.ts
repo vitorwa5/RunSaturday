@@ -219,7 +219,10 @@ describe.skipIf(!url)('B2A catalogue import and PostgreSQL provenance boundaries
     let otp = '';
     const app = await buildApp({ config, store, now: () => new Date('2026-10-03T10:00:00Z'), authRuntime: { db, auth: createAuth(db, config, { async send(_email, code) { otp = code; } }) }, logger: false });
     const email = `catalogue-visits-${run}@example.test`;
-    const request = (method: 'GET' | 'POST', path: string, cookie?: string, payload?: object) => app.inject({ method, url: path, remoteAddress: '10.81.0.4', headers: { origin: 'https://example.test', ...(cookie ? { cookie } : {}) }, payload });
+    const request = async (method: 'GET' | 'POST', path: string, cookie?: string, payload?: object) => {
+      const session = cookie ? (await app.inject({ url: '/api/account/session', headers: { cookie } })).json() : null;
+      return app.inject({ method, url: path, remoteAddress: '10.81.0.4', headers: { origin: 'https://example.test', ...(cookie ? { cookie } : {}), 'x-compass-session-binding': session?.sessionBinding ?? 'signed-out' }, payload });
+    };
     try {
       expect((await request('POST', '/api/auth/email-otp/send-verification-otp', undefined, { email })).statusCode).toBe(200);
       const login = await request('POST', '/api/auth/sign-in/email-otp', undefined, { email, otp });

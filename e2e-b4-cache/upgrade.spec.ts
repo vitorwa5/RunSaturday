@@ -56,6 +56,12 @@ test('cached OLD B4 safely fails against NEW API, then real SW activation enable
     const { active, builds } = await stateResponse.json();
     expect(active).toBe('old'); expect(builds.old.digest).not.toBe(builds.new.digest);
     expect(builds.old.swDigest).not.toBe(builds.new.swDigest);
+    // CENTRAL rejects the cached client's unbound login. Establish a synthetic
+    // current session explicitly before loading the real OLD cached shell.
+    expect((await context.request.post('/api/auth/email-otp/send-verification-otp', { headers: { origin }, data: { email: a } })).ok()).toBe(true);
+    let fixtureCode = '';
+    await expect.poll(async () => { fixtureCode = await codeFor(a); return fixtureCode.length; }).toBe(6);
+    expect((await context.request.post('/api/auth/sign-in/email-otp', { headers: { origin, 'x-compass-session-binding': 'signed-out' }, data: { email: a, otp: fixtureCode } })).ok()).toBe(true);
     await page.goto('/profile/import-history');
     await page.evaluate(async () => { await navigator.serviceWorker.ready; });
     await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
@@ -64,7 +70,7 @@ test('cached OLD B4 safely fails against NEW API, then real SW activation enable
     expect(navigation?.fromServiceWorker()).toBe(true);
     await expect.poll(async () => (await cachedAssets(page)).some(asset => asset.path === builds.old.asset && asset.digest === builds.old.digest)).toBe(true);
     expect(await page.locator('script[type="module"]').getAttribute('src')).toBe(builds.old.asset);
-    await signIn(page, a);
+    await expect(page.getByRole('heading', { name: 'Import my 5K history', exact: true })).toBeVisible();
     const sessionResponse = await context.request.get('/api/account/session');
     expect(sessionResponse.headers()['cache-control']).toContain('no-store');
     const session = await sessionResponse.json();
@@ -76,6 +82,19 @@ test('cached OLD B4 safely fails against NEW API, then real SW activation enable
     const before = await db.userPerformance.findMany({ where: { userId: session.user.id }, orderBy: { id: 'asc' } });
     const revisionBefore = (await db.user.findUniqueOrThrow({ where: { id: session.user.id } })).performanceRevision;
     const snapshotsBefore = await db.runnerFormSnapshot.findMany({ where: { userId: session.user.id }, orderBy: { id: 'asc' } });
+    // CENTRAL extends the cached-client boundary beyond the original CSV body binding.
+    const contextualRejections = await page.evaluate(async () => {
+      const results = [];
+      for (const path of ['/api/profile', '/api/profile/settings', '/api/account/export']) {
+        const response = await fetch(path);
+        results.push({ status: response.status, body: await response.json() });
+      }
+      const login = await fetch('/api/auth/sign-in/email-otp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'unused@example.test', otp: '123456' }) });
+      results.push({ status: login.status, body: await login.json() });
+      return results;
+    });
+    expect(contextualRejections).toEqual(Array.from({ length: 4 }, () => ({ status: 409, body: { error: { code: 'session_changed', message: 'Your account session changed. Please check your session and try again.' } } })));
+    expect((await (await context.request.get('/api/account/session')).json()).sessionBinding).toBe(session.sessionBinding);
     const oldPreviewPromise = page.waitForResponse(response => response.url().endsWith('/api/profile/history-import/preview'));
     await upload(page, marker);
     const oldPreview = await oldPreviewPromise;
@@ -99,7 +118,7 @@ test('cached OLD B4 safely fails against NEW API, then real SW activation enable
       }
       return results;
     }, oldBody.rows);
-    expect(rejected).toEqual([0, 1].map(() => ({ status: 409, body: { error: { code: 'session_changed', message: 'Your account session changed. Reopen the import and choose your file again.' } } })));
+    expect(rejected).toEqual([0, 1].map(() => ({ status: 409, body: { error: { code: 'session_changed', message: 'Your account session changed. Please check your session and try again.' } } })));
     expect(await db.userPerformance.findMany({ where: { userId: session.user.id }, orderBy: { id: 'asc' } })).toEqual(before);
     expect((await db.user.findUniqueOrThrow({ where: { id: session.user.id } })).performanceRevision).toBe(revisionBefore);
     expect(await db.runnerFormSnapshot.findMany({ where: { userId: session.user.id }, orderBy: { id: 'asc' } })).toEqual(snapshotsBefore);
@@ -152,12 +171,16 @@ test('cached OLD B4 safely fails against NEW API, then real SW activation enable
     await page.getByRole('checkbox', { name: /I confirm this file/ }).check();
     await page.getByRole('button', { name: 'Confirm import', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Import complete' })).toBeVisible();
-    expect(sequence).toEqual(['/api/account/session', '/api/profile/history-import/preview', '/api/account/session', '/api/profile/history-import/commit']);
+    expect(sequence.slice(0, 4)).toEqual(['/api/account/session', '/api/profile/history-import/preview', '/api/account/session', '/api/profile/history-import/commit']);
+    // Successful import invalidates contextual queries; CENTRAL revalidates
+    // their sessions too. No additional history operation may follow.
+    expect(sequence.slice(4).every(path => path === '/api/account/session')).toBe(true);
     expect(bodies).toHaveLength(2);
     expect(bodies.every(body => body.sessionBinding === session.sessionBinding && !('userId' in body))).toBe(true);
     expect(await db.userPerformance.count({ where: { userId: session.user.id, externalEventName: marker, source: 'CSV', verified: false, eventId: null } })).toBe(1);
     const other = await otherContext.newPage(); await other.goto('/profile/import-history'); await signIn(other, b);
-    const privateList = await otherContext.request.get('/api/profile/performances');
+    const otherSession = await (await otherContext.request.get('/api/account/session')).json();
+    const privateList = await otherContext.request.get('/api/profile/performances', { headers: { 'x-compass-session-binding': otherSession.sessionBinding } });
     expect(privateList.ok()).toBe(true);
     expect(privateList.headers()['cache-control']).toContain('no-store');
     expect((await privateList.json()).performances).toEqual([]);

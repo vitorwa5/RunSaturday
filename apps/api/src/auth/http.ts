@@ -45,6 +45,16 @@ export function installIdentity(app: FastifyInstance, ctx: RequestContext, runti
     if (!valid && (request.url.startsWith('/api/profile') || request.url.startsWith('/api/account/export') || (request.url === '/api/account' && request.method === 'DELETE'))) {
       throw new AppError(401, 'authentication_required', 'Sign in to access your account.');
     }
+    // Cookies are shared across tabs. Bind contextual requests to the session that
+    // originated the UI intention, independently of BroadcastChannel or Web Locks.
+    const path = request.url.split('?')[0];
+    const exempt = request.method === 'OPTIONS' || ['/api/health', '/api/account/session', '/api/auth/email-otp/send-verification-otp'].includes(path!);
+    const changesCookie = ['/api/auth/sign-in/email-otp', '/api/auth/sign-out'].includes(path!);
+    const suppliedBinding = request.headers['x-compass-session-binding'];
+    if (!exempt && (valid || changesCookie || suppliedBinding !== undefined)) {
+      const expectedBinding = valid ? createHash('sha256').update('history-import-v1:' + session!.session.id).digest('hex') : 'signed-out';
+      if (suppliedBinding !== expectedBinding) throw new AppError(409, 'session_changed', 'Your account session changed. Please check your session and try again.');
+    }
   });
   app.addHook('onRoute', (route) => {
     const handler = route.handler;

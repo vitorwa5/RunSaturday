@@ -9,8 +9,8 @@ import { withAuthLock } from '../auth/epoch';
 import { AccountControls } from '../auth/AccountControls';
 
 vi.mock('../api/client', () => ({ apiGet: vi.fn(), apiSend: vi.fn() }));
-type Session = { mode: 'beta'; user: { id: string; email: string } | null; expiresAt?: string };
-const session = (id: string): Session => ({ mode: 'beta', user: { id, email: `${id}@example.test` }, expiresAt: new Date(Date.now() + 60_000).toISOString() });
+type Session = { mode: 'beta'; user: { id: string; email: string } | null; expiresAt?: string; sessionBinding?: string };
+const session = (id: string): Session => ({ mode: 'beta', user: { id, email: `${id}@example.test` }, sessionBinding: `${id}-session`, expiresAt: new Date(Date.now() + 60_000).toISOString() });
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((r) => { resolve = r; }); return { promise, resolve }; }
 class Channel {
   static channels = new Set<Channel>();
@@ -61,6 +61,31 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => { for (const root of roots.splice(0)) root.unmount(); }); document.body.innerHTML = ''; Channel.channels.clear(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('auth generation across deliberately delayed responses', () => {
+  it('binds login from a failed refresh view to signed-out even while the old cookie remains valid', async () => {
+    await mount();
+    vi.mocked(apiGet).mockRejectedValueOnce(new Error('Session bootstrap unavailable'));
+    await act(async () => auth.refresh());
+    expect(auth.ready).toBe(true); expect(auth.user).toBeNull(); expect(auth.error).toContain('check your session');
+    expect(server.user?.id).toBe('A');
+    await act(async () => { await expect(auth.signIn('B@example.test', '123456')).rejects.toMatchObject({ name: 'AbortError' }); });
+    expect(apiSend).not.toHaveBeenCalled(); expect(server.user?.id).toBe('A');
+  });
+  it.each(['logout', 'deleteAccount', 'signIn'] as const)('retains the rendered origin of an old %s callback', async operation => {
+    await mount(); const old = auth;
+    server = session('B'); await act(async () => auth.refresh());
+    expect(auth.user?.id).toBe('B');
+    await act(async () => {
+      const result = operation === 'signIn' ? old.signIn('C@example.test', '123456') : old[operation]();
+      await expect(result).rejects.toMatchObject({ name: 'AbortError' });
+    });
+    expect(apiSend).not.toHaveBeenCalled(); expect(server.user?.id).toBe('B');
+  });
+  it('rejects same-account replacement with unchanged expiry before changing cookies', async () => {
+    await mount(); const old = auth;
+    server = { ...server, sessionBinding: 'A-replacement' };
+    await act(async () => { await expect(old.logout()).rejects.toMatchObject({ name: 'AbortError' }); });
+    expect(apiSend).not.toHaveBeenCalled(); expect(server.sessionBinding).toBe('A-replacement');
+  });
   it('keeps a signed-out view mounted while focus revalidation discards the old generation', async () => {
     server = { mode: 'beta', user: null }; await mount(); const old = auth.captureOperation();
     const delayed = deferred<Session>(); vi.mocked(apiGet).mockImplementationOnce(() => delayed.promise as never);
@@ -151,8 +176,9 @@ describe('auth generation across deliberately delayed responses', () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
     await act(async () => { [...container.querySelectorAll('button')].find((b) => b.textContent === 'Export my data')!.click(); });
     const request = vi.mocked(apiGet).mock.calls.find(([path]) => path === '/account/export')!;
-    await act(async () => { await auth.logout(); await auth.signIn('B@example.test', '123456'); });
-    expect(auth.user?.id).toBe('B'); expect(request[2]?.aborted).toBe(true);
+    await act(async () => { await auth.logout(); });
+    await act(async () => { await auth.signIn('B@example.test', '123456'); });
+    expect(auth.user?.id).toBe('B'); expect(request[2]).toBeUndefined(); expect(request[3]).toBe('A-session');
     await act(async () => delayed.resolve({ profile: { id: 'A' }, performances: ['private-A'] }));
     expect(blob).not.toHaveBeenCalled(); expect(click).not.toHaveBeenCalled(); expect(container.textContent).not.toContain('private-A');
   });

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiGet } from '../api/client';
 import { useAuth } from './AuthProvider';
+import { captureHistorySession, withHistorySession } from './historyOperation';
 export function AccountControls() {
   const auth = useAuth();
   const [confirm, setConfirm] = useState(false);
@@ -22,7 +23,8 @@ export function AccountControls() {
   async function download() {
     const ticket = auth.captureOperation();
     const signal = AbortSignal.any([ticket.signal, lifetime.current.signal]);
-    const data = await apiGet('/account/export', {}, signal);
+    const origin = captureHistorySession(auth);
+    const data = await withHistorySession(origin, { ...ticket, signal }, () => apiGet('/account/export', {}, undefined, origin.sessionBinding));
     if (!ticket.isCurrent() || signal.aborted) return;
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
     const anchor = document.createElement('a'); anchor.href = url; anchor.download = '5k-compass-account.json'; anchor.click(); URL.revokeObjectURL(url);

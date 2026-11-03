@@ -1,3 +1,4 @@
+import { bindingHeaders } from './sessionRequests';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { test, expect, type Page } from '@playwright/test';
@@ -49,7 +50,7 @@ test('B4 private import, reimport, correction, mixed rows, ambiguous mapping and
     await upload(page, csv); await expect(page.getByRole('heading', { name: 'Preview: 3 rows' })).toBeVisible(); await confirm(page);
     await expect(page.getByRole('status')).toContainText('Unchanged 2'); expect(await db.userPerformance.count({ where: { userId: user.id } })).toBe(2);
     const edited = records.find(r => r.date.toISOString().startsWith('2026-09-05'))!;
-    const dateEdit = await context.request.patch('/api/profile/performances/' + edited.id, { headers: { origin: 'http://127.0.0.1:5175' }, data: { date: '2026-09-04', externalEventName: 'Private race, West', time: '24:31' } });
+    const dateEdit = await context.request.patch('/api/profile/performances/' + edited.id, { headers: { origin: 'http://127.0.0.1:5175', ...await bindingHeaders(context.request) }, data: { date: '2026-09-04', externalEventName: 'Private race, West', time: '24:31' } });
     expect(dateEdit.status()).toBe(200);
     await upload(page, csv); await expect(page.getByText('Row 2: UPDATE', { exact: true })).toBeVisible(); await confirm(page);
     expect(await db.userPerformance.count({ where: { userId: user.id } })).toBe(2);
@@ -65,7 +66,7 @@ test('B4 private import, reimport, correction, mixed rows, ambiguous mapping and
     await upload(page, correctedCsv); await expect(page.getByText('Row 3: UNCHANGED', { exact: true })).toBeVisible(); await confirm(page);
     await expect(page.getByRole('status')).toContainText('Unchanged 2');
     expect(await db.userPerformance.findUnique({ where: { id: records.find(r => r.date.toISOString().startsWith('2026-09-12'))!.id } })).toMatchObject({ eventId: mapped.id });
-    const manual = await context.request.post('/api/profile/performances', { headers: { origin: 'http://127.0.0.1:5175' }, data: { date: '2026-09-18', externalEventName: 'Manual synthetic race', time: '25:00' } });
+    const manual = await context.request.post('/api/profile/performances', { headers: { origin: 'http://127.0.0.1:5175', ...await bindingHeaders(context.request) }, data: { date: '2026-09-18', externalEventName: 'Manual synthetic race', time: '25:00' } });
     expect(manual.status()).toBe(201);
     await page.getByRole('checkbox', { name: /Remove all my CSV/ }).check(); await page.getByRole('button', { name: 'Remove my CSV history', exact: true }).click();
     await expect(page.getByRole('alert')).toContainText('Removed 2');
@@ -130,7 +131,7 @@ for (const operation of ['preview', 'commit', 'delete'] as const) test(`B4 stale
     await expect(other.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible(); await signIn(other, b);
     const bSession = await (await context.request.get('/api/account/session')).json();
     expect(bSession.sessionBinding).not.toBe(aSession.sessionBinding);
-    const seeded = await context.request.post('/api/profile/history-import/commit', { headers: { origin: 'http://127.0.0.1:5175' }, data: { sessionBinding: bSession.sessionBinding, rows: [{ row: 2, date: '2026-09-05', eventName: 'B private preserved race', time: '25:00' }], confirmation: 'IMPORT MY OWN HISTORY' } });
+    const seeded = await context.request.post('/api/profile/history-import/commit', { headers: { origin: 'http://127.0.0.1:5175', ...await bindingHeaders(context.request) }, data: { sessionBinding: bSession.sessionBinding, rows: [{ row: 2, date: '2026-09-05', eventName: 'B private preserved race', time: '25:00' }], confirmation: 'IMPORT MY OWN HISTORY' } });
     expect(seeded.status()).toBe(200);
     const before = await db.userPerformance.findMany({ where: { userId: { in: [aSession.user.id, bSession.user.id] } } });
     const historyRequests: string[] = [];
