@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiGet, apiSend } from '../api/client';
 import { AuthProvider, useAuth } from '../auth/AuthProvider';
 import { OfflineGate } from '../app/OfflineGate';
+import { withAuthLock } from '../auth/epoch';
 
 vi.mock('../api/client', () => ({ apiGet: vi.fn(), apiSend: vi.fn() }));
 type Session = { mode: 'beta'; user: { id: string; email: string }; sessionBinding: string };
@@ -75,5 +76,54 @@ describe('offline session authority', () => {
     expect(container.textContent).not.toContain('Private');
     await act(async () => check.resolve(session('B')));
     expect(container.textContent).toContain('Private B');
+  });
+});
+
+
+describe('real HTTP expiry events cannot bypass session validation', () => {
+  it.each(['bootstrap', 'reconnect'] as const)('keeps a %s HTTP 401 blocked without a retry loop', async phase => {
+    const actual = await vi.importActual<typeof import('../api/client')>('../api/client');
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(session('A'))));
+    vi.stubGlobal('fetch', fetcher); vi.mocked(apiGet).mockImplementation(actual.apiGet);
+    if (phase === 'reconnect') { await mount(); await connect(false); }
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'Expired' } }), { status: 401 }));
+    if (phase === 'bootstrap') await mount(); else await connect(true);
+    expect(container.textContent).toContain('Session check unavailable');
+    expect(container.textContent).not.toContain('Private'); expect(auth.ready).toBe(false);
+    expect(fetcher).toHaveBeenCalledTimes(phase === 'bootstrap' ? 1 : 2);
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify(session('B'))));
+    await act(async () => container.querySelector('button')!.click());
+    expect(container.textContent).toContain('Private B');
+  });
+
+  it.each([401, 409])('waits for the queued authoritative check after a delayed unsignaled HTTP %s write', async status => {
+    const actual = await vi.importActual<typeof import('../api/client')>('../api/client');
+    let tail: Promise<unknown> = Promise.resolve();
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: {
+      request: (_name: string, _options: object, action: () => Promise<unknown>) => {
+        const result = tail.then(action); tail = result.catch(() => undefined); return result;
+      },
+    } });
+    const writeResponse = deferred<Response>(); const validationResponse = deferred<Response>();
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(session('A'))));
+    fetcher.mockImplementation((url: string, options: RequestInit) => {
+      if (url.endsWith('/settings')) { expect(options.signal).toBeUndefined(); return writeResponse.promise; }
+      return validationResponse.promise;
+    });
+    vi.stubGlobal('fetch', fetcher); vi.mocked(apiGet).mockImplementation(actual.apiGet);
+    await mount();
+    const write = withAuthLock(() => actual.apiSend('PATCH', '/settings', {}, undefined, 'A')).catch((error: Error) => error.name);
+    await act(async () => { await Promise.resolve(); });
+    await connect(false); await connect(true);
+    expect(fetcher).toHaveBeenCalledTimes(2); expect(auth.ready).toBe(false);
+    await act(async () => {
+      writeResponse.resolve(new Response(JSON.stringify({ error: { code: status === 409 ? 'session_changed' : 'unauthorized', message: 'Expired' } }), { status }));
+      expect(await write).toBe('ApiError');
+    });
+    // The write releases its lock only after its complete response; validation then starts.
+    expect(fetcher).toHaveBeenCalledTimes(3); expect(auth.ready).toBe(false);
+    expect(container.textContent).not.toContain('Private');
+    await act(async () => validationResponse.resolve(new Response(JSON.stringify(session('B')))));
+    expect(container.textContent).toContain('Private B'); expect(fetcher).toHaveBeenCalledTimes(3);
   });
 });
