@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertDemoSeedDatabase, requireDemoSeedOptIn } from '../demo/seedGuard';
 import type { Db } from '../db/prisma';
-import { createPrismaClient } from '../db/prisma';
+import { seededDemoFixture } from './fixtures/seededDemo';
 import { randomUUID } from 'node:crypto';
 import { CatalogueImportService } from '../catalogue/importService';
 
@@ -22,11 +22,15 @@ describe('destructive demo seed guard', () => {
       await expect(assertDemoSeedDatabase(db)).rejects.toThrow(/No data was deleted/);
     }
   });
-  it.skipIf(!process.env.TEST_DATABASE_URL)('checks the established PostgreSQL demo fixture and refuses a real account without changing data', async () => {
-    const db = createPrismaClient(process.env.TEST_DATABASE_URL!);
-    const id = `seed-guard-${randomUUID()}`;
-    const importedId = `${id}-catalogue`;
-    try {
+  describe.skipIf(!process.env.TEST_DATABASE_URL)('isolated PostgreSQL DEMO schema', () => {
+    const fixture = process.env.TEST_DATABASE_URL ? seededDemoFixture(process.env.TEST_DATABASE_URL, '2026-10-03') : null;
+    beforeAll(async () => fixture!.setup(), 120_000);
+    afterAll(async () => fixture?.cleanup(), 30_000);
+
+    it('checks its migrated DEMO fixture and refuses a real account without changing data', async () => {
+      const db = fixture!.db;
+      const id = `seed-guard-${randomUUID()}`;
+      const importedId = `${id}-catalogue`;
       const demo = await db.user.findUniqueOrThrow({ where: { id: 'demo-user' } });
       expect(demo).toMatchObject({ isDemo: true, email: null, emailVerified: false });
       await expect(assertDemoSeedDatabase(db)).resolves.toBeUndefined();
@@ -50,11 +54,6 @@ describe('destructive demo seed guard', () => {
       expect(await db.event.findMany({ where: { sourceNamespace: id } })).toEqual(catalogue);
       expect(await db.catalogueImportRun.findMany({ where: { sourceNamespace: id } })).toEqual(runs);
       expect(await db.userPerformance.count()).toBe(before);
-    } finally {
-      await db.user.deleteMany({ where: { id } });
-      await db.event.deleteMany({ where: { OR: [{ id: importedId }, { sourceNamespace: id }] } });
-      await db.catalogueImportRun.deleteMany({ where: { sourceNamespace: id } });
-      await db.$disconnect();
-    }
+    });
   });
 });
