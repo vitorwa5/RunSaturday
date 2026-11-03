@@ -30,4 +30,4 @@ The corrected PWA head `369cda6` adds a synchronous validation-required barrier 
 
 Manual-date head `7b2e8f8` contains `afdef6c`: the finite parse guard precedes `toISOString`, while exact calendar roundtrip and existing ownership handling remain in place. Focus change `a24004e` adds a focusable main region and skip link. Both require final integrated test evidence.
 
-Staging preparation is still in progress. A VPN address declared by an operator is an assertion requiring independent network/interface verification before use, not proof of isolation. No runtime or deployment is authorized by this review.
+Staging preparation head `85334da` statically provides an exact `synthetic@example.test` gate, separate test-only transport, external inbox permission checks, all-route basic authentication and upstream Authorization stripping. A VPN address declared by an operator is an assertion requiring independent network/interface and firewall verification before use, not proof of isolation. No container, runtime, TLS, database isolation or deployed access was verified here; no runtime or deployment is authorized by this review.
