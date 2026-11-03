@@ -55,6 +55,10 @@ COPY deploy/Caddyfile /etc/caddy/Caddyfile
 # Private variant has no ACME or public listeners. API remains the same beta app.
 FROM web AS private-web
 COPY deploy/Caddyfile.private /etc/caddy/Caddyfile
+# Port 8443 needs no privileged bind capability. The base binary's file
+# capability prevents exec when the private runtime drops every capability.
+RUN setcap -r /usr/bin/caddy
+USER 1000:1000
 
 FROM api AS private-api
 CMD ["node", "scripts/release/private-api.mjs"]
