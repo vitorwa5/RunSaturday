@@ -13,6 +13,7 @@ test('network and database guards reject public, wildcard, alternate target and 
   const env = { PRIVATE_STAGE_SYNTHETIC_ONLY: 'true', PRIVATE_STAGE_DATABASE: 'compass_private_synthetic', DATABASE_URL: 'postgresql://stage:fake@10.0.0.2/compass_private_synthetic' };
   assert.doesNotThrow(() => databaseTarget(env));
   for (const patch of [{ PRIVATE_STAGE_SYNTHETIC_ONLY: 'false' }, { PRIVATE_STAGE_DATABASE: 'production' }, { DATABASE_URL: env.DATABASE_URL + '?host=8.8.8.8' }, { DATABASE_URL: env.DATABASE_URL.replace('10.0.0.2', '8.8.8.8') }, { DATABASE_URL: env.DATABASE_URL.replace('/compass_private_synthetic', '/production') }]) assert.throws(() => databaseTarget({ ...env, ...patch }));
+  for (const key of ['PGOPTIONS', 'PGSERVICE', 'PGHOST', 'PGDATABASE', 'PGUSER', 'PGPASSWORD', 'PGSSLMODE']) assert.throws(() => databaseTarget({ ...env, [key]: 'override' }), /libpq/);
   assert.equal(syntheticEmail('synthetic@example.test'), true);
   for (const email of ['owner@gmail.com', 'other@example.test', 'synthetic@example.test.evil', 'x@synthetic@example.test']) assert.equal(syntheticEmail(email), false);
 });

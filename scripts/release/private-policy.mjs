@@ -18,6 +18,9 @@ export function syntheticAuthBody(method, url, body) {
   return syntheticEmail(input?.email);
 }
 export function databaseTarget(env) {
+  // pg and the importer must resolve the same explicit URL, never ambient libpq
+  // service, credentials, connection or search_path overrides.
+  if (Object.keys(env).some((key) => /^PG[A-Z0-9_]*$/.test(key))) throw new Error('Ambient libpq overrides are forbidden for private staging');
   if (env.PRIVATE_STAGE_SYNTHETIC_ONLY !== 'true' || !/^compass_private_synthetic(?:_[a-z0-9]+)?$/.test(env.PRIVATE_STAGE_DATABASE ?? '')) throw new Error('Explicit synthetic stage database required');
   let url;
   try { url = new URL(env.DATABASE_URL); } catch { throw new Error('Stage database configuration required'); }

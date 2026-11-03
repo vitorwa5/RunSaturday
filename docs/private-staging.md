@@ -44,6 +44,8 @@ Preparation does not authorize running this command. After the owner approves th
 
 The default and `--dry-run` invocation validate locally and contact no database. An eventual apply command, shown for review only and **not executed during preparation**, is:
 
+All stage database wrappers reject ambient `PG*` environment bindings, including libpq service, connection, credential and search-path overrides. Supply the connection only through the reviewed `DATABASE_URL`; the guard and child importer share that constrained environment. This restriction applies to these private stage wrappers; the separate backup/recovery scripts deliberately use externally reviewed libpq bindings.
+
 ```sh
 docker compose --env-file /secure/compass-private/compose.env -f deploy/compose.private.yml --profile operations run --rm catalogue --apply --confirm-database compass_private_synthetic
 ```
