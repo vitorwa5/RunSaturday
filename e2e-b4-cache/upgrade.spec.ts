@@ -171,7 +171,10 @@ test('cached OLD B4 safely fails against NEW API, then real SW activation enable
     await page.getByRole('checkbox', { name: /I confirm this file/ }).check();
     await page.getByRole('button', { name: 'Confirm import', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Import complete' })).toBeVisible();
-    expect(sequence).toEqual(['/api/account/session', '/api/profile/history-import/preview', '/api/account/session', '/api/profile/history-import/commit']);
+    expect(sequence.slice(0, 4)).toEqual(['/api/account/session', '/api/profile/history-import/preview', '/api/account/session', '/api/profile/history-import/commit']);
+    // Successful import invalidates contextual queries; CENTRAL revalidates
+    // their sessions too. No additional history operation may follow.
+    expect(sequence.slice(4).every(path => path === '/api/account/session')).toBe(true);
     expect(bodies).toHaveLength(2);
     expect(bodies.every(body => body.sessionBinding === session.sessionBinding && !('userId' in body))).toBe(true);
     expect(await db.userPerformance.count({ where: { userId: session.user.id, externalEventName: marker, source: 'CSV', verified: false, eventId: null } })).toBe(1);
