@@ -37,8 +37,10 @@ ENTRYPOINT ["/app/node_modules/.bin/prisma"]
 CMD ["migrate", "deploy"]
 
 FROM build AS production-deps
+# Optional peers pull test/build tooling into an otherwise production-only tree.
+# Runtime imports use the mandatory client/adapter/pg graph; migration stays full.
 RUN --network=none --mount=type=cache,id=compass-phone-npm,target=/root/.npm,sharing=locked \
-    npm prune --omit=dev --ignore-scripts --offline --no-audit && \
+    npm prune --omit=dev --omit=optional --ignore-scripts --offline --no-audit && \
     mkdir -p /runtime/apps/api /runtime/scripts/release && \
     cp -al node_modules /runtime/node_modules && \
     cp -al apps/api/dist /runtime/apps/api/dist && \
