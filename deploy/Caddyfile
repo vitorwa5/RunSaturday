@@ -1,0 +1,30 @@
+{
+	email {$TLS_EMAIL}
+	admin off
+}
+
+{$PUBLIC_HOST} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+	@api path /api /api/*
+	handle @api {
+		header Cache-Control "no-store"
+		reverse_proxy api:3001 {
+			# No upstream CDN is trusted by this direct-to-host template.
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+	handle {
+		root * /srv
+		# New index/worker must reach installed PWAs after a paired release.
+		header Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}

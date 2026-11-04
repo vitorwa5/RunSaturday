@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router';
 import { queryClient } from './app/queryClient';
 import { router } from './app/router';
+import { OfflineGate } from './app/OfflineGate';
 import './styles/index.css';
 
 function SessionApp() {
@@ -17,8 +18,9 @@ function SessionApp() {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    {import.meta.env.VITE_PRIVATE_STAGING === 'true' && <p role="status" className="bg-amber-100 p-2 text-center text-sm text-amber-950">Private test version · synthetic data</p>}
     <QueryClientProvider client={queryClient}>
-      <AuthProvider><SessionApp /></AuthProvider>
+      <AuthProvider><OfflineGate><SessionApp /></OfflineGate></AuthProvider>
     </QueryClientProvider>
   </StrictMode>,
 );

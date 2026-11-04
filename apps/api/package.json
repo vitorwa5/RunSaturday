@@ -22,17 +22,17 @@
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",
-    "@prisma/adapter-pg": "7.10.0",
-    "@prisma/client": "7.10.0",
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
     "@runsaturday/shared": "*",
     "better-auth": "^1.7.7",
-    "fastify": "^5.12.5",
-    "zod": "^4.6.5"
+    "fastify": "^5.12.6",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "^22.19.0",
     "esbuild": "^0.28.2",
-    "prisma": "7.10.0",
+    "prisma": "7.10.1",
     "tsx": "^4.23.15",
     "vitest": "^5.0.3"
   }

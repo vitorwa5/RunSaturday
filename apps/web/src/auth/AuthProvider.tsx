@@ -6,7 +6,7 @@ import { AuthEpoch, withAuthLock, type AuthTicket } from './epoch';
 
 interface SessionState { mode: 'demo' | 'beta'; user: { id: string; email: string | null } | null; expiresAt?: string; sessionBinding?: string }
 interface AuthState extends SessionState {
-  ready: boolean; error: string | null;
+  ready: boolean; error: string | null; online: boolean;
   refresh(): Promise<void>; logout(): Promise<void>; deleteAccount(): Promise<void>;
   sendCode(email: string): Promise<boolean>; signIn(email: string, otp: string): Promise<void>;
   captureOperation(): AuthTicket;
@@ -20,6 +20,11 @@ export function useAuth() {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const client = useQueryClient();
   const [state, setState] = useState<SessionState & { ready: boolean; error: string | null }>({ mode: 'beta', user: null, ready: false, error: null });
+  const [online, setOnline] = useState(() => navigator.onLine !== false);
+  const connected = useRef(navigator.onLine !== false);
+  // Expiry notifications are not authoritative reconnect/session-bootstrap checks.
+  // Keep this barrier synchronous so a late unsignaled write cannot release it.
+  const validationRequired = useRef(true);
   const epoch = useRef(new AuthEpoch()).current;
   // Keep the validated/anticipated session synchronously: React may batch renders across awaits.
   const sessionIntent = useRef<SessionState>({ mode: 'beta', user: null });
@@ -40,22 +45,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void clearPersonalData(client);
   }, [client]);
   const applySession = (session: SessionState) => {
+    validationRequired.current = false;
     if (session.user && session.expiresAt && Date.parse(session.expiresAt) <= Date.now()) {
       sessionIntent.current = { mode: session.mode, user: null };
       setState({ mode: session.mode, user: null, ready: true, error: null });
     } else { sessionIntent.current = session; setState({ ...session, ready: true, error: null }); }
   };
   const refresh = useCallback(async () => {
-    if (!epoch.mounted || epoch.busy || remoteTransitions.current.size) return;
+    if (!epoch.mounted || !connected.current || epoch.busy || remoteTransitions.current.size) return;
     const ticket = epoch.advance(); reset(true);
     try {
-      const session = await withAuthLock(() => apiGet<SessionState>('/account/session', {}, ticket.signal), ticket.signal);
+      const session = await withAuthLock(() => {
+        // A lock implementation may release an already cancelled waiter.
+        if (!ticket.isCurrent() || !connected.current) throw new DOMException('Session check superseded', 'AbortError');
+        return apiGet<SessionState>('/account/session', {}, ticket.signal);
+      }, ticket.signal);
       if (ticket.isCurrent()) applySession(session);
     } catch (error) {
       if (ticket.isCurrent() && (error as Error).name !== 'AbortError') {
         // The displayed signed-out view must not retain authority from a failed refresh.
+        validationRequired.current = true;
         sessionIntent.current = { mode: 'beta', user: null };
-        setState({ mode: 'beta', user: null, ready: true, error: 'We could not check your session. Please try again.' });
+        setState({ mode: 'beta', user: null, ready: false, error: 'We could not check your session. Please try again.' });
       }
     }
   }, [epoch, reset]);
@@ -112,12 +123,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [epoch]);
   useEffect(() => {
     epoch.mount(); void refresh();
+    const onOffline = () => {
+      connected.current = false; setOnline(false); validationRequired.current = true;
+      // Invalidate in-flight reads and writes, including ignored-abort transports.
+      epoch.advance(); reset(); sessionIntent.current = { mode: 'beta', user: null };
+    };
     const onExpiry = () => {
+      if (validationRequired.current) {
+        // A 401 from the check itself must reach its catch without cancelling its
+        // ticket. A late write's 401/409 must leave a queued check free to finish.
+        reset(); sessionIntent.current = { mode: 'beta', user: null };
+        setState({ mode: 'beta', user: null, ready: false, error: 'We could not check your session. Please try again.' });
+        return;
+      }
       epoch.advance(); reset(); sessionIntent.current = { mode: 'beta', user: null };
       setState({ mode: 'beta', user: null, ready: true, error: null });
       channel.current?.postMessage({ type: 'session-changed' });
     };
     const onFocus = () => {
+      if (!connected.current) return;
       if (remoteTransitions.current.size && navigator.locks) {
         // Recover a barrier left by a closed/crashed tab only after its cookie-write lock
         // has been released. A new transition invalidates this recovery ticket.
@@ -126,6 +150,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (ticket.isCurrent()) remoteTransitions.current.clear();
         }, ticket.signal).then(() => { if (ticket.isCurrent()) void refresh(); }).catch(() => undefined);
       } else void refresh();
+    };
+    const onOnline = () => {
+      connected.current = true; setOnline(true); validationRequired.current = true;
+      epoch.advance(); reset();
+      onFocus();
     };
     channel.current = new BroadcastChannel('5k-compass-session');
     channel.current.onmessage = ({ data }) => {
@@ -138,11 +167,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     window.addEventListener('compass-session-expired', onExpiry);
     window.addEventListener('focus', onFocus);
+    window.addEventListener('offline', onOffline);
+    window.addEventListener('online', onOnline);
     return () => {
       epoch.dispose(); remoteTransitions.current.clear();
       channel.current?.close(); channel.current = null;
       window.removeEventListener('compass-session-expired', onExpiry);
       window.removeEventListener('focus', onFocus);
+      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('online', onOnline);
     };
   }, [epoch, refresh, reset]);
   useEffect(() => {
@@ -155,6 +188,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [epoch, state.expiresAt, state.user]);
   // Old callbacks must retain their rendered intention even after another render signs in.
   const origin = { ...sessionIntent.current, user: sessionIntent.current.user ? { ...sessionIntent.current.user } : null };
-  return <AuthContext value={{ ...state, refresh, logout: () => transition('logout', origin), deleteAccount: () => transition('delete', origin),
+  return <AuthContext value={{ ...state, ready: state.ready && !validationRequired.current, online, refresh, logout: () => transition('logout', origin), deleteAccount: () => transition('delete', origin),
     sendCode, signIn: (email, otp) => transition('login', origin, { email, otp }), captureOperation: () => epoch.ticket() }}>{children}</AuthContext>;
 }

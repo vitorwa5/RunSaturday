@@ -1,0 +1,35 @@
+{
+	admin off
+	auto_https off
+}
+
+https://{$STAGE_BIND_IP}:8443 {
+	tls /run/private-tls/tls.crt /run/private-tls/tls.key
+	encode zstd gzip
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+	# Explicit route preserves authentication before both API and static handlers.
+	route {
+		basic_auth {
+			{$STAGE_ACCESS_USER} {$STAGE_ACCESS_HASH}
+		}
+		@api path /api /api/*
+		handle @api {
+			header Cache-Control "no-store"
+			reverse_proxy api:3002 {
+				header_up -Authorization
+				header_up X-Forwarded-For {remote_host}
+				header_up X-Forwarded-Proto https
+			}
+		}
+		handle {
+			root * /srv
+			header Cache-Control "no-cache"
+			try_files {path} /index.html
+			file_server
+		}
+	}
+}

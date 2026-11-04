@@ -1,0 +1,273 @@
+{
+  "date": "2026-11-04",
+  "disposition": "BLOCKED: migration CLI runtime could not start due Docker/VFS ENOSPC; PR remains draft",
+  "source": "efce24ec39175a704bb0175806649be65257b609",
+  "base": "aa9b3e502421acf9ce5bf5152ab30933e850f8c1",
+  "reviews": {
+    "qa": "a28567a7f64e6fefb5497d2a173466a6203a9258",
+    "security": "a1665a9a38507c5368cc808c07c52a5c5fbe320d"
+  },
+  "sourceTreeEquality": {
+    "07d0baf": {
+      "apps": "664011f95999e84b07a3ab785b7436c4f3220689",
+      "packages": "362f29328d08d5e21e2130052ac830af4a769c9c",
+      "package.json": "5f5b90db97127ff3c7c2c1e2a5770b8dcd148240",
+      "package-lock.json": "b70106ed991a42c96347760d08819bd311acaaef",
+      "e2e": "4ee025bb6e4b8d5c53ec68053e326e6c7786d625",
+      "e2e-pwa-readiness": "0ec6a2134c8d08455224b9860c56ad65adce0808"
+    },
+    "edc7cde": {
+      "apps": "664011f95999e84b07a3ab785b7436c4f3220689",
+      "packages": "362f29328d08d5e21e2130052ac830af4a769c9c",
+      "package.json": "5f5b90db97127ff3c7c2c1e2a5770b8dcd148240",
+      "package-lock.json": "b70106ed991a42c96347760d08819bd311acaaef",
+      "e2e": "4ee025bb6e4b8d5c53ec68053e326e6c7786d625",
+      "e2e-pwa-readiness": "0ec6a2134c8d08455224b9860c56ad65adce0808"
+    },
+    "efce24ec39175a704bb0175806649be65257b609": {
+      "apps": "664011f95999e84b07a3ab785b7436c4f3220689",
+      "packages": "362f29328d08d5e21e2130052ac830af4a769c9c",
+      "package.json": "5f5b90db97127ff3c7c2c1e2a5770b8dcd148240",
+      "package-lock.json": "b70106ed991a42c96347760d08819bd311acaaef",
+      "e2e": "4ee025bb6e4b8d5c53ec68053e326e6c7786d625",
+      "e2e-pwa-readiness": "0ec6a2134c8d08455224b9860c56ad65adce0808"
+    }
+  },
+  "api": {
+    "numTotalTests": 478,
+    "numPassedTests": 478,
+    "numFailedTests": 0,
+    "numPendingTests": 0,
+    "success": true
+  },
+  "previousPreservedResults": {
+    "web": 117,
+    "shared": 82,
+    "browserDemo": 195,
+    "browserAuth": 117,
+    "browserBuiltPwa": 9,
+    "browserCacheUpgrade": 1,
+    "independentGuards": 12
+  },
+  "images": [
+    {
+      "id": "sha256:d01ead1371ac23ad19858578c33dcff06b2afb4701d7347f507ef3bb6e347e41",
+      "tags": [
+        "compass-phone-private-api:efce24e"
+      ],
+      "user": "node",
+      "revision": "efce24ec39175a704bb0175806649be65257b609",
+      "localPresence": "Removed only task-owned generated images to recover capacity; not a deployed/published set"
+    },
+    {
+      "id": "sha256:2b5e37f959590c534326b7dc659f086ffa594e51460d29f6929cc3657dbbbae8",
+      "tags": [
+        "compass-phone-private-web:efce24e"
+      ],
+      "user": "1000:1000",
+      "revision": "efce24ec39175a704bb0175806649be65257b609",
+      "localPresence": "Removed only task-owned generated images to recover capacity; not a deployed/published set"
+    },
+    {
+      "id": "sha256:3aa71274a6841925461b2c083f38306234df15ba7642e6baf22140e01af36fe5",
+      "tags": [
+        "compass-phone-migrate:efce24e"
+      ],
+      "user": "node",
+      "revision": "efce24ec39175a704bb0175806649be65257b609",
+      "localPresence": "Removed only task-owned generated images to recover capacity; not a deployed/published set"
+    }
+  ],
+  "artifactChecks": {
+    "apiMandatoryGraphAndFailClosedLoad": "passed",
+    "isolatedSyntheticDemoBundle": "passed",
+    "restrictedCaddyConfiguration": "passed",
+    "migrationDefaultCli": "NOT EXECUTED: Docker failed before CLI with ENOSPC",
+    "migrationExplicitCliPlatform": "NOT RUN"
+  },
+  "rawEvidenceRoot": "/workspace/RunSaturday-release-next-evidence",
+  "rawEvidence": [
+    {
+      "path": "validated-nov4/api.json",
+      "bytes": 171814,
+      "sha256": "78cce177d6d768989c2738b26f86a54e9c221cd5c4a172b4ddad0794bd097549"
+    },
+    {
+      "path": "validated-nov4/api.log",
+      "bytes": 436,
+      "sha256": "5738bded905aa42141decb80a49ac952507f8eb6793d4d5354da5196f319529a"
+    },
+    {
+      "path": "validated-nov4/api.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "web.log",
+      "bytes": 477,
+      "sha256": "628d9c48bcaff1aa89358f57fbe8456e2e83ea9c3504d2dfdd1ac2c8053e0937"
+    },
+    {
+      "path": "shared.log",
+      "bytes": 482,
+      "sha256": "1175d9d98bfe4ff34baf919296e0e5c8da0a8e139739be98b1075063ef8f5e77"
+    },
+    {
+      "path": "typecheck.log",
+      "bytes": 429,
+      "sha256": "73b54076a0cffcdf8f24d6b4ad7487c327a0fd33a3c2494cd4d57467dcfb0a29"
+    },
+    {
+      "path": "build.log",
+      "bytes": 1388,
+      "sha256": "73d250b6f7b7fd1ef964a81b45eff307bb003c287240042b87accc713e6cc825"
+    },
+    {
+      "path": "private-web-build.log",
+      "bytes": 989,
+      "sha256": "b95919fa79265c648230486b0e6811d3dbe8761521979c49e0327767b705e1a7"
+    },
+    {
+      "path": "browser-demo.log",
+      "bytes": 31829,
+      "sha256": "20dffa4830a3a4da765801103a8dae88964002cc0cf5f45262b9397a3424a3f9"
+    },
+    {
+      "path": "browser-auth.log",
+      "bytes": 19186,
+      "sha256": "e0b838105a10cb199205397df290066308cb9cb859fad1d599c1eaff079d7caa"
+    },
+    {
+      "path": "pwa-browser.log",
+      "bytes": 3248,
+      "sha256": "48cf6a0b1994648052f28d06ca651d0487348b97726c22e4a137106d284cb4bc"
+    },
+    {
+      "path": "browser-cache.log",
+      "bytes": 1153,
+      "sha256": "66b6bfaf4f011f8a4cc169dfb068ff9b40ffd143f08a7b5becc237db8bdbded0"
+    },
+    {
+      "path": "browser.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "dependency-audit-final.json",
+      "bytes": 366,
+      "sha256": "a0da557d091a69b26a6b7e61a48be64201bcc19931fc267058df81fca3ae9e2c"
+    },
+    {
+      "path": "dependency-audit-all.json",
+      "bytes": 6280,
+      "sha256": "078db313317270d3fc21ef136b069e77fce80a277b2c63d7cdc7a84274318139"
+    },
+    {
+      "path": "final-nov4/independent-guards.log",
+      "bytes": 1638,
+      "sha256": "ca790aa1a1ce2334684c86e2d1313f678c224a802197bb773045e637e286f48c"
+    },
+    {
+      "path": "validated-nov4/image-private-api-build.log",
+      "bytes": 7903,
+      "sha256": "9d6f6b690d7bacca406e1c12723598422244098b9cdd49859d2c08fda6603be1"
+    },
+    {
+      "path": "validated-nov4/image-private-web-build.log",
+      "bytes": 2542,
+      "sha256": "b7434fcbc55034dc38a8c8000d5cac3e4f9b6b5ebeeba7292561ca4180bedd6f"
+    },
+    {
+      "path": "validated-nov4/image-migrate-build.log",
+      "bytes": 1937,
+      "sha256": "c577398d862e2059b0fe288dabc7185976fb04294d9df5eda13e4c6c80815fe0"
+    },
+    {
+      "path": "validated-nov4/api-image-inspection.log",
+      "bytes": 417,
+      "sha256": "2d1c4af17afb1d5600ff4fafeeb1bafa950b269d56f2b949516099fa49cc28ff"
+    },
+    {
+      "path": "validated-nov4/api-demo-runtime.log",
+      "bytes": 189,
+      "sha256": "4c4dc655946d2131a25baaea43c964ef8e89640f96cf9f463539cf184e72281b"
+    },
+    {
+      "path": "validated-nov4/caddy-final-validation.log",
+      "bytes": 1102,
+      "sha256": "9768c4eac12a6ebc31aae8b7ca18a38307ce1ae9fab73fe4bce386f55b5d5bb8"
+    },
+    {
+      "path": "validated-nov4/migration-default-initial-enospc.log",
+      "bytes": 106,
+      "sha256": "81b14eb0635cdf9987b91e50c15c642fbf0aa80347f576284b5169fd55c4e50e"
+    },
+    {
+      "path": "validated-nov4/images.json",
+      "bytes": 6994,
+      "sha256": "9a9ec1fd8454e8dc158d1f0423ac7b4e5a347439d46a723bc22e53c96e4587fd"
+    },
+    {
+      "path": "resume-nov4/api-initial-no-git-json",
+      "bytes": 172627,
+      "sha256": "b23b16556b74de2780b54448c931cf4a1a167c28b995bace236227fc63444d1e"
+    },
+    {
+      "path": "resume-nov4/api.json",
+      "bytes": 172906,
+      "sha256": "338ddcc4d86be9d85c759ada590d28c0c0f7be2bbfcba4f30943ebf9a8ae7dc0"
+    },
+    {
+      "path": "resume-nov4/original-dependencies-preserved.json",
+      "bytes": 300,
+      "sha256": "0f3b50d0e51a780818ffb330a5b90c7eb336694731b02d1b1eeb2f6eac7304bc"
+    }
+  ],
+  "limitations": [
+    "Original Nov3 API JSON symlink targets were lost when /tmp cleared; replaced by fresh passing Nov4 JSON",
+    "Initial no-Git migration failure and5sec concurrent-build timeout preserved; no timeout increase",
+    "No actual private-stage deployment, migration/import, backup/restore, real phone test or OS scan"
+  ],
+  "changedSourceFiles": [
+    ".dockerignore",
+    "Dockerfile",
+    "apps/api/package.json",
+    "apps/api/src/__tests__/performances.api.test.ts",
+    "apps/api/src/__tests__/seedGuard.test.ts",
+    "apps/api/src/routes/profile.ts",
+    "apps/web/src/__tests__/authLifecycle.test.tsx",
+    "apps/web/src/__tests__/navigationFocus.test.tsx",
+    "apps/web/src/__tests__/offlineAuth.test.tsx",
+    "apps/web/src/api/client.ts",
+    "apps/web/src/app/AppLayout.tsx",
+    "apps/web/src/app/OfflineGate.tsx",
+    "apps/web/src/auth/AuthProvider.tsx",
+    "apps/web/src/main.tsx",
+    "deploy/Caddyfile",
+    "deploy/Caddyfile.private",
+    "deploy/compose.private.yml",
+    "deploy/private-access.env.example",
+    "deploy/private-api.env.example",
+    "deploy/private.env.example",
+    "docs/private-staging.md",
+    "docs/release-readiness-matrix.md",
+    "e2e-pwa-readiness/offlineRelease.spec.ts",
+    "e2e/releaseReadiness.spec.ts",
+    "package-lock.json",
+    "playwright.pwa-readiness.config.ts",
+    "scripts/release/backup.sh",
+    "scripts/release/healthcheck.mjs",
+    "scripts/release/operations.test.mjs",
+    "scripts/release/private-api.mjs",
+    "scripts/release/private-catalogue.mjs",
+    "scripts/release/private-database.mjs",
+    "scripts/release/private-import.mjs",
+    "scripts/release/private-import.test.mjs",
+    "scripts/release/private-migrate.mjs",
+    "scripts/release/private-otp.mjs",
+    "scripts/release/private-policy.mjs",
+    "scripts/release/private-preflight.mjs",
+    "scripts/release/private-staging.test.mjs",
+    "scripts/release/restore.sh"
+  ]
+}

@@ -1,0 +1,86 @@
+# Use only this file, never the development or production compose files.
+name: compass-private
+services:
+  api:
+    image: ${API_IMAGE:?Set reviewed immutable private API image}
+    env_file: ${API_ENV_FILE:?Set external API env file}
+    environment:
+      NODE_ENV: test
+      APP_MODE: beta
+      DATA_SOURCE: database
+      HOST: 127.0.0.1
+      PORT: '3001'
+      AUTH_ALLOW_INSECURE_LOCAL_HTTP: 'false'
+      AUTH_BASE_URL: https://${STAGE_BIND_IP:-127.0.0.1}:8443
+      CORS_ORIGINS: https://${STAGE_BIND_IP:-127.0.0.1}:8443
+      EMAIL_TRANSPORT: test
+      OTP_TEST_INBOX_PATH: /run/private-inbox/otp.jsonl
+      PRIVATE_STAGE_SYNTHETIC_ONLY: 'true'
+      LOG_LEVEL: silent
+      TRUSTED_PROXY_CIDRS: 127.0.0.1/32
+    volumes:
+      - type: bind
+        source: ${OTP_OPERATOR_DIR:?Set external operator inbox directory}
+        target: /run/private-inbox
+        bind: {create_host_path: false}
+    read_only: true
+    tmpfs: [/tmp:rw,noexec,nosuid,size=16m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    init: true
+    restart: 'no'
+    networks: [backend]
+  web:
+    image: ${WEB_IMAGE:?Set reviewed immutable private web image}
+    user: '1000:1000'
+    env_file: ${ACCESS_ENV_FILE:?Set external hashed access env file}
+    environment:
+      STAGE_BIND_IP: ${STAGE_BIND_IP:-127.0.0.1}
+    ports: ['${STAGE_BIND_IP:-127.0.0.1}:8443:8443']
+    volumes:
+      - type: bind
+        source: ${TLS_DIR:?Set external private CA issued certificate directory}
+        target: /run/private-tls
+        read_only: true
+        bind: {create_host_path: false}
+    read_only: true
+    tmpfs: [/tmp:rw,noexec,nosuid,size=16m, /data:rw,noexec,nosuid,size=16m, /config:rw,noexec,nosuid,size=1m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      api: {condition: service_healthy}
+    restart: 'no'
+    networks: [backend]
+  catalogue:
+    image: ${MIGRATION_IMAGE:?Set reviewed immutable migration image}
+    profiles: [operations]
+    env_file: ${API_ENV_FILE:?Set external API env file}
+    entrypoint: [node, /app/scripts/release/private-import.mjs]
+    # Default is local validation only. Applying requires explicit CLI flags.
+    command: [--dry-run]
+    working_dir: /app
+    environment:
+      PRIVATE_STAGE_SYNTHETIC_ONLY: 'true'
+    read_only: true
+    tmpfs: [/tmp:rw,noexec,nosuid,size=64m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: 'no'
+    networks: [backend]
+  migrate:
+    image: ${MIGRATION_IMAGE:?Set reviewed immutable migration image}
+    profiles: [operations]
+    env_file: ${API_ENV_FILE:?Set external API env file}
+    # Never invoke raw Prisma here: the wrapper verifies stage isolation first.
+    entrypoint: [node, /app/scripts/release/private-migrate.mjs]
+    working_dir: /app
+    environment:
+      PRIVATE_STAGE_SYNTHETIC_ONLY: 'true'
+    read_only: true
+    tmpfs: [/tmp:rw,noexec,nosuid,size=64m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: 'no'
+    networks: [backend]
+networks:
+  backend: {}
