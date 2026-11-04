@@ -32,8 +32,9 @@ RUN --mount=type=secret,id=proxy_ca \
 # Migration tooling deliberately separate from the minimal application runtime.
 FROM build AS migrate
 USER node
-WORKDIR /app/apps/api
-ENTRYPOINT ["/app/node_modules/.bin/prisma"]
+# The directory already exists. Set CLI cwd at exec time rather than creating
+# a redundant filesystem layer (costly on copy-based container storage).
+ENTRYPOINT ["/bin/sh", "-c", "cd /app/apps/api && exec /app/node_modules/.bin/prisma \"$@\"", "prisma"]
 CMD ["migrate", "deploy"]
 
 FROM build AS production-deps
